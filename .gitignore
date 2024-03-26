@@ -1,0 +1,8 @@
+# ignore build folder
+build/
+
+# ignore .DS_Store
+.DS_Store
+
+# ignore .vscode
+.vscode/
