@@ -278,9 +278,9 @@ int main()
 
     apFixedMat<MAT_res_t, 3, 4> MAT_res;
 
-    using interFixedt = apFixed<isSigned<true>, OfMode<WRP::TCPL_SAT<3>>>;
+    using interFixedt = QgemulAddArgs<isSigned<true>, OfMode<WRP::TCPL_SAT<3>>>;
 
-    Qgemul<QgemulAddArgs<interFixedt>>(MAT_res, MAT_a1, MAT_a2);
+    Qgemul<interFixedt>(MAT_res, MAT_a1, MAT_a2);
 
     MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
 
