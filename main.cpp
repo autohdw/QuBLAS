@@ -278,21 +278,46 @@ int main()
 
     apFixedMat<MAT_res_t, 3, 4> MAT_res;
 
-    using interFixedt = QgemulAddArgs<isSigned<true>, OfMode<WRP::TCPL_SAT<3>>>;
+    // version 1 directly pass in the template parameters
+    using addArgs = QgemulAddArgs<isSigned<true>, OfMode<WRP::TCPL>>;
 
-    Qgemul<interFixedt>(MAT_res, MAT_a1, MAT_a2);
+    // version 2 pass in a apFixed type
+    using mulType = apFixed<intBits<9>, fracBits<2>>;
+    using mulArgs = QgemulMulArgs<mulType>;
+
+    Qgemul<addArgs,mulArgs>(MAT_res, MAT_a1, MAT_a2);
 
     MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
 
 
 
-//     std::cout << "----------------------------------" << std::endl;
+    std::cout << "----------------------------------" << std::endl;
 
-//     std::cout << "负数位宽测试" << std::endl;
+    std::cout << "负数位宽测试" << std::endl;
 
-//     using NEG_a1_t = apFixed<intBits<8>, fracBits<-2>, isSigned<true>>;
+    using NEG_a1_t = apFixed<intBits<8>, fracBits<-2>>;
 
-//     NEG_a1_t NEG_a1 = 100;
+    NEG_a1_t NEG_a1 = 100;
 
-//     NEG_a1.display("NEG_a1");
+    NEG_a1.display("NEG_a1");
+
+    using NEG_a2_t = apFixed<intBits<-2>, fracBits<8>>;
+
+    NEG_a2_t NEG_a2 = 0.025;
+
+    NEG_a2.display("NEG_a2");
+
+    std::cout << std::endl;
+
+    std::cout << "----------------------------------" << std::endl;
+
+    std::cout << "负数小数位量化测试" << std::endl;
+
+    using NEG_FRAC_res_t = apFixed<intBits<-2>, fracBits<9>>;
+
+    NEG_FRAC_res_t NEG_FRAC_res;
+
+    NEG_FRAC_res = NEG_a2;
+
+    NEG_FRAC_res.display("NEG_FRAC_res = NEG_a2");
 }
