@@ -179,14 +179,13 @@ int main()
 
     std::cout << std::endl;
 
-
     // apFixed<intBits<4>, fracBits<0>, OfMode<WRP::TCPL_SAT<3>>> WRP_TCPL_SAT_res;
 
     // WRP_TCPL_SAT_res = WRP_TCPL_a1;
     // WRP_TCPL_SAT_res.display("WRP_TCPL_SAT_res = WRP_TCPL_a1");
 
     std::cout << "----------------------------------" << std::endl;
-    std::cout<<"乘法测试"<<std::endl;
+    std::cout << "乘法测试" << std::endl;
 
     apFixed<intBits<3>, fracBits<3>, isSigned<true>> MUL_a1 = 1.25;
 
@@ -194,14 +193,14 @@ int main()
 
     apFixed<intBits<3>, fracBits<1>, isSigned<true>> MUL_res;
 
-    MUL_res = QuMul<fracBits<12>>(MUL_a1, MUL_a2);
+    MUL_res = Qmul<fracBits<12>>(MUL_a1, MUL_a2);
 
     MUL_res.display("MUL_res = MUL_a1 * MUL_a2");
 
     std::cout << std::endl;
 
     std::cout << "----------------------------------" << std::endl;
-    std::cout<<"加法测试"<<std::endl;
+    std::cout << "加法测试" << std::endl;
 
     apFixed<intBits<3>, fracBits<3>, isSigned<true>> ADD_a1 = 5.125;
 
@@ -209,7 +208,7 @@ int main()
 
     apFixed<intBits<3>, fracBits<1>, isSigned<true>> ADD_res;
 
-    ADD_res = QuAdd(ADD_a1, ADD_a2);
+    ADD_res = Qadd(ADD_a1, ADD_a2);
 
     ADD_res.display("ADD_res = ADD_a1 + ADD_a2");
 
@@ -217,7 +216,7 @@ int main()
 
     std::cout << "----------------------------------" << std::endl;
 
-    std::cout<<"除法测试"<<std::endl;
+    std::cout << "除法测试" << std::endl;
 
     apFixed<intBits<5>, fracBits<5>, isSigned<true>> DIV_a1 = 1.5;
 
@@ -225,7 +224,7 @@ int main()
 
     apFixed<intBits<6>, fracBits<1>, isSigned<true>> DIV_res;
 
-    DIV_res = QuDiv(DIV_a1, DIV_a2);
+    DIV_res = Qdiv(DIV_a1, DIV_a2);
 
     DIV_res.display("DIV_res = DIV_a1 / DIV_a2");
 
@@ -233,7 +232,7 @@ int main()
 
     std::cout << "----------------------------------" << std::endl;
 
-    std::cout<<"减法测试"<<std::endl;
+    std::cout << "减法测试" << std::endl;
 
     apFixed<intBits<4>, fracBits<4>, isSigned<true>> SUB_a1 = 5.125;
 
@@ -241,9 +240,59 @@ int main()
 
     apFixed<intBits<4>, fracBits<2>, isSigned<true>> SUB_res;
 
-    SUB_res = QuSub(SUB_a1, SUB_a2);
+    SUB_res = Qsub(SUB_a1, SUB_a2);
 
     SUB_res.display("SUB_res = SUB_a1 - SUB_a2");
 
+    std::cout << std::endl;
 
+    std::cout << "----------------------------------" << std::endl;
+
+    std::cout << "向量测试" << std::endl;
+
+    apFixedVec<apFixed<intBits<3>, fracBits<3>, isSigned<true>>, 4> VEC_a1 = {1.25, 2.25, 3.25, 4.25};
+
+    VEC_a1.display("VEC_a1");
+
+    std::cout << std::endl;
+
+    std::cout << "----------------------------------" << std::endl;
+
+    std::cout << "矩阵测试" << std::endl;
+
+    using MAT_a1_t = apFixed<intBits<5>, fracBits<3>, isSigned<true>>;
+
+    using MAT_a2_t = apFixed<intBits<5>, fracBits<4>, isSigned<true>>;
+
+    using MAT_res_t = apFixed<intBits<9>, fracBits<2>, isSigned<true>>;
+
+    apFixedMat<MAT_a1_t, 3, 5> MAT_a1 = {1.125, 2.125, 3.125, 4.125, 5.125,
+                                         6.125, 7.125, 8.125, 9.125, 10.125,
+                                         11.125, 12.125, 13.125, 14.125, 15.125};
+
+    apFixedMat<MAT_a2_t, 5, 4> MAT_a2 = {1.25, 2.25, 3.25, 4.25,
+                                         5.25, 6.25, 7.25, 8.25,
+                                         9.25, 10.25, 11.25, 12.25,
+                                         13.25, 14.25, 15.25, 16.25,
+                                         17.25, 18.25, 19.25, 20.25};
+
+    apFixedMat<MAT_res_t, 3, 4> MAT_res;
+
+    using interFixedt = apFixed<isSigned<true>, OfMode<WRP::TCPL_SAT<3>>>;
+
+    Qgemul<QgemulAddArgs<interFixedt>>(MAT_res, MAT_a1, MAT_a2);
+
+    MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
+
+
+
+//     std::cout << "----------------------------------" << std::endl;
+
+//     std::cout << "负数位宽测试" << std::endl;
+
+//     using NEG_a1_t = apFixed<intBits<8>, fracBits<-2>, isSigned<true>>;
+
+//     NEG_a1_t NEG_a1 = 100;
+
+//     NEG_a1.display("NEG_a1");
 }

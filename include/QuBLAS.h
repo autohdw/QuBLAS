@@ -4,6 +4,10 @@
 #include <iostream>
 #include <concepts>
 #include <bitset>
+#include <array>
+#include <stdexcept>
+#include <cmath>
+#include <vector>
 
 // value extractor
 template <typename Tag, typename... Args>
@@ -41,6 +45,12 @@ struct tagTypeExtractor<Tag<Value>>
     using type = Value;
 };
 
+template <template <typename...> class Tag, typename... Args>
+struct tagTypeExtractor<Tag<Args...>>
+{
+    using type = std::tuple<Args...>;
+};
+
 // 匹配并提取值
 template <template <typename> class Tag, typename Value, typename Value2, typename... Args>
 struct tagTypeExtractor<Tag<Value>, Tag<Value2>, Args...>
@@ -54,6 +64,19 @@ struct tagTypeExtractor<Tag, Tag2, Args...>
 {
     using type = typename tagTypeExtractor<Tag, Args...>::type;
 };
+
+//  --------------------------------------------
+
+template <typename T>
+concept longlongInt = std::is_same_v<T, long long int> || std::is_same_v<T, unsigned long long int>;
+
+template <typename T>
+concept shortInt = std::is_same_v<T, int> || std::is_same_v<T, unsigned int>;
+
+template <typename T>
+concept allInt = longlongInt<T> || shortInt<T>;
+
+// --------------------------------------------
 
 template <typename T>
 struct QuMode;
@@ -307,14 +330,11 @@ struct WRP
 template <int toInt, int toFrac, bool toIsSigned, typename OfMode>
 struct intConvert;
 
-template <typename T>
-concept fracConvertedT = std::is_same_v<T, long long int> || std::is_same_v<T, unsigned long long int>;
-
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
 {
     template <typename T>
-        requires fracConvertedT<T>
+        requires longlongInt<T>
     inline static auto convert(T val) -> std::conditional_t<std::is_signed_v<T>, int, unsigned int>
     {
         static constexpr auto maxVal = static_cast<T>((1ULL << (toInt + toFrac)) - 1);
@@ -331,7 +351,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
 {
 
     template <typename T>
-        requires fracConvertedT<T>
+        requires longlongInt<T>
     inline static auto convert(T val)
     {
         static constexpr auto maxVal = static_cast<T>((1ULL << (toInt + toFrac)) - 1);
@@ -350,7 +370,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
 {
 
     template <typename T>
-        requires fracConvertedT<T>
+        requires longlongInt<T>
     inline static auto convert(T val)
     {
         static constexpr auto maxVal = static_cast<T>((1ULL << (toInt + toFrac)) - 1);
@@ -367,7 +387,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 {
 
     template <typename T>
-        requires fracConvertedT<T>
+        requires longlongInt<T>
     inline static auto convert(T val) -> std::conditional_t<toIsSigned, int, unsigned int>
     {
 
@@ -403,7 +423,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 // {
 
 //     template <typename T>
-//         requires fracConvertedT<T>
+//         requires longlongInt<T>
 //     inline static auto convert(T val) -> std::conditional_t<toIsSigned, int, unsigned int>
 //     {
 
@@ -462,6 +482,7 @@ public:
         requires std::is_arithmetic_v<T>
     constexpr apFixed(T val)
     {
+
         data = val * (1 << fracB);
     }
 
@@ -477,6 +498,7 @@ public:
         std::cout << std::endl;
         std::cout << "Binary: " << std::bitset<intB + fracB>(data) << std::endl;
         std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
+
         std::cout << "Decimal: " << static_cast<double>(data) / (1 << fracB) << std::endl;
     }
 
@@ -534,7 +556,7 @@ public:
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto QuMul(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qmul(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
 {
     static constexpr auto fromInt1 = tagValueExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
     static constexpr auto fromInt2 = tagValueExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
@@ -559,7 +581,7 @@ inline constexpr auto QuMul(const apFixed<fromArgs1...> f1, const apFixed<fromAr
 }
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto QuAdd(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qadd(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
 {
     static constexpr auto fromInt1 = tagValueExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
     static constexpr auto fromInt2 = tagValueExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
@@ -589,7 +611,7 @@ inline constexpr auto QuAdd(const apFixed<fromArgs1...> f1, const apFixed<fromAr
 }
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto QuDiv(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qdiv(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
 {
     static constexpr auto fromInt1 = tagValueExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
     static constexpr auto fromInt2 = tagValueExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
@@ -616,9 +638,8 @@ inline constexpr auto QuDiv(const apFixed<fromArgs1...> f1, const apFixed<fromAr
                    isSigned<toIsSigned>>(intQuotient, DirectAssignTag{});
 }
 
- 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto QuSub(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qsub(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
 {
     static constexpr auto fromInt1 = tagValueExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
     static constexpr auto fromInt2 = tagValueExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
@@ -647,36 +668,148 @@ inline constexpr auto QuSub(const apFixed<fromArgs1...> f1, const apFixed<fromAr
                    isSigned<toIsSigned>>(intSum, DirectAssignTag{});
 }
 
+template <typename apFixedType, size_t N>
+class apFixedVec
+{
+public:
+    std::array<apFixedType, N> data;
 
+    apFixedVec() = default;
 
+    apFixedVec(std::initializer_list<apFixedType> init)
+    {
+        if (init.size() > N)
+            throw std::invalid_argument("Initializer list larger than vector size.");
+        std::copy(init.begin(), init.end(), data.begin());
+    }
 
+    inline constexpr apFixedType &operator[](size_t index)
+    {
+        return data[index];
+    }
 
+    inline constexpr const apFixedType &operator[](size_t index) const
+    {
+        return data[index];
+    }
 
+    inline size_t size() const
+    {
+        return N;
+    }
 
+    void display(std::string name = "")
+    {
+        if (name != "")
+        {
+            std::cout << name << std::endl;
+        }
+        for (size_t i = 0; i < N; i++)
+        {
+            data[i].display();
+        }
+    }
+};
 
+template <typename apFixedType, size_t M, size_t N>
+class apFixedMat
+{
+public:
+    std::array<apFixedVec<apFixedType, N>, M> data;
 
+    apFixedMat() = default;
 
+    apFixedMat(std::initializer_list<apFixedType> init)
+    {
+        for (size_t i = 0; i < M; i++)
+        {
+            std::copy(init.begin() + i * N, init.begin() + (i + 1) * N, data[i].data.begin());
+        }
+    }
 
+    inline constexpr apFixedVec<apFixedType, N> &operator[](size_t index)
+    {
+        return data[index];
+    }
 
+    inline constexpr const apFixedVec<apFixedType, N> &operator[](size_t index) const
+    {
+        return data[index];
+    }
 
+    void display(std::string name = "")
+    {
+        if (name != "")
+        {
+            std::cout << name << std::endl;
+        }
+        for (size_t i = 0; i < M; i++)
+        {
+            for (size_t j = 0; j < N; j++)
+            {
+                if (name != "")
+                {
+                    data[i][j].display();
+                }
+                else
+                {
+                    data[i][j].display(std::to_string(i) + " " + std::to_string(j) + " ");
+                }
+            }
+            std::cout << std::endl;
+        }
+    }
+};
 
+// ------------------- Qgemul -------------------
+template <bool Value = false>
+struct QgemulTransposedA;
 
+template <bool Value = false>
+struct QgemulTransposedB;
 
+template <typename... Args>
+struct QgemulAddArgs;
 
+template <typename... Args>
+struct QgemulMulArgs;
 
+template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
+void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
+{
+    static constexpr auto toInt = tagValueExtractor<intBits<defaultIntBits>, toArgs...>::value;
+    static constexpr auto toFrac = tagValueExtractor<fracBits<defaultFracBits>, toArgs...>::value;
+    static constexpr auto toIsSigned = tagValueExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+    using toQuMode = tagTypeExtractor<QuMode<defaultQuMode>, toArgs...>::type;
+    using toOfMode = tagTypeExtractor<OfMode<defaultOfMode>, toArgs...>::type;
 
+    static constexpr auto fromIntA = tagValueExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
+    static constexpr auto fromFracA = tagValueExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
 
+    static constexpr auto fromIntB = tagValueExtractor<intBits<defaultIntBits>, fromArgsB...>::value;
+    static constexpr auto fromFracB = tagValueExtractor<fracBits<defaultFracBits>, fromArgsB...>::value;
 
+    static constexpr auto isTransposedA = tagValueExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
+    static constexpr auto isTransposedB = tagValueExtractor<QgemulTransposedB<false>, fromArgsB...>::value;
 
+    using addArgs = tagTypeExtractor<QgemulAddArgs<>, interiorArgs...>::type;
+    using mulArgs = tagTypeExtractor<QgemulMulArgs<>, interiorArgs...>::type;
 
+    static_assert((!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) || (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) || (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) || (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)), "Size mismatch when calling Qgemul");
 
+    for (size_t i = 0; i < rowC; i++)
+    {
+        for (size_t j = 0; j < colC; j++)
+        {
+            apFixed<addArgs> sum = 0;
+            for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
+            {
+                auto a = isTransposedA ? A[k][i] : A[i][k];
+                auto b = isTransposedB ? B[j][k] : B[k][j];
 
-
-
-
-
-
-
-
-
-
+                sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
+            }
+            C[i][j] = sum;
+        }
+    }
+}
