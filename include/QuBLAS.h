@@ -9,6 +9,9 @@
 #include <cmath>
 #include <vector>
 
+// ------------------- debug -------------------
+constexpr bool debug = false;
+
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -56,6 +59,13 @@ struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
     using type = std::tuple<Args2...>;
 };
 
+// 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
+template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
+struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
+{
+    using type = std::tuple<Args2...>;
+};
+
 // 匹配失败，类型不符，继续递归
 template <typename Tag, typename Tag2, typename... Args>
 struct tagExtractor<Tag, Tag2, Args...> : tagExtractor<Tag, Args...>
@@ -64,16 +74,16 @@ struct tagExtractor<Tag, Tag2, Args...> : tagExtractor<Tag, Args...>
 
 // ------------------- concept -------------------
 
-template<typename T, typename... Types>
+template <typename T, typename... Types>
 concept within = (std::is_same_v<T, Types> || ...);
 
-template<typename T>
+template <typename T>
 concept longlongInt = within<T, long long int, unsigned long long int>;
 
-template<typename T>
+template <typename T>
 concept shortInt = within<T, int, unsigned int>;
 
-template<typename T>
+template <typename T>
 concept allInt = longlongInt<T> || shortInt<T>;
 
 // ------------------- shifter -------------------
@@ -474,7 +484,6 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
     }
 };
 
-
 template <int toInt, int toFrac, bool toIsSigned, auto N>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
 {
@@ -612,6 +621,16 @@ public:
     }
 };
 
+// only used in BLAS functions. Ugly but works
+template <typename... Args>
+struct apFixedFromTuple;
+
+template <typename... Args>
+struct apFixedFromTuple<std::tuple<Args...>>
+{
+    using type = apFixed<Args...>;
+};
+
 template <typename... toArgs>
 struct Qmul_s
 {
@@ -622,12 +641,27 @@ struct Qmul_s
         static constexpr auto fromInt2 = tagExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
         static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
         static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
+        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
+        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
+        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
+        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+
+        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
 
         static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
         static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
         static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
+        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+        if constexpr (debug)
+        {
+            std::cout << "mul debug: " << std::endl;
+            std::cout << "toInt: " << toInt << std::endl;
+            std::cout << "toFrac: " << toFrac << std::endl;
+            std::cout << std::endl;
+        }
 
         auto fullProduct = static_cast<std::conditional_t<toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, toFrac, QuMode<toQuMode>>::convert(fullProduct);
@@ -641,8 +675,8 @@ struct Qmul_s
     }
 };
 
-template <typename... toArgs>
-struct Qmul_s<std::tuple<toArgs...>> : Qmul_s<toArgs...>
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qmul_s<innerWrapper<toArgs...>> : Qmul_s<toArgs...>
 {
 };
 
@@ -663,11 +697,27 @@ struct Qadd_s
         static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
         static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
 
+        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
+        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
+        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
+        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+
+        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
         static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
         static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
         static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
+        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+        if constexpr (debug)
+        {
+            std::cout << "add debug: " << std::endl;
+            std::cout << "toInt: " << toInt << std::endl;
+            std::cout << "toFrac: " << toFrac << std::endl;
+            std::cout << std::endl;
+        }
 
         static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
         static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
@@ -686,8 +736,8 @@ struct Qadd_s
     }
 };
 
-template <typename... toArgs>
-struct Qadd_s<std::tuple<toArgs...>> : Qadd_s<toArgs...>
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
 {
 };
 
@@ -708,11 +758,19 @@ struct Qdiv_s
         static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
         static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
 
+        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
+        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
+        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
+        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+
+        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
         static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
         static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
         static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
+        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
 
         static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
         static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
@@ -729,8 +787,8 @@ struct Qdiv_s
     }
 };
 
-template <typename... toArgs>
-struct Qdiv_s<std::tuple<toArgs...>> : Qdiv_s<toArgs...>
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qdiv_s<innerWrapper<toArgs...>> : Qdiv_s<toArgs...>
 {
 };
 
@@ -751,11 +809,19 @@ struct Qsub_s
         static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
         static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
 
+        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
+        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
+        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
+        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+
+        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
         static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
         static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
         static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
+        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
 
         static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
         static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
@@ -774,8 +840,8 @@ struct Qsub_s
     }
 };
 
-template <typename... toArgs>
-struct Qsub_s<std::tuple<toArgs...>> : Qsub_s<toArgs...>
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qsub_s<innerWrapper<toArgs...>> : Qsub_s<toArgs...>
 {
 };
 
@@ -879,6 +945,7 @@ public:
 };
 
 // ------------------- Qgemul -------------------
+
 template <bool Value = false>
 struct QgemulTransposedA;
 
@@ -889,54 +956,165 @@ template <typename... Args>
 struct QgemulAddArgs;
 
 template <typename... Args>
-struct QgemulAddArgs<apFixed<Args...>> : QgemulAddArgs<Args...>
-{
-};
-
-template <typename... Args>
 struct QgemulMulArgs;
 
-template <typename... Args>
-struct QgemulMulArgs<apFixed<Args...>> : QgemulMulArgs<Args...>
+template <typename... interiorArgs>
+struct Qgemul_s
 {
-};
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
-{
-    static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
-    static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
-    static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-    using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-    using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
-
-    static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
-    static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
-
-    static constexpr auto fromIntB = tagExtractor<intBits<defaultIntBits>, fromArgsB...>::value;
-    static constexpr auto fromFracB = tagExtractor<fracBits<defaultFracBits>, fromArgsB...>::value;
-
-    static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
-    static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, fromArgsB...>::value;
-
     using addArgs = tagExtractor<QgemulAddArgs<>, interiorArgs...>::type;
     using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
 
-    static_assert((!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) || (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) || (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) || (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)), "Size mismatch when calling Qgemul");
-
-    for (size_t i = 0; i < rowC; i++)
+    template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
+    inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
     {
-        for (size_t j = 0; j < colC; j++)
-        {
-            apFixed<addArgs> sum = 0;
-            for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
-            {
-                auto a = isTransposedA ? A[k][i] : A[i][k];
-                auto b = isTransposedB ? B[j][k] : B[k][j];
+        static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
+        static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
+        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
 
-                sum = Qadd_s<addArgs>::apply(sum, Qmul_s<mulArgs>::apply(a, b));
+        static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
+        static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
+
+        static constexpr auto fromIntB = tagExtractor<intBits<defaultIntBits>, fromArgsB...>::value;
+        static constexpr auto fromFracB = tagExtractor<fracBits<defaultFracBits>, fromArgsB...>::value;
+
+        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
+        static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, fromArgsB...>::value;
+
+        static_assert((!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) || (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) || (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) || (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)), "Size mismatch when calling Qgemul");
+
+        for (size_t i = 0; i < rowC; i++)
+        {
+            for (size_t j = 0; j < colC; j++)
+            {
+
+                typename apFixedFromTuple<addArgs>::type sum = 0;
+
+                for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
+                {
+                    auto a = isTransposedA ? A[k][i] : A[i][k];
+                    auto b = isTransposedB ? B[j][k] : B[k][j];
+
+                    sum = Qadd_s<addArgs>::apply(sum, Qmul_s<mulArgs>::apply(a, b));
+                }
+                C[i][j] = sum;
             }
-            C[i][j] = sum;
         }
     }
+
+    // special version for C = op(A^T) * op(A)
+    template <typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
+    inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A)
+    {
+        static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
+        static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
+        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
+
+        static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
+        static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
+        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
+
+        static_assert((isTransposedA ? (rowA == colC) : (colA == colC)) && (rowC == colC), "Size mismatch when calling Qgemul(self-transpose mul version)");
+
+        for (size_t i = 0; i < rowC; i++)
+        {
+            for (size_t j = 0; j < colC; j++)
+            {
+                typename apFixedFromTuple<addArgs>::type sum = 0;
+                for (size_t k = 0; k < colA; k++)
+                {
+                    auto a = isTransposedA ? A[k][i] : A[i][k];
+                    auto b = isTransposedA ? A[k][j] : A[j][k];
+
+                    sum = Qadd_s<addArgs>::apply(sum, Qmul_s<mulArgs>::apply(a, b));
+                }
+                C[i][j] = sum;
+                if (i != j)
+                {
+                    C[j][i] = sum;
+                }
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
+inline void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
+{
+    Qgemul_s<interiorArgs...>::apply(C, A, B);
 }
+
+// ------------------- Qgemv -------------------
+// Perform the operation y = beta * y + alpha * op(A) * x.
+
+template <bool Value = false>
+struct QgemvTransposedA;
+
+template <typename... Args>
+struct QgemvAddArgs;
+
+template <typename... Args>
+struct QgemvAddArgs<apFixed<Args...>> : QgemvAddArgs<Args...>
+{
+};
+
+template <typename... Args>
+struct QgemvMulArgs;
+
+template <typename... Args>
+struct QgemvMulArgs<apFixed<Args...>> : QgemvMulArgs<Args...>
+{
+};
+
+template <typename... interiorArgs>
+struct Qgemv_s
+{
+    using addArgs = tagExtractor<QgemvAddArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
+
+    template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
+    inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+    {
+        static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
+        static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
+        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
+        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
+
+        static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
+        static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
+
+        static constexpr auto fromIntX = tagExtractor<intBits<defaultIntBits>, fromArgsX...>::value;
+        static constexpr auto fromFracX = tagExtractor<fracBits<defaultFracBits>, fromArgsX...>::value;
+
+        static constexpr auto fromIntY = tagExtractor<intBits<defaultIntBits>, fromArgsY...>::value;
+        static constexpr auto fromFracY = tagExtractor<fracBits<defaultFracBits>, fromArgsY...>::value;
+
+        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
+
+        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
+
+        auto static constexpr outerLoop = isTransposedA ? colA : rowA;
+        auto static constexpr innerLoop = isTransposedA ? rowA : colA;
+
+        for (size_t i = 0; i < outerLoop; i++)
+        {
+            auto betaY = Qmul_s<mulArgs>::apply(y[i], bata);
+
+            typename apFixedFromTuple<addArgs>::type AxAddTemp = 0;
+
+            for (size_t j = 0; j < innerLoop; j++)
+            {
+                auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
+                AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
+            }
+
+            auto alphaAxAdd = Qmul_s<mulArgs>::apply(alpha, AxAddTemp);
+
+            y[i] = Qadd_s<addArgs>::apply(betaY, alphaAxAdd);
+        }
+    }
+};
