@@ -422,6 +422,8 @@ int main()
         std::cout << std::endl;
     }
 
+    std::cout << std::endl;
+
     std::cout << "GETRS result:" << std::endl;
     for (int i = 0; i < bnormal.size(); i++)
     {
@@ -447,6 +449,6 @@ int main()
 
     Qgetrs(MAT_INV_a1, ipiv, MAT_INV_b1);
 
-    // std::cout << "GETRS result:" << std::endl;
-    // MAT_INV_b1.display("MAT_INV_b1");
+    std::cout << "GETRS result:" << std::endl;
+    MAT_INV_b1.display("MAT_INV_b1");
 }

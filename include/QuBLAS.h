@@ -602,17 +602,6 @@ public:
             return true;
         }
     }
-
-    // template <typename... fromArgs>
-    // inline constexpr auto operator<=>(const apFixed<fromArgs...> &&rhs) const
-    // {
-    //     static constexpr auto fromFrac = rhs.fracB;
-
-    //     static constexpr auto fromShift = fromFrac > fracB ? 0 : fracB - fromFrac;
-    //     static constexpr auto toShift = fromFrac > fracB ? fromFrac - fracB : 0;
-
-    //     return (static_cast<long long int>(data) << fromShift) <=> (static_cast<long long int>(rhs.data) << toShift);
-    // }
 };
 
 // only used in BLAS functions. Ugly but works
@@ -954,7 +943,7 @@ public:
         {
             std::cout << name << std::endl;
         }
-        for (size_t i = 0; i < N; i++)
+        for (int i = 0; i < N; i++)
         {
             data[i].display();
         }
@@ -971,7 +960,7 @@ public:
 
     apFixedMat(std::initializer_list<apFixedType> init)
     {
-        for (size_t i = 0; i < M; i++)
+        for (int i = 0; i < M; i++)
         {
             std::copy(init.begin() + i * N, init.begin() + (i + 1) * N, data[i].data.begin());
         }
@@ -993,9 +982,9 @@ public:
         {
             std::cout << name << std::endl;
         }
-        for (size_t i = 0; i < M; i++)
+        for (int i = 0; i < M; i++)
         {
-            for (size_t j = 0; j < N; j++)
+            for (int j = 0; j < N; j++)
             {
                 if (name != "")
                 {
@@ -1041,14 +1030,14 @@ struct Qgemul_s
 
         static_assert((!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) || (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) || (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) || (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)), "Size mismatch when calling Qgemul");
 
-        for (size_t i = 0; i < rowC; i++)
+        for (int i = 0; i < rowC; i++)
         {
-            for (size_t j = 0; j < colC; j++)
+            for (int j = 0; j < colC; j++)
             {
 
                 apFixedFromTuple<addArgs> sum = 0;
 
-                for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
+                for (int k = 0; k < (isTransposedA ? rowA : colA); k++)
                 {
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedB ? B[j][k] : B[k][j];
@@ -1068,12 +1057,12 @@ struct Qgemul_s
 
         static_assert((isTransposedA ? (rowA == colC) : (colA == colC)) && (rowC == colC), "Size mismatch when calling Qgemul(self-transpose mul version)");
 
-        for (size_t i = 0; i < rowC; i++)
+        for (int i = 0; i < rowC; i++)
         {
-            for (size_t j = 0; j < colC; j++)
+            for (int j = 0; j < colC; j++)
             {
                 apFixedFromTuple<addArgs> sum = 0;
-                for (size_t k = 0; k < colA; k++)
+                for (int k = 0; k < colA; k++)
                 {
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedA ? A[k][j] : A[j][k];
@@ -1130,13 +1119,13 @@ struct Qgemv_s
         auto static constexpr outerLoop = isTransposedA ? colA : rowA;
         auto static constexpr innerLoop = isTransposedA ? rowA : colA;
 
-        for (size_t i = 0; i < outerLoop; i++)
+        for (int i = 0; i < outerLoop; i++)
         {
             auto betaY = Qmul_s<mulArgs>::apply(y[i], bata);
 
             apFixedFromTuple<addArgs> AxAddTemp = 0;
 
-            for (size_t j = 0; j < innerLoop; j++)
+            for (int j = 0; j < innerLoop; j++)
             {
                 auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
                 AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
@@ -1164,11 +1153,11 @@ struct Qgemv_s
 
         if constexpr (beta.data != 0)
         {
-            for (size_t i = 0; i < outerLoop; i++)
+            for (int i = 0; i < outerLoop; i++)
             {
                 auto betaY = Qmul_s<mulArgs>::apply(y[i], beta);
                 apFixedFromTuple<addArgs> AxAddTemp = 0;
-                for (size_t j = 0; j < innerLoop; j++)
+                for (int j = 0; j < innerLoop; j++)
                 {
                     auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
                     AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
@@ -1188,9 +1177,9 @@ struct Qgemv_s
         else
         {
             apFixedFromTuple<addArgs> AxAddTemp = 0;
-            for (size_t i = 0; i < outerLoop; i++)
+            for (int i = 0; i < outerLoop; i++)
             {
-                for (size_t j = 0; j < innerLoop; j++)
+                for (int j = 0; j < innerLoop; j++)
                 {
                     auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
                     AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
@@ -1241,7 +1230,7 @@ struct Qgetrf_s
     template <typename... ArgsA, size_t N>
     inline static void apply(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv)
     {
-        for (size_t i = 0; i < N; i++)
+        for (int i = 0; i < N; i++)
         {
             ipiv[i] = i;
         }
@@ -1310,29 +1299,29 @@ struct Qgetrs_s
     {
         static apFixedVec<apFixed<ArgsB...>, N> b_permuted;
 
-        for (size_t i = 0; i < N; i++)
+        for (int i = 0; i < N; i++)
         {
             b_permuted[i] = b[ipiv[i]];
         }
 
-        for (size_t i = 0; i < N; i++)
+        for (int i = 0; i < N; i++)
         {
-            for (size_t j = 0; j < i; j++)
+            for (int j = 0; j < i; j++)
             {
                 b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
             }
         }
 
-        for (size_t i = N - 1; i >= 0; i--)
+        for (int i = N - 1; i >= 0; i--)
         {
-            for (size_t j = i + 1; j < N; j++)
+            for (int j = i + 1; j < N; j++)
             {
                 b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
             }
             b_permuted[i] = Qdiv<divArgs>(b_permuted[i], A[i][i]);
         }
 
-        for (size_t i = 0; i < N; i++)
+        for (int i = 0; i < N; i++)
         {
             b[i] = b_permuted[i];
         }

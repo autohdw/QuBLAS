@@ -6,3 +6,6 @@ build/
 
 # ignore .vscode
 .vscode/
+
+# ignore .cache
+.cache/
