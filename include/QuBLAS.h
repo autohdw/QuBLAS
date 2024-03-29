@@ -1,12 +1,12 @@
 #pragma once
 
-#include <type_traits>
-#include <iostream>
-#include <concepts>
-#include <bitset>
 #include <array>
-#include <stdexcept>
+#include <bitset>
 #include <cmath>
+#include <concepts>
+#include <iostream>
+#include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 // ------------------- debug -------------------
@@ -904,7 +904,6 @@ inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Arg
     return Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>::apply(f1, f2);
 }
 
-
 // ------------------- Vector and Matrix -------------------
 
 template <typename apFixedType, size_t N>
@@ -1250,7 +1249,7 @@ struct Qgetrf_s
                 }
             }
 
-            if ( maxVal.data == 0)
+            if (maxVal.data == 0)
             {
                 throw std::runtime_error("Matrix is singular");
             }
@@ -1325,8 +1324,6 @@ struct Qgetrs_s
         {
             b[i] = b_permuted[i];
         }
-
-    
     }
 };
 
