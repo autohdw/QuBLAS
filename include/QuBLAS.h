@@ -623,13 +623,16 @@ public:
 
 // only used in BLAS functions. Ugly but works
 template <typename... Args>
-struct apFixedFromTuple;
+struct apFixedFromTuple_s;
 
 template <typename... Args>
-struct apFixedFromTuple<std::tuple<Args...>>
+struct apFixedFromTuple_s<std::tuple<Args...>>
 {
     using type = apFixed<Args...>;
 };
+
+template <typename... Args>
+using apFixedFromTuple = typename apFixedFromTuple_s<Args...>::type;
 
 template <typename... toArgs>
 struct Qmul_s
@@ -989,7 +992,7 @@ struct Qgemul_s
             for (size_t j = 0; j < colC; j++)
             {
 
-                typename apFixedFromTuple<addArgs>::type sum = 0;
+                apFixedFromTuple<addArgs> sum = 0;
 
                 for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
                 {
@@ -1023,7 +1026,7 @@ struct Qgemul_s
         {
             for (size_t j = 0; j < colC; j++)
             {
-                typename apFixedFromTuple<addArgs>::type sum = 0;
+                apFixedFromTuple<addArgs> sum = 0;
                 for (size_t k = 0; k < colA; k++)
                 {
                     auto a = isTransposedA ? A[k][i] : A[i][k];
@@ -1104,7 +1107,7 @@ struct Qgemv_s
         {
             auto betaY = Qmul_s<mulArgs>::apply(y[i], bata);
 
-            typename apFixedFromTuple<addArgs>::type AxAddTemp = 0;
+            apFixedFromTuple<addArgs> AxAddTemp = 0;
 
             for (size_t j = 0; j < innerLoop; j++)
             {
