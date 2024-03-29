@@ -970,18 +970,6 @@ struct Qgemul_s
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
     inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
     {
-        static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
-
-        static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
-        static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
-
-        static constexpr auto fromIntB = tagExtractor<intBits<defaultIntBits>, fromArgsB...>::value;
-        static constexpr auto fromFracB = tagExtractor<fracBits<defaultFracBits>, fromArgsB...>::value;
-
         static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
         static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, fromArgsB...>::value;
 
@@ -1010,14 +998,6 @@ struct Qgemul_s
     template <typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
     inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A)
     {
-        static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
-
-        static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
-        static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
         static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
 
         static_assert((isTransposedA ? (rowA == colC) : (colA == colC)) && (rowC == colC), "Size mismatch when calling Qgemul(self-transpose mul version)");
@@ -1060,17 +1040,13 @@ template <typename... Args>
 struct QgemvAddArgs;
 
 template <typename... Args>
-struct QgemvAddArgs<apFixed<Args...>> : QgemvAddArgs<Args...>
-{
-};
-
-template <typename... Args>
 struct QgemvMulArgs;
 
-template <typename... Args>
-struct QgemvMulArgs<apFixed<Args...>> : QgemvMulArgs<Args...>
-{
-};
+template <apFixed alpha>
+struct QgemvAlpha;
+
+template <apFixed beta>
+struct QgemvBeta;
 
 template <typename... interiorArgs>
 struct Qgemv_s
@@ -1081,21 +1057,6 @@ struct Qgemv_s
     template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
     inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
     {
-        static constexpr auto toInt = tagExtractor<intBits<defaultIntBits>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<defaultFracBits>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<defaultQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<defaultOfMode>, toArgs...>::type;
-
-        static constexpr auto fromIntA = tagExtractor<intBits<defaultIntBits>, fromArgsA...>::value;
-        static constexpr auto fromFracA = tagExtractor<fracBits<defaultFracBits>, fromArgsA...>::value;
-
-        static constexpr auto fromIntX = tagExtractor<intBits<defaultIntBits>, fromArgsX...>::value;
-        static constexpr auto fromFracX = tagExtractor<fracBits<defaultFracBits>, fromArgsX...>::value;
-
-        static constexpr auto fromIntY = tagExtractor<intBits<defaultIntBits>, fromArgsY...>::value;
-        static constexpr auto fromFracY = tagExtractor<fracBits<defaultFracBits>, fromArgsY...>::value;
-
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
 
         static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
@@ -1119,5 +1080,33 @@ struct Qgemv_s
 
             y[i] = Qadd_s<addArgs>::apply(betaY, alphaAxAdd);
         }
+    }
+
+    // special version for alpha and beta be template parameters
+    template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
+    inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+    {   
+        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
+
+        auto static constexpr beta = tagExtractor<QgemvBeta<apFixed<toArgs...>(0)>, interiorArgs...>::value;
+        auto static constexpr alpha = tagExtractor<QgemvAlpha<apFixed<toArgs...>(1)>, interiorArgs...>::value;
+
+        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
+
+   
+
+        auto static constexpr outerLoop = isTransposedA ? colA : rowA;
+        auto static constexpr innerLoop = isTransposedA ? rowA : colA;
+
+        if constexpr (beta.data != 0)
+        {
+
+        }
+        else
+        {
+        
+        
+        }
+
     }
 };
