@@ -61,9 +61,16 @@ struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
 
 // 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
+requires(!std::is_same_v<innerWrapper<Args2...>, std::tuple<Args2...>>)
 struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
 {
     using type = std::tuple<Args2...>;
+};
+
+// 也很特别的，apFixed<...>可能传入了一个tuple，这个时候需要拆封tuple
+template <typename Tag, typename... Args>
+struct tagExtractor<Tag, std::tuple<Args...>> : tagExtractor<Tag, Args...>
+{
 };
 
 // 匹配失败，类型不符，继续递归
@@ -604,18 +611,7 @@ public:
     }
 };
 
-// only used in BLAS functions. Ugly but works
-template <typename... Args>
-struct apFixedFromTuple_s;
 
-template <typename... Args>
-struct apFixedFromTuple_s<std::tuple<Args...>>
-{
-    using type = apFixed<Args...>;
-};
-
-template <typename... Args>
-using apFixedFromTuple = typename apFixedFromTuple_s<Args...>::type;
 
 // ------------------- Basic Operations -------------------
 
@@ -731,8 +727,8 @@ struct Qadd_s
     }
 };
 
-template <template <typename...> class innerWrapper, typename... toArgs>
-struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
+template <typename... toArgs>
+struct Qadd_s<std::tuple<toArgs...>> : Qadd_s<toArgs...>
 {
 };
 
@@ -777,8 +773,7 @@ struct Qdiv_s
         static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
         auto fullQuotient = (static_cast<long long int>(f1.data) << shiftA << toFrac) / (static_cast<long long int>(f2.data) << shiftB);
-        auto fracQuotient = fracConvert<fromFrac1, toFrac, QuMode<toQuMode>>::convert(fullQuotient);
-        auto intQuotient = intConvert<toInt, toFrac, toIsSigned, OfMode<toOfMode>>::convert(fracQuotient);
+        auto intQuotient = intConvert<toInt, toFrac, toIsSigned, OfMode<toOfMode>>::convert(fullQuotient);
 
         return apFixed<intBits<toInt>,
                        fracBits<toFrac>,
@@ -999,7 +994,7 @@ public:
     }
 };
 
-// ====================================== BLAS ======================================
+// ===================== BLAS =====================
 
 // ------------------- Qgemul -------------------
 
@@ -1034,14 +1029,14 @@ struct Qgemul_s
             for (int j = 0; j < colC; j++)
             {
 
-                apFixedFromTuple<addArgs> sum = 0;
+                apFixed<addArgs> sum = 0;
 
                 for (int k = 0; k < (isTransposedA ? rowA : colA); k++)
                 {
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedB ? B[j][k] : B[k][j];
 
-                    sum = Qadd_s<addArgs>::apply(sum, Qmul_s<mulArgs>::apply(a, b));
+                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
                 }
                 C[i][j] = sum;
             }
@@ -1060,13 +1055,13 @@ struct Qgemul_s
         {
             for (int j = 0; j < colC; j++)
             {
-                apFixedFromTuple<addArgs> sum = 0;
+                apFixed<addArgs> sum = 0;
                 for (int k = 0; k < colA; k++)
                 {
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedA ? A[k][j] : A[j][k];
 
-                    sum = Qadd_s<addArgs>::apply(sum, Qmul_s<mulArgs>::apply(a, b));
+                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
                 }
                 C[i][j] = sum;
                 if (i != j)
@@ -1120,19 +1115,19 @@ struct Qgemv_s
 
         for (int i = 0; i < outerLoop; i++)
         {
-            auto betaY = Qmul_s<mulArgs>::apply(y[i], bata);
+            auto betaY = Qmul<mulArgs>(y[i], bata);
 
-            apFixedFromTuple<addArgs> AxAddTemp = 0;
+            apFixed<addArgs> AxAddTemp = 0;
 
             for (int j = 0; j < innerLoop; j++)
             {
-                auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
+                auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
+                AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
             }
 
-            auto alphaAxAdd = Qmul_s<mulArgs>::apply(alpha, AxAddTemp);
+            auto alphaAxAdd = Qmul<mulArgs>(alpha, AxAddTemp);
 
-            y[i] = Qadd_s<addArgs>::apply(betaY, alphaAxAdd);
+            y[i] = Qadd<addArgs>(betaY, alphaAxAdd);
         }
     }
 
@@ -1154,38 +1149,38 @@ struct Qgemv_s
         {
             for (int i = 0; i < outerLoop; i++)
             {
-                auto betaY = Qmul_s<mulArgs>::apply(y[i], beta);
-                apFixedFromTuple<addArgs> AxAddTemp = 0;
+                auto betaY = Qmul<mulArgs>(y[i], beta);
+                apFixed<addArgs> AxAddTemp = 0;
                 for (int j = 0; j < innerLoop; j++)
                 {
-                    auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                    AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
+                    auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
+                    AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
 
                     if constexpr (alpha != apFixed<toArgs...>(1))
                     {
-                        auto alphaAxAdd = Qmul_s<mulArgs>::apply(alpha, AxAddTemp);
-                        y[i] = Qadd_s<addArgs>::apply(betaY, alphaAxAdd);
+                        auto alphaAxAdd = Qmul<mulArgs>(alpha, AxAddTemp);
+                        y[i] = Qadd<addArgs>(betaY, alphaAxAdd);
                     }
                     else
                     {
-                        y[i] = Qadd_s<addArgs>::apply(betaY, AxAddTemp);
+                        y[i] = Qadd<addArgs>(betaY, AxAddTemp);
                     }
                 }
             }
         }
         else
         {
-            apFixedFromTuple<addArgs> AxAddTemp = 0;
+            apFixed<addArgs> AxAddTemp = 0;
             for (int i = 0; i < outerLoop; i++)
             {
                 for (int j = 0; j < innerLoop; j++)
                 {
-                    auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                    AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
+                    auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
+                    AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
                 }
                 if constexpr (alpha != apFixed<toArgs...>(1))
                 {
-                    y[i] = Qmul_s<mulArgs>::apply(alpha, AxAddTemp);
+                    y[i] = Qmul<mulArgs>(alpha, AxAddTemp);
                 }
                 else
                 {
@@ -1259,10 +1254,10 @@ struct Qgetrf_s
 
             for (int i = k + 1; i < N; ++i)
             {
-                A[i][k] = Qdiv_s<divArgs>::apply(A[i][k], A[k][k]);
+                A[i][k] = Qdiv<divArgs>(A[i][k], A[k][k]);
                 for (int j = k + 1; j < N; ++j)
                 {
-                    A[i][j] = Qsub_s<subArgs>::apply(A[i][j], Qmul_s<mulArgs>::apply(A[i][k], A[k][j]));
+                    A[i][j] = Qsub<subArgs>(A[i][j], Qmul<mulArgs>(A[i][k], A[k][j]));
                 }
             }
         }

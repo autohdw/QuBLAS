@@ -355,7 +355,7 @@ int main()
     apFixedMat<MAT_res_t, 3, 4> MAT_res;
 
     // version 1 directly pass in the template parameters
-    using addArgs = QgemulAddArgs<isSigned<true>, OfMode<WRP::TCPL>, intBits<17>, fracBits<13>>;
+    using addArgs = QgemulAddArgs<OfMode<WRP::TCPL>, intBits<17>, fracBits<13>>;
 
     // version 2 pass in a apFixed type
     using mulType = apFixed<intBits<13>, fracBits<7>>;
@@ -430,9 +430,18 @@ int main()
         std::cout << bnormal[i] << " ";
     }
 
+    std::cout << std::endl;
+    std::cout << std::endl;
+
     // QuBLAS version
     using MAT_INV_a1_t = apFixed<intBits<5>, fracBits<5>, isSigned<true>>;
     using MAT_INV_b1_t = apFixed<intBits<5>, fracBits<6>, isSigned<true>>;
+
+    using interiorType1 = apFixed<intBits<11>, fracBits<6>, isSigned<true>, QuMode<RND::INF>>;
+
+    using interiorType2 = apFixed<intBits<11>, fracBits<7>, isSigned<true>, QuMode<RND::ZERO>>;
+
+    using interiorType3 = apFixed<intBits<11>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>>;
 
     std::array<size_t, 3> ipiv;
 
@@ -442,12 +451,14 @@ int main()
 
     apFixedVec<MAT_INV_b1_t, 3> MAT_INV_b1 = {14, 4, 8};
 
-    Qgetrf(MAT_INV_a1, ipiv);
+    Qgetrf<QgetrfMulArgs<intBits<11>, fracBits<6>, isSigned<true>, QuMode<RND::INF>>,
+           QgetrfDivArgs<interiorType2>,
+           QgetrfSubArgs<intBits<11>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>>>(MAT_INV_a1, ipiv);
 
     std::cout << "GETRF result:" << std::endl;
     MAT_INV_a1.display("MAT_INV_a1");
 
-    Qgetrs(MAT_INV_a1, ipiv, MAT_INV_b1);
+    Qgetrs<QgetrfSubArgs<interiorType3>, QgetrfMulArgs<interiorType1>>(MAT_INV_a1, ipiv, MAT_INV_b1);
 
     std::cout << "GETRS result:" << std::endl;
     MAT_INV_b1.display("MAT_INV_b1");
