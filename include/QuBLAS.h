@@ -555,19 +555,6 @@ public:
     constexpr apFixed() : data(0) {}
     constexpr apFixed(dataType val, DirectAssignTag) : data(val) {}
 
-    void display(std::string name = "")
-    {
-        if (name != "")
-        {
-            std::cout << name << " :";
-        }
-        std::cout << std::endl;
-        std::cout << "Binary: " << std::bitset<intB + fracB>(data) << std::endl;
-        std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
-
-        std::cout << "Decimal: " << shifter<fracB>::output(data) << std::endl;
-    }
-
     template <typename... fromArgs>
     inline constexpr apFixed &operator=(const apFixed<fromArgs...> &rhs)
     {
@@ -586,21 +573,17 @@ public:
         return *this;
     }
 
-    template <typename... fromArgs>
-    inline constexpr bool operator==(const apFixed<fromArgs...> &&rhs) const
+    void display(std::string name = "")
     {
-        static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
-        static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
-        static constexpr auto fromIsSigned = tagExtractor<isSigned<defaultIsSigned>, fromArgs...>::value;
+        if (name != "")
+        {
+            std::cout << name << " :";
+        }
+        std::cout << std::endl;
+        std::cout << "Binary: " << std::bitset<intB + fracB>(data) << std::endl;
+        std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
 
-        if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
-        {
-            return data == rhs.data;
-        }
-        else
-        {
-            return false;
-        }
+        std::cout << "Decimal: " << shifter<fracB>::output(data) << std::endl;
     }
 
     template <typename... fromArgs>
@@ -619,6 +602,17 @@ public:
             return true;
         }
     }
+
+    // template <typename... fromArgs>
+    // inline constexpr auto operator<=>(const apFixed<fromArgs...> &&rhs) const
+    // {
+    //     static constexpr auto fromFrac = rhs.fracB;
+
+    //     static constexpr auto fromShift = fromFrac > fracB ? 0 : fracB - fromFrac;
+    //     static constexpr auto toShift = fromFrac > fracB ? fromFrac - fracB : 0;
+
+    //     return (static_cast<long long int>(data) << fromShift) <=> (static_cast<long long int>(rhs.data) << toShift);
+    // }
 };
 
 // only used in BLAS functions. Ugly but works
@@ -634,20 +628,23 @@ struct apFixedFromTuple_s<std::tuple<Args...>>
 template <typename... Args>
 using apFixedFromTuple = typename apFixedFromTuple_s<Args...>::type;
 
+// ------------------- Basic Operations -------------------
+
 template <typename... toArgs>
 struct Qmul_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = tagExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
-        static constexpr auto fromInt2 = tagExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
-        static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
-        static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
-        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
-        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
-        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
-        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+        static constexpr auto fromInt1 = f1.intB;
+        static constexpr auto fromInt2 = f2.intB;
+        static constexpr auto fromFrac1 = f1.fracB;
+        static constexpr auto fromFrac2 = f2.fracB;
+
+        using fromQuMode1 = typename decltype(f1)::QuM;
+        using fromQuMode2 = typename decltype(f2)::QuM;
+        using fromOfMode1 = typename decltype(f1)::OfM;
+        using fromOfMode2 = typename decltype(f2)::OfM;
 
         using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
         using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
@@ -689,21 +686,27 @@ inline constexpr auto Qmul(const apFixed<fromArgs1...> f1, const apFixed<fromArg
     return Qmul_s<toArgs...>::apply(f1, f2);
 }
 
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator*(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+{
+    return Qmul<>(f1, f2);
+}
+
 template <typename... toArgs>
 struct Qadd_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = tagExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
-        static constexpr auto fromInt2 = tagExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
-        static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
-        static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
+        static constexpr auto fromInt1 = f1.intB;
+        static constexpr auto fromInt2 = f2.intB;
+        static constexpr auto fromFrac1 = f1.fracB;
+        static constexpr auto fromFrac2 = f2.fracB;
 
-        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
-        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
-        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
-        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+        using fromQuMode1 = typename decltype(f1)::QuM;
+        using fromQuMode2 = typename decltype(f2)::QuM;
+        using fromOfMode1 = typename decltype(f1)::OfM;
+        using fromOfMode2 = typename decltype(f2)::OfM;
 
         using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
         using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
@@ -750,21 +753,27 @@ inline constexpr auto Qadd(const apFixed<fromArgs1...> f1, const apFixed<fromArg
     return Qadd_s<toArgs...>::apply(f1, f2);
 }
 
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator+(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+{
+    return Qadd<>(f1, f2);
+}
+
 template <typename... toArgs>
 struct Qdiv_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = tagExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
-        static constexpr auto fromInt2 = tagExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
-        static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
-        static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
+        static constexpr auto fromInt1 = f1.intB;
+        static constexpr auto fromInt2 = f2.intB;
+        static constexpr auto fromFrac1 = f1.fracB;
+        static constexpr auto fromFrac2 = f2.fracB;
 
-        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
-        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
-        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
-        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+        using fromQuMode1 = typename decltype(f1)::QuM;
+        using fromQuMode2 = typename decltype(f2)::QuM;
+        using fromOfMode1 = typename decltype(f1)::OfM;
+        using fromOfMode2 = typename decltype(f2)::OfM;
 
         using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
         using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
@@ -801,21 +810,27 @@ inline constexpr auto Qdiv(const apFixed<fromArgs1...> f1, const apFixed<fromArg
     return Qdiv_s<toArgs...>::apply(f1, f2);
 }
 
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator/(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+{
+    return Qdiv<>(f1, f2);
+}
+
 template <typename... toArgs>
 struct Qsub_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = tagExtractor<intBits<defaultIntBits>, fromArgs1...>::value;
-        static constexpr auto fromInt2 = tagExtractor<intBits<defaultIntBits>, fromArgs2...>::value;
-        static constexpr auto fromFrac1 = tagExtractor<fracBits<defaultFracBits>, fromArgs1...>::value;
-        static constexpr auto fromFrac2 = tagExtractor<fracBits<defaultFracBits>, fromArgs2...>::value;
+        static constexpr auto fromInt1 = f1.intB;
+        static constexpr auto fromInt2 = f2.intB;
+        static constexpr auto fromFrac1 = f1.fracB;
+        static constexpr auto fromFrac2 = f2.fracB;
 
-        using fromQuMode1 = tagExtractor<QuMode<defaultQuMode>, fromArgs1...>::type;
-        using fromQuMode2 = tagExtractor<QuMode<defaultQuMode>, fromArgs2...>::type;
-        using fromOfMode1 = tagExtractor<OfMode<defaultOfMode>, fromArgs1...>::type;
-        using fromOfMode2 = tagExtractor<OfMode<defaultOfMode>, fromArgs2...>::type;
+        using fromQuMode1 = typename decltype(f1)::QuM;
+        using fromQuMode2 = typename decltype(f2)::QuM;
+        using fromOfMode1 = typename decltype(f1)::OfM;
+        using fromOfMode2 = typename decltype(f2)::OfM;
 
         using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
         using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
@@ -853,6 +868,55 @@ inline constexpr auto Qsub(const apFixed<fromArgs1...> f1, const apFixed<fromArg
 {
     return Qsub_s<toArgs...>::apply(f1, f2);
 }
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator-(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+{
+    return Qsub<>(f1, f2);
+}
+
+template <typename... fromArgs1>
+inline constexpr auto operator-(const apFixed<fromArgs1...> &f1)
+{
+
+    return apFixed<fromArgs1...>(-f1.data, DirectAssignTag{});
+}
+
+template <typename... fromArgs>
+inline constexpr auto Qabs(const apFixed<fromArgs...> &f1)
+{
+    return f1.data < 0 ? apFixed<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
+}
+
+// ------------------- Comparison -------------------
+// seems dummy, maybe optimize later
+template <typename... Args>
+struct Qcmp_s;
+
+template <typename... Args1, typename... Args2>
+struct Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>
+{
+    static constexpr auto fracBits1 = tagExtractor<fracBits<defaultFracBits>, Args1...>::value;
+    static constexpr auto fracBits2 = tagExtractor<fracBits<defaultFracBits>, Args2...>::value;
+
+    // the value to left shift for each number
+    static constexpr auto shift1 = fracBits2 > fracBits1 ? fracBits2 - fracBits1 : 0;
+    static constexpr auto shift2 = fracBits1 > fracBits2 ? fracBits1 - fracBits2 : 0;
+
+    static constexpr auto apply(const apFixed<Args1...> &f1, const apFixed<Args2...> &f2)
+    {
+        return (f1.data << shift1) <=> (f2.data << shift2);
+    }
+};
+
+template <typename... Args1, typename... Args2>
+inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Args2...> &f2)
+{
+    return Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>::apply(f1, f2);
+}
+
+
+// ------------------- Vector and Matrix -------------------
 
 template <typename apFixedType, size_t N>
 class apFixedVec
@@ -946,6 +1010,8 @@ public:
         }
     }
 };
+
+// ====================================== BLAS ======================================
 
 // ------------------- Qgemul -------------------
 
@@ -1085,7 +1151,7 @@ struct Qgemv_s
     // special version for alpha and beta be template parameters
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
     inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
-    {   
+    {
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
 
         auto static constexpr beta = tagExtractor<QgemvBeta<apFixed<toArgs...>(0)>, interiorArgs...>::value;
@@ -1093,20 +1159,190 @@ struct Qgemv_s
 
         static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
 
-   
-
         auto static constexpr outerLoop = isTransposedA ? colA : rowA;
         auto static constexpr innerLoop = isTransposedA ? rowA : colA;
 
         if constexpr (beta.data != 0)
         {
+            for (size_t i = 0; i < outerLoop; i++)
+            {
+                auto betaY = Qmul_s<mulArgs>::apply(y[i], beta);
+                apFixedFromTuple<addArgs> AxAddTemp = 0;
+                for (size_t j = 0; j < innerLoop; j++)
+                {
+                    auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
+                    AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
 
+                    if constexpr (alpha != apFixed<toArgs...>(1))
+                    {
+                        auto alphaAxAdd = Qmul_s<mulArgs>::apply(alpha, AxAddTemp);
+                        y[i] = Qadd_s<addArgs>::apply(betaY, alphaAxAdd);
+                    }
+                    else
+                    {
+                        y[i] = Qadd_s<addArgs>::apply(betaY, AxAddTemp);
+                    }
+                }
+            }
         }
         else
         {
-        
-        
+            apFixedFromTuple<addArgs> AxAddTemp = 0;
+            for (size_t i = 0; i < outerLoop; i++)
+            {
+                for (size_t j = 0; j < innerLoop; j++)
+                {
+                    auto AxMul = Qmul_s<mulArgs>::apply(isTransposedA ? A[j][i] : A[i][j], x[j]);
+                    AxAddTemp = Qadd_s<addArgs>::apply(AxAddTemp, AxMul);
+                }
+                if constexpr (alpha != apFixed<toArgs...>(1))
+                {
+                    y[i] = Qmul_s<mulArgs>::apply(alpha, AxAddTemp);
+                }
+                else
+                {
+                    y[i] = AxAddTemp;
+                }
+            }
         }
-
     }
 };
+
+template <typename... interiorArgs, typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
+inline void Qgemv(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+{
+    Qgemv_s<interiorArgs...>::apply(y, beta, alpha, A, x);
+}
+
+template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
+inline void Qgemv(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+{
+    Qgemv_s<interiorArgs...>::apply(y, A, x);
+}
+
+// ------------------- Qgetrf -------------------
+
+template <typename... Args>
+struct QgetrfDivArgs;
+
+template <typename... Args>
+struct QgetrfSubArgs;
+
+template <typename... Args>
+struct QgetrfMulArgs;
+
+template <typename... interiorArgs>
+struct Qgetrf_s
+{
+    using divArgs = tagExtractor<QgetrfDivArgs<>, interiorArgs...>::type;
+    using subArgs = tagExtractor<QgetrfSubArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgetrfMulArgs<>, interiorArgs...>::type;
+
+    template <typename... ArgsA, size_t N>
+    inline static void apply(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv)
+    {
+        for (size_t i = 0; i < N; i++)
+        {
+            ipiv[i] = i;
+        }
+
+        for (int k = 0; k < N; ++k)
+        {
+            apFixed<ArgsA...> maxVal = 0;
+            int i_max = k;
+
+            for (int i = k; i < N; ++i)
+            {
+                auto absVal = Qabs(A[i][k]);
+                if (absVal > maxVal)
+                {
+                    maxVal = absVal;
+                    i_max = i;
+                }
+            }
+
+            if ( maxVal.data == 0)
+            {
+                throw std::runtime_error("Matrix is singular");
+            }
+
+            std::swap(ipiv[k], ipiv[i_max]);
+            std::swap(A[k], A[i_max]);
+
+            for (int i = k + 1; i < N; ++i)
+            {
+                A[i][k] = Qdiv_s<divArgs>::apply(A[i][k], A[k][k]);
+                for (int j = k + 1; j < N; ++j)
+                {
+                    A[i][j] = Qsub_s<subArgs>::apply(A[i][j], Qmul_s<mulArgs>::apply(A[i][k], A[k][j]));
+                }
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, typename... ArgsA, size_t N>
+inline void Qgetrf(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv)
+{
+    Qgetrf_s<interiorArgs...>::apply(A, ipiv);
+}
+
+// ------------------- Qgetrs -------------------
+
+template <typename... Args>
+struct QgetrsDivArgs;
+
+template <typename... Args>
+struct QgetrsSubArgs;
+
+template <typename... Args>
+struct QgetrsMulArgs;
+
+template <typename... interiorArgs>
+struct Qgetrs_s
+{
+    using divArgs = tagExtractor<QgetrsDivArgs<>, interiorArgs...>::type;
+    using subArgs = tagExtractor<QgetrsSubArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgetrsMulArgs<>, interiorArgs...>::type;
+
+    template <typename... ArgsA, typename... ArgsB, size_t N>
+    inline static void apply(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv, apFixedVec<apFixed<ArgsB...>, N> &b)
+    {
+        static apFixedVec<apFixed<ArgsB...>, N> b_permuted;
+
+        for (size_t i = 0; i < N; i++)
+        {
+            b_permuted[i] = b[ipiv[i]];
+        }
+
+        for (size_t i = 0; i < N; i++)
+        {
+            for (size_t j = 0; j < i; j++)
+            {
+                b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
+            }
+        }
+
+        for (size_t i = N - 1; i >= 0; i--)
+        {
+            for (size_t j = i + 1; j < N; j++)
+            {
+                b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
+            }
+            b_permuted[i] = Qdiv<divArgs>(b_permuted[i], A[i][i]);
+        }
+
+        for (size_t i = 0; i < N; i++)
+        {
+            b[i] = b_permuted[i];
+        }
+
+    
+    }
+};
+
+template <typename... interiorArgs, typename... ArgsA, typename... ArgsB, size_t N>
+inline void Qgetrs(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv, apFixedVec<apFixed<ArgsB...>, N> &b)
+{
+    Qgetrs_s<interiorArgs...>::apply(A, ipiv, b);
+}
