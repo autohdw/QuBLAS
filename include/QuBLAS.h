@@ -1079,6 +1079,12 @@ inline void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedM
     Qgemul_s<interiorArgs...>::apply(C, A, B);
 }
 
+template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
+inline void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A)
+{
+    Qgemul_s<interiorArgs...>::apply(C, A);
+}
+
 // ------------------- Qgemv -------------------
 // Perform the operation y = beta * y + alpha * op(A) * x.
 
