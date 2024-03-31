@@ -1123,7 +1123,7 @@ struct Qgemv_s
     template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
     inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
     {
-        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
+        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
 
         static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
 
@@ -1152,7 +1152,7 @@ struct Qgemv_s
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
     inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
     {
-        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
+        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
 
         auto static constexpr defaultBeta = apFixed<toArgs...>(0);
         auto static constexpr defaultAlpha = apFixed<toArgs...>(1);
@@ -1160,7 +1160,8 @@ struct Qgemv_s
         auto static constexpr beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
         auto static constexpr alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
 
-        static_assert(!isTransposedA ? (colA == rowX && rowA == rowY) : (rowA == rowX && colA == rowY), "Size mismatch when calling Qgemv");
+        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
+
 
         auto static constexpr outerLoop = isTransposedA ? colA : rowA;
         auto static constexpr innerLoop = isTransposedA ? rowA : colA;
