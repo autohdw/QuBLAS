@@ -506,7 +506,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
         requires longlongInt<T>
     inline static auto convert(T val) -> std::conditional_t<toIsSigned, int, unsigned int>
     {
-        static_assert(false, "Not implemented yet");
+        throw std::runtime_error("Not implemented yet");
         // if constexpr (N == 1)
         // {
         //     constexpr unsigned long long int mask = (1ULL << (toInt + toFrac)) - 1;
