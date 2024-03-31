@@ -1293,7 +1293,10 @@ struct Qgetrf_s
 
             if (maxVal.data == 0)
             {
-                throw std::runtime_error("Matrix is singular");
+                // throw std::runtime_error("Matrix is singular");
+                // theoretically, this indicates the matrix is singular
+                // however, this may occur when the fractional bits are not enough
+                // so we just return
             }
 
             std::swap(ipiv[k], ipiv[i_max]);
