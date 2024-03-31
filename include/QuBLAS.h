@@ -16,7 +16,7 @@ constexpr bool debug = false;
 // a struct to convey list of arguments
 // used instead of std::tuple to avoid some template deduction issues
 // honestly, I recommend using std::tuple and figuring out what's wrong with the deduction
-template<typename ... Args>
+template <typename... Args>
 struct argList
 {
 };
@@ -69,7 +69,7 @@ struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
 
 // 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
-requires(!std::is_same_v<innerWrapper<Args2...>, argList<Args2...>>)
+    requires(!std::is_same_v<innerWrapper<Args2...>, argList<Args2...>>)
 struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
 {
     using type = argList<Args2...>;
@@ -619,8 +619,6 @@ public:
     }
 };
 
-
-
 // ------------------- Basic Operations -------------------
 
 template <typename... toArgs>
@@ -1006,10 +1004,10 @@ public:
 
 // ------------------- Qgemul -------------------
 
-template <bool Value = false>
+template <bool Value>
 struct QgemulTransposedA;
 
-template <bool Value = false>
+template <bool Value>
 struct QgemulTransposedB;
 
 template <typename... Args>
@@ -1027,10 +1025,15 @@ struct Qgemul_s
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
     inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
     {
-        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
-        static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, fromArgsB...>::value;
+        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
+        static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
 
-        static_assert((!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) || (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) || (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) || (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)), "Size mismatch when calling Qgemul");
+        static_assert(
+            (!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) ||
+                (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) ||
+                (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) ||
+                (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)),
+            "Size mismatch when calling Qgemul");
 
         for (int i = 0; i < rowC; i++)
         {
@@ -1055,7 +1058,7 @@ struct Qgemul_s
     template <typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
     inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A)
     {
-        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, fromArgsA...>::value;
+        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
 
         static_assert((isTransposedA ? (rowA == colC) : (colA == colC)) && (rowC == colC), "Size mismatch when calling Qgemul(self-transpose mul version)");
 
@@ -1064,10 +1067,10 @@ struct Qgemul_s
             for (int j = 0; j < colC; j++)
             {
                 apFixed<addArgs> sum = 0;
-                for (int k = 0; k < colA; k++)
+                for (int k = 0; k < (!isTransposedA ? rowA : colA); k++)
                 {
-                    auto a = isTransposedA ? A[k][i] : A[i][k];
-                    auto b = isTransposedA ? A[k][j] : A[j][k];
+                    auto a = !isTransposedA ? A[k][i] : A[i][k];
+                    auto b = !isTransposedA ? A[k][j] : A[j][k];
 
                     sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
                 }

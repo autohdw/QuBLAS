@@ -361,105 +361,112 @@ int main()
     using mulType = apFixed<intBits<13>, fracBits<7>>;
     using mulArgs = QgemulMulArgs<mulType>;
 
-    Qgemul<addArgs, mulArgs>(MAT_res, MAT_a1, MAT_a2);
+    // Qgemul<addArgs, mulArgs>(MAT_res, MAT_a1, MAT_a2);
 
-    MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
+    // MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
 
-    std::cout << "----------------------------------" << std::endl;
 
-    std::cout << "负数位宽测试" << std::endl;
+    apFixedMat<MAT_res_t, 4, 4> MAT_res2;
 
-    using NEG_a1_t = apFixed<intBits<8>, fracBits<-2>>;
+    Qgemul<addArgs, mulArgs>(MAT_res2, MAT_a2 );
 
-    NEG_a1_t NEG_a1 = 100;
+    MAT_res2.display("MAT_res2 = MAT_a2^T * MAT_a2");
 
-    NEG_a1.display("NEG_a1");
+    // std::cout << "----------------------------------" << std::endl;
 
-    using NEG_a2_t = apFixed<intBits<-2>, fracBits<8>>;
+    // std::cout << "负数位宽测试" << std::endl;
 
-    NEG_a2_t NEG_a2 = 0.025;
+    // using NEG_a1_t = apFixed<intBits<8>, fracBits<-2>>;
 
-    NEG_a2.display("NEG_a2");
+    // NEG_a1_t NEG_a1 = 100;
 
-    std::cout << std::endl;
+    // NEG_a1.display("NEG_a1");
 
-    std::cout << "----------------------------------" << std::endl;
+    // using NEG_a2_t = apFixed<intBits<-2>, fracBits<8>>;
 
-    std::cout << "负数小数位量化测试" << std::endl;
+    // NEG_a2_t NEG_a2 = 0.025;
 
-    using NEG_FRAC_res_t = apFixed<intBits<-2>, fracBits<9>>;
+    // NEG_a2.display("NEG_a2");
 
-    NEG_FRAC_res_t NEG_FRAC_res;
+    // std::cout << std::endl;
 
-    NEG_FRAC_res = NEG_a2;
+    // std::cout << "----------------------------------" << std::endl;
 
-    NEG_FRAC_res.display("NEG_FRAC_res = NEG_a2");
+    // std::cout << "负数小数位量化测试" << std::endl;
 
-    std::cout << std::endl;
+    // using NEG_FRAC_res_t = apFixed<intBits<-2>, fracBits<9>>;
 
-    std::cout << "----------------------------------" << std::endl;
+    // NEG_FRAC_res_t NEG_FRAC_res;
 
-    std::cout << "矩阵求逆测试" << std::endl;
+    // NEG_FRAC_res = NEG_a2;
 
-    // normal version
-    std::vector<std::vector<double>> Anormal = {
-        {1.1, 2.2, 3.3},
-        {2, 1, 1},
-        {3.1, 0, 1.1}};
-    std::vector<double> bnormal = {14, 4, 8};
+    // NEG_FRAC_res.display("NEG_FRAC_res = NEG_a2");
 
-    std::vector<int> pivot;
-    GETRF(Anormal, pivot);
-    GETRS(Anormal, pivot, bnormal);
+    // std::cout << std::endl;
 
-    std::cout << "GETRF result:" << std::endl;
-    for (int i = 0; i < Anormal.size(); i++)
-    {
-        for (int j = 0; j < Anormal[i].size(); j++)
-        {
-            std::cout << Anormal[i][j] << " ";
-        }
-        std::cout << std::endl;
-    }
+    // std::cout << "----------------------------------" << std::endl;
 
-    std::cout << std::endl;
+    // std::cout << "矩阵求逆测试" << std::endl;
 
-    std::cout << "GETRS result:" << std::endl;
-    for (int i = 0; i < bnormal.size(); i++)
-    {
-        std::cout << bnormal[i] << " ";
-    }
+    // // normal version
+    // std::vector<std::vector<double>> Anormal = {
+    //     {1.1, 2.2, 3.3},
+    //     {2, 1, 1},
+    //     {3.1, 0, 1.1}};
+    // std::vector<double> bnormal = {14, 4, 8};
 
-    std::cout << std::endl;
-    std::cout << std::endl;
+    // std::vector<int> pivot;
+    // GETRF(Anormal, pivot);
+    // GETRS(Anormal, pivot, bnormal);
 
-    // QuBLAS version
-    using MAT_INV_a1_t = apFixed<intBits<5>, fracBits<5>, isSigned<true>>;
-    using MAT_INV_b1_t = apFixed<intBits<5>, fracBits<6>, isSigned<true>>;
+    // std::cout << "GETRF result:" << std::endl;
+    // for (int i = 0; i < Anormal.size(); i++)
+    // {
+    //     for (int j = 0; j < Anormal[i].size(); j++)
+    //     {
+    //         std::cout << Anormal[i][j] << " ";
+    //     }
+    //     std::cout << std::endl;
+    // }
 
-    using interiorType1 = apFixed<intBits<11>, fracBits<6>, isSigned<true>, QuMode<RND::INF>>;
+    // std::cout << std::endl;
 
-    using interiorType2 = apFixed<intBits<11>, fracBits<7>, isSigned<true>, QuMode<RND::ZERO>>;
+    // std::cout << "GETRS result:" << std::endl;
+    // for (int i = 0; i < bnormal.size(); i++)
+    // {
+    //     std::cout << bnormal[i] << " ";
+    // }
 
-    using interiorType3 = apFixed<intBits<11>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>>;
+    // std::cout << std::endl;
+    // std::cout << std::endl;
 
-    std::array<size_t, 3> ipiv;
+    // // QuBLAS version
+    // using MAT_INV_a1_t = apFixed<intBits<5>, fracBits<5>, isSigned<true>>;
+    // using MAT_INV_b1_t = apFixed<intBits<5>, fracBits<6>, isSigned<true>>;
 
-    apFixedMat<MAT_INV_a1_t, 3, 3> MAT_INV_a1 = {1.1, 2.2, 3.3,
-                                                 2, 1, 1,
-                                                 3.1, 0, 1.1};
+    // using interiorType1 = apFixed<intBits<11>, fracBits<6>, isSigned<true>, QuMode<RND::INF>>;
 
-    apFixedVec<MAT_INV_b1_t, 3> MAT_INV_b1 = {14, 4, 8};
+    // using interiorType2 = apFixed<intBits<11>, fracBits<7>, isSigned<true>, QuMode<RND::ZERO>>;
 
-    Qgetrf<QgetrfMulArgs<intBits<11>, fracBits<6>, isSigned<true>, QuMode<RND::INF>>,
-           QgetrfDivArgs<interiorType2>,
-           QgetrfSubArgs<intBits<11>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>>>(MAT_INV_a1, ipiv);
+    // using interiorType3 = apFixed<intBits<11>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>>;
 
-    std::cout << "GETRF result:" << std::endl;
-    MAT_INV_a1.display("MAT_INV_a1");
+    // std::array<size_t, 3> ipiv;
 
-    Qgetrs<QgetrfSubArgs<interiorType3>, QgetrfMulArgs<interiorType1>>(MAT_INV_a1, ipiv, MAT_INV_b1);
+    // apFixedMat<MAT_INV_a1_t, 3, 3> MAT_INV_a1 = {1.1, 2.2, 3.3,
+    //                                              2, 1, 1,
+    //                                              3.1, 0, 1.1};
 
-    std::cout << "GETRS result:" << std::endl;
-    MAT_INV_b1.display("MAT_INV_b1");
+    // apFixedVec<MAT_INV_b1_t, 3> MAT_INV_b1 = {14, 4, 8};
+
+    // Qgetrf<QgetrfMulArgs<intBits<11>, fracBits<6>, isSigned<true>, QuMode<RND::INF>>,
+    //        QgetrfDivArgs<interiorType2>,
+    //        QgetrfSubArgs<intBits<11>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>>>(MAT_INV_a1, ipiv);
+
+    // std::cout << "GETRF result:" << std::endl;
+    // MAT_INV_a1.display("MAT_INV_a1");
+
+    // Qgetrs<QgetrfSubArgs<interiorType3>, QgetrfMulArgs<interiorType1>>(MAT_INV_a1, ipiv, MAT_INV_b1);
+
+    // std::cout << "GETRS result:" << std::endl;
+    // MAT_INV_b1.display("MAT_INV_b1");
 }
