@@ -588,6 +588,11 @@ public:
         return *this;
     }
 
+    inline constexpr double output()
+    {
+        return shifter<fracB>::output(data);
+    }
+
     void display(std::string name = "")
     {
         if (name != "")
@@ -948,6 +953,16 @@ public:
             data[i].display();
         }
     }
+
+    inline std::array<double , N> output()
+    {
+        std::array<double , N> output;
+        for (int i = 0; i < N; i++)
+        {
+            output[i] = data[i].output();
+        }
+        return output;
+    }
 };
 
 template <typename apFixedType, size_t M, size_t N>
@@ -997,6 +1012,16 @@ public:
             }
             std::cout << std::endl;
         }
+    }
+
+    inline std::array<std::array<double , N>, M> output()
+    {
+        std::array<std::array<double , N>, M> output;
+        for (int i = 0; i < M; i++)
+        {
+            output[i] = data[i].output();
+        }
+        return output;
     }
 };
 
