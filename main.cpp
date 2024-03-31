@@ -332,45 +332,64 @@ int main()
 
     // std::cout << std::endl;
 
-    std::cout << "----------------------------------" << std::endl;
+    // std::cout << "----------------------------------" << std::endl;
 
-    std::cout << "矩阵测试" << std::endl;
+    // std::cout << "矩阵测试" << std::endl;
 
-    using MAT_a1_t = apFixed<intBits<5>, fracBits<3>, isSigned<true>>;
+    // using MAT_a1_t = apFixed<intBits<5>, fracBits<3>, isSigned<true>>;
 
-    using MAT_a2_t = apFixed<intBits<5>, fracBits<4>, isSigned<true>>;
+    // using MAT_a2_t = apFixed<intBits<5>, fracBits<4>, isSigned<true>>;
 
-    using MAT_res_t = apFixed<intBits<13>, fracBits<2>, isSigned<true>>;
+    // using MAT_res_t = apFixed<intBits<13>, fracBits<2>, isSigned<true>>;
 
-    apFixedMat<MAT_a1_t, 3, 5> MAT_a1 = {1.125, 2.125, 3.125, 4.125, 5.125,
-                                         6.125, 7.125, 8.125, 9.125, 10.125,
-                                         11.125, 12.125, 13.125, 14.125, 15.125};
+    // apFixedMat<MAT_a1_t, 3, 5> MAT_a1 = {1.125, 2.125, 3.125, 4.125, 5.125,
+    //                                      6.125, 7.125, 8.125, 9.125, 10.125,
+    //                                      11.125, 12.125, 13.125, 14.125, 15.125};
 
-    apFixedMat<MAT_a2_t, 5, 4> MAT_a2 = {1.25, 2.25, 3.25, 4.25,
-                                         5.25, 6.25, 7.25, 8.25,
-                                         9.25, 10.25, 11.25, 12.25,
-                                         13.25, 14.25, 15.25, 16.25,
-                                         17.25, 18.25, 19.25, 20.25};
+    // apFixedMat<MAT_a2_t, 5, 4> MAT_a2 = {1.25, 2.25, 3.25, 4.25,
+    //                                      5.25, 6.25, 7.25, 8.25,
+    //                                      9.25, 10.25, 11.25, 12.25,
+    //                                      13.25, 14.25, 15.25, 16.25,
+    //                                      17.25, 18.25, 19.25, 20.25};
 
-    apFixedMat<MAT_res_t, 3, 4> MAT_res;
+    // apFixedMat<MAT_res_t, 3, 4> MAT_res;
 
-    // version 1 directly pass in the template parameters
-    using addArgs = QgemulAddArgs<OfMode<WRP::TCPL>, intBits<17>, fracBits<13>>;
+    // // version 1 directly pass in the template parameters
+    // using addArgs = QgemulAddArgs<OfMode<WRP::TCPL>, intBits<17>, fracBits<13>>;
 
-    // version 2 pass in a apFixed type
-    using mulType = apFixed<intBits<13>, fracBits<7>>;
-    using mulArgs = QgemulMulArgs<mulType>;
+    // // version 2 pass in a apFixed type
+    // using mulType = apFixed<intBits<13>, fracBits<7>>;
+    // using mulArgs = QgemulMulArgs<mulType>;
 
-    // Qgemul<addArgs, mulArgs>(MAT_res, MAT_a1, MAT_a2);
+    // // Qgemul<addArgs, mulArgs>(MAT_res, MAT_a1, MAT_a2);
 
-    // MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
+    // // MAT_res.display("MAT_res = MAT_a1 * MAT_a2");
 
 
-    apFixedMat<MAT_res_t, 4, 4> MAT_res2;
+    // apFixedMat<MAT_res_t, 4, 4> MAT_res2;
 
-    Qgemul<addArgs, mulArgs>(MAT_res2, MAT_a2 );
+    // Qgemul<addArgs, mulArgs>(MAT_res2, MAT_a2 );
 
-    MAT_res2.display("MAT_res2 = MAT_a2^T * MAT_a2");
+    // MAT_res2.display("MAT_res2 = MAT_a2^T * MAT_a2");
+
+    std::cout << "----------------------" << std::endl;
+    std::cout << "矩阵乘向量测试" << std::endl;
+    apFixedMat<apFixed<>, 3, 5> A = {0.1, 0.2, 0.3, 0.4, 0.5,
+                                                 0.6, 0.7, 0.8, 0.9, 1.0,
+                                                 1.1, 1.2, 1.3, 1.4, 1.5};
+
+    apFixedVec<apFixed<>, 5> x = {1.1, 2.2, 3.3, 4.4, 5.5};
+
+    // x.display("x before matvec");
+
+    apFixedVec<apFixed<>, 3> y = {1.0, 1.0, 1.0};
+
+    apFixed<> alpha = 1.0;
+    apFixed<> beta = 0.0;
+
+    Qgemv(y,A,x);
+
+    y.display("y after matvec");
 
     // std::cout << "----------------------------------" << std::endl;
 

@@ -1160,7 +1160,7 @@ struct Qgemv_s
         auto static constexpr beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
         auto static constexpr alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
 
-        static_assert(isTransposedA ? (colA == rowX && rowA == rowY) : (rowA == rowX && colA == rowY), "Size mismatch when calling Qgemv");
+        static_assert(!isTransposedA ? (colA == rowX && rowA == rowY) : (rowA == rowX && colA == rowY), "Size mismatch when calling Qgemv");
 
         auto static constexpr outerLoop = isTransposedA ? colA : rowA;
         auto static constexpr innerLoop = isTransposedA ? rowA : colA;
@@ -1190,9 +1190,10 @@ struct Qgemv_s
         }
         else
         {
-            apFixed<addArgs> AxAddTemp = 0;
+
             for (int i = 0; i < outerLoop; i++)
             {
+                apFixed<addArgs> AxAddTemp = 0;
                 for (int j = 0; j < innerLoop; j++)
                 {
                     auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
