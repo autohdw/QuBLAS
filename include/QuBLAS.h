@@ -12,6 +12,14 @@
 // ------------------- debug -------------------
 constexpr bool debug = false;
 
+// ------------------- argList -------------------
+// a struct to convey list of arguments
+// used instead of std::tuple to avoid some template deduction issues
+// honestly, I recommend using std::tuple and figuring out what's wrong with the deduction
+template<typename ... Args>
+struct argList
+{
+};
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -28,7 +36,7 @@ struct tagExtractor<Tag<T>>
 template <template <typename...> class Tag, typename... Args>
 struct tagExtractor<Tag<Args...>>
 {
-    using type = std::tuple<Args...>;
+    using type = argList<Args...>;
 };
 
 // 值未能匹配，最终返回默认值
@@ -56,20 +64,20 @@ struct tagExtractor<Tag<T>, Tag<T2>, Args...>
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3>
 struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
 {
-    using type = std::tuple<Args2...>;
+    using type = argList<Args2...>;
 };
 
 // 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
-requires(!std::is_same_v<innerWrapper<Args2...>, std::tuple<Args2...>>)
+requires(!std::is_same_v<innerWrapper<Args2...>, argList<Args2...>>)
 struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
 {
-    using type = std::tuple<Args2...>;
+    using type = argList<Args2...>;
 };
 
 // 也很特别的，apFixed<...>可能传入了一个tuple，这个时候需要拆封tuple
 template <typename Tag, typename... Args>
-struct tagExtractor<Tag, std::tuple<Args...>> : tagExtractor<Tag, Args...>
+struct tagExtractor<Tag, argList<Args...>> : tagExtractor<Tag, Args...>
 {
 };
 
@@ -143,7 +151,7 @@ struct shifter
 
     template <typename T, typename returnType>
         requires std::is_arithmetic_v<T> && shortInt<returnType>
-    inline static returnType input(T val)
+    inline static constexpr returnType input(T val)
     {
         if constexpr (shift >= 0)
         {
@@ -728,7 +736,7 @@ struct Qadd_s
 };
 
 template <typename... toArgs>
-struct Qadd_s<std::tuple<toArgs...>> : Qadd_s<toArgs...>
+struct Qadd_s<argList<toArgs...>> : Qadd_s<toArgs...>
 {
 };
 
@@ -1036,7 +1044,7 @@ struct Qgemul_s
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedB ? B[j][k] : B[k][j];
 
-                    sum = Qadd_s<addArgs>::apply(sum, Qmul<mulArgs>(a, b));
+                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
                 }
                 C[i][j] = sum;
             }
@@ -1061,7 +1069,7 @@ struct Qgemul_s
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedA ? A[k][j] : A[j][k];
 
-                    sum = Qadd_s<addArgs>::apply(sum, Qmul<mulArgs>(a, b));
+                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
                 }
                 C[i][j] = sum;
                 if (i != j)
@@ -1143,10 +1151,13 @@ struct Qgemv_s
     {
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, fromArgsA...>::value;
 
-        auto static constexpr beta = tagExtractor<QgemvBeta<apFixed<toArgs...>(0)>, interiorArgs...>::value;
-        auto static constexpr alpha = tagExtractor<QgemvAlpha<apFixed<toArgs...>(1)>, interiorArgs...>::value;
+        auto static constexpr defaultBeta = apFixed<toArgs...>(0);
+        auto static constexpr defaultAlpha = apFixed<toArgs...>(1);
 
-        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
+        auto static constexpr beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
+        auto static constexpr alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
+
+        static_assert(isTransposedA ? (colA == rowX && rowA == rowY) : (rowA == rowX && colA == rowY), "Size mismatch when calling Qgemv");
 
         auto static constexpr outerLoop = isTransposedA ? colA : rowA;
         auto static constexpr innerLoop = isTransposedA ? rowA : colA;
