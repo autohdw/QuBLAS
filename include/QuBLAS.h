@@ -1061,7 +1061,7 @@ struct Qgemul_s
                     auto a = isTransposedA ? A[k][i] : A[i][k];
                     auto b = isTransposedA ? A[k][j] : A[j][k];
 
-                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
+                    sum = Qadd_s<addArgs>::apply(sum, Qmul<mulArgs>(a, b));
                 }
                 C[i][j] = sum;
                 if (i != j)
