@@ -785,7 +785,11 @@ struct Qdiv_s
 
         if (f2.data == 0)
         {
-            f2.data =1;
+            return apFixed<intBits<toInt>,
+                           fracBits<toFrac>,
+                           QuMode<toQuMode>,
+                           OfMode<toOfMode>,
+                           isSigned<toIsSigned>>(0, DirectAssignTag{});
         }
 
         auto fullQuotient = (static_cast<long long int>(f1.data) << shiftA << toFrac) / (static_cast<long long int>(f2.data) << shiftB);
