@@ -921,15 +921,15 @@ inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Arg
 
 // ------------------- Vector and Matrix -------------------
 
-template <typename apFixedType, size_t N>
-class apFixedVec
+template <size_t N, typename apFixedType=apFixed<>>
+class Qvec
 {
 public:
     std::array<apFixedType, N> data;
 
-    apFixedVec() = default;
+    Qvec() = default;
 
-    apFixedVec(std::initializer_list<apFixedType> init)
+    Qvec(std::initializer_list<apFixedType> init)
     {
         if (init.size() > N)
             throw std::invalid_argument("Initializer list larger than vector size.");
@@ -974,15 +974,15 @@ public:
     }
 };
 
-template <typename apFixedType, size_t M, size_t N>
-class apFixedMat
+template < size_t M, size_t N, typename apFixedType = apFixed<>>
+class Qmat
 {
 public:
-    std::array<apFixedVec<apFixedType, N>, M> data;
+    std::array<Qvec<N, apFixedType>, M> data;
 
-    apFixedMat() = default;
+    Qmat() = default;
 
-    apFixedMat(std::initializer_list<apFixedType> init)
+    Qmat(std::initializer_list<apFixedType> init)
     {
         for (int i = 0; i < M; i++)
         {
@@ -990,12 +990,12 @@ public:
         }
     }
 
-    inline constexpr apFixedVec<apFixedType, N> &operator[](size_t index)
+    inline constexpr Qvec<N, apFixedType> &operator[](size_t index)
     {
         return data[index];
     }
 
-    inline constexpr const apFixedVec<apFixedType, N> &operator[](size_t index) const
+    inline constexpr const Qvec<N, apFixedType> &operator[](size_t index) const
     {
         return data[index];
     }
@@ -1057,7 +1057,7 @@ struct Qgemul_s
     using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
 
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-    inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
+    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat< rowB, colB,apFixed<fromArgsB...>> &B)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
         static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
@@ -1090,7 +1090,7 @@ struct Qgemul_s
 
     // special version for C = op(A^T) * op(A)
     template <typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
-    inline static void apply(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A)
+    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
 
@@ -1119,13 +1119,13 @@ struct Qgemul_s
 };
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-inline void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedMat<apFixed<fromArgsB...>, rowB, colB> &B)
+inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat< rowB, colB,apFixed<fromArgsB...>> &B)
 {
     Qgemul_s<interiorArgs...>::apply(C, A, B);
 }
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
-inline void Qgemul(apFixedMat<apFixed<toArgs...>, rowC, colC> &C, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A)
+inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A)
 {
     Qgemul_s<interiorArgs...>::apply(C, A);
 }
@@ -1155,7 +1155,7 @@ struct Qgemv_s
     using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
 
     template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+    inline static void apply(Qvec< rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
 
@@ -1184,7 +1184,7 @@ struct Qgemv_s
 
     // special version for alpha and beta be template parameters
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+    inline static void apply(Qvec< rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
 
@@ -1248,13 +1248,13 @@ struct Qgemv_s
 };
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+inline void Qgemv(Qvec< rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
 {
     Qgemv_s<interiorArgs...>::apply(y, beta, alpha, A, x);
 }
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(apFixedVec<apFixed<toArgs...>, rowY> &y, const apFixedMat<apFixed<fromArgsA...>, rowA, colA> &A, const apFixedVec<apFixed<fromArgsX...>, rowX> &x)
+inline void Qgemv(Qvec< rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
 {
     Qgemv_s<interiorArgs...>::apply(y, A, x);
 }
@@ -1278,7 +1278,7 @@ struct Qgetrf_s
     using mulArgs = tagExtractor<QgetrfMulArgs<>, interiorArgs...>::type;
 
     template <typename... ArgsA, size_t N>
-    inline static void apply(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv)
+    inline static void apply(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
     {
         for (int i = 0; i < N; i++)
         {
@@ -1324,7 +1324,7 @@ struct Qgetrf_s
 };
 
 template <typename... interiorArgs, typename... ArgsA, size_t N>
-inline void Qgetrf(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv)
+inline void Qgetrf(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
 {
     Qgetrf_s<interiorArgs...>::apply(A, ipiv);
 }
@@ -1348,9 +1348,9 @@ struct Qgetrs_s
     using mulArgs = tagExtractor<QgetrsMulArgs<>, interiorArgs...>::type;
 
     template <typename... ArgsA, typename... ArgsB, size_t N>
-    inline static void apply(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv, apFixedVec<apFixed<ArgsB...>, N> &b)
+    inline static void apply(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
     {
-        static apFixedVec<apFixed<ArgsB...>, N> b_permuted;
+        static Qvec<N, apFixed<ArgsB...>> b_permuted;
 
         for (int i = 0; i < N; i++)
         {
@@ -1382,7 +1382,7 @@ struct Qgetrs_s
 };
 
 template <typename... interiorArgs, typename... ArgsA, typename... ArgsB, size_t N>
-inline void Qgetrs(apFixedMat<apFixed<ArgsA...>, N, N> &A, std::array<size_t, N> &ipiv, apFixedVec<apFixed<ArgsB...>, N> &b)
+inline void Qgetrs(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
 {
     Qgetrs_s<interiorArgs...>::apply(A, ipiv, b);
 }
