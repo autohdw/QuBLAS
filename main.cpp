@@ -29,11 +29,12 @@ int main()
 
     std::cout<<"====================="<<std::endl;
 
-    Qvec<4,list1> d = {1, 2, 3, 4};
+    Qvec<7,type1> d = {1, 2, 3, 4, 5, 6, 7};
 
-    d.display();
+    using shortList = TypeList<type1, type2, type3>;
 
-    d[0] = 5;
+    auto res = Qreduce(d);
 
-    d.display();
+    res.display();
+
 }

@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -18,18 +19,18 @@ constexpr bool debug = false;
 
 template <typename... Types>
 struct TypeList
-{};
+{
+    static inline constexpr size_t size = sizeof...(Types);
+};
 
 // 特化，用于提取头部和尾部类型（通过继承获得）
 template <typename Head, typename... Tail>
 struct TypeList<Head, Tail...>
 {
+    static inline constexpr size_t size = sizeof...(Tail) + 1;
     using head = Head;              // 当前头部类型
     using tail = TypeList<Tail...>; // 余下部分形成的TypeList
 };
-
-// 一个用于标识空类型列表的特殊类型
-using NullType = TypeList<>;
 
 // 基本定义
 template <int index, typename List>
@@ -1021,84 +1022,10 @@ class Qvec<N> : public Qvec<N, apFixed<>>
 
 // specialization for pass in TypeList
 
-class IApFixed
-{
-public:
-    virtual ~IApFixed() {}
-    virtual void display(std::string name = "") = 0;
-
-    // overload = operator
-    virtual IApFixed &operator=(int rhs) = 0;
-};
-
-template <typename... Args>
-class ApFixedWrapper : public IApFixed
-{
-public:
-    using apFixedType = apFixed<Args...>;
-    apFixedType data;
-
-    ApFixedWrapper() = default;
-
-    ApFixedWrapper(apFixedType data) : data(data) {}
-
-    void display(std::string name = "") override
-    {
-        data.display(name);
-    }
-
-    IApFixed &operator=(int rhs) override
-    {
-        data = rhs;
-        return *this;
-    }
-};
-
-// 一个辅助的函数，用于创建并返回一个IApFixed的智能指针，根据给定的TypeList和index
-template <size_t N, typename List, size_t index>
-auto makeApFixed(double value) -> std::unique_ptr<IApFixed>
-{
-    using ApFixedType = TypeAt<index, List>;
-
-    return std::make_unique<ApFixedWrapper<ApFixedType>>(value);
-}
-
-// 辅助构造函数的实现细节，特化一个递归结束条件
-template <size_t N, typename List, size_t... Is>
-auto makeArrayHelper(std::initializer_list<double> init, std::index_sequence<Is...>)
-{
-    return std::array<std::unique_ptr<IApFixed>, N>{makeApFixed<N, List, Is>(init.begin()[Is])...};
-}
-
 template <size_t N, typename... Types>
 class Qvec<N, TypeList<Types...>>
 {
-    std::array<std::unique_ptr<IApFixed>, N> data;
-
-public:
-    Qvec(std::initializer_list<double> init) : data(makeArrayHelper<N, TypeList<Types...>>(init, std::make_index_sequence<N>{})) {}
-
-    inline auto &operator[](size_t index)
-    {
-        return *(data[index]);
-    }
-
-    inline size_t size() const
-    {
-        return N;
-    }
-
-    void display(std::string name = "")
-    {
-        if (name != "")
-        {
-            std::cout << name << std::endl;
-        }
-        for (int i = 0; i < N; i++)
-        {
-            data[i]->display();
-        }
-    }
+    // not implemented yet
 };
 
 template <size_t M, size_t N, typename apFixedType = apFixed<>>
@@ -1165,25 +1092,98 @@ public:
 // ------------------- Reducer -------------------
 // it's not a standard BLAS operation, but exists in realistic ASIC design
 
-template <std::size_t Alen>
+template <std::size_t Alen, typename apFixedType>
 struct Accumulator
 {
-    static inline std::array<int, (Alen + 1) / 2> output = {};
+    static inline Qvec<(Alen + 1) / 2, apFixedType> output;
 
-    template <std::size_t... I>
-    static void accumulate_impl(const std::array<int, Alen> &input, std::index_sequence<I...>)
+    template <std::size_t... I, typename inputT>
+    static inline void accumulate_impl(const Qvec<Alen, inputT> &input, std::index_sequence<I...>)
     {
         ((I * 2 + 1 < Alen
-              ? output[I] = input[I * 2] + input[I * 2 + 1]
+              ? output[I] = Qadd<apFixedType>(input[I * 2], input[I * 2 + 1])
               : output[I] = input[I * 2]),
          ...);
     }
 
-    static void accumulate(const std::array<int, Alen> &input)
+    template <typename inputT>
+    static inline void accumulate(const Qvec<Alen, inputT> &input)
     {
         accumulate_impl(input, std::make_index_sequence<(Alen + 1) / 2>{});
     }
 };
+
+template <std::size_t len, typename... Types>
+struct Reducer;
+
+template <std::size_t len, typename... Types>
+struct Reducer<len, TypeList<Types...>>
+{
+
+    template <typename listLeft, typename vecT>
+    static inline auto reduce_impl(const Qvec<len, vecT> &input)
+    {
+
+        if constexpr (len > 1)
+        {
+            static_assert(listLeft::size > 0, "The input TypeList does not have enough Types");
+            using head = listLeft::head;
+            using tail = listLeft::tail;
+            Accumulator<len, head>::accumulate(input);
+            return Reducer<(len + 1) / 2, tail>::reduce(Accumulator<len, head>::output);
+        }
+        else
+        {
+            return input[0];
+        }
+    }
+
+    template <typename vecT>
+    static inline auto reduce(const Qvec<len, vecT> &input)
+    {
+        return reduce_impl<TypeList<Types...>>(input);
+    }
+};
+
+template <std::size_t len, typename... Types>
+struct Reducer<len, apFixed<Types...>>
+{
+    template <typename vecT>
+    static inline auto reduce_impl(const Qvec<len, vecT> &input)
+    {
+
+        if constexpr (len > 1)
+        {
+            Accumulator<len, apFixed<Types...>>::accumulate(input);
+            return Reducer<(len + 1) / 2, apFixed<Types...>>::reduce(Accumulator<len, apFixed<Types...>>::output);
+        }
+        else
+        {
+            return input[0];
+        }
+    }
+
+    template <typename vecT>
+    static inline auto reduce(const Qvec<len, vecT> &input)
+    {
+        return reduce_impl(input);
+    }
+};
+
+
+template <typename... Types, size_t len, typename vecTypes>
+auto inline Qreduce(const Qvec<len, vecTypes> &input)
+{
+
+    if constexpr (sizeof...(Types) == 0)
+    {
+        return Reducer<len, vecTypes>::reduce(input);
+    }
+    else
+    {
+        return Reducer<len, TypeList<Types...>>::reduce(input);
+    }
+}
 
 // ------------------- Qgemul -------------------
 
