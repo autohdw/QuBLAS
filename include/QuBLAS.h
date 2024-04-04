@@ -1,9 +1,11 @@
 #pragma once
 
+#include <any>
 #include <array>
 #include <bitset>
 #include <cmath>
 #include <concepts>
+#include <cstddef>
 #include <iostream>
 #include <stdexcept>
 #include <type_traits>
@@ -12,14 +14,45 @@
 // ------------------- debug -------------------
 constexpr bool debug = false;
 
-// ------------------- argList -------------------
-// a struct to convey list of arguments
-// used instead of std::tuple to avoid some template deduction issues
-// honestly, I recommend using std::tuple and figuring out what's wrong with the deduction
-template <typename... Args>
-struct argList
+// ------------------- TypeList -------------------
+
+template <typename... Types>
+struct TypeList
+{};
+
+// 特化，用于提取头部和尾部类型（通过继承获得）
+template <typename Head, typename... Tail>
+struct TypeList<Head, Tail...>
 {
+    using head = Head;              // 当前头部类型
+    using tail = TypeList<Tail...>; // 余下部分形成的TypeList
 };
+
+// 一个用于标识空类型列表的特殊类型
+using NullType = TypeList<>;
+
+// 基本定义
+template <int index, typename List>
+struct TypeAt_s;
+
+// 特化：当下标为0时，直接返回头部类型
+template <typename Head, typename... Tail>
+struct TypeAt_s<0, TypeList<Head, Tail...>>
+{
+    using Result = Head;
+};
+
+// 特化：当下标大于0时，递归地移除类型列表的头部类型并对剩余列表和下标-1进行求解
+template <int index, typename Head, typename... Tail>
+struct TypeAt_s<index, TypeList<Head, Tail...>>
+{
+    static_assert(index < sizeof...(Tail) + 1, "Index out of bounds");
+    using Result = typename TypeAt_s<index - 1, TypeList<Tail...>>::Result;
+};
+
+template <size_t N, typename List>
+using TypeAt = typename TypeAt_s<N, List>::Result;
+
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -36,7 +69,7 @@ struct tagExtractor<Tag<T>>
 template <template <typename...> class Tag, typename... Args>
 struct tagExtractor<Tag<Args...>>
 {
-    using type = argList<Args...>;
+    using type = TypeList<Args...>;
 };
 
 // 值未能匹配，最终返回默认值
@@ -64,20 +97,20 @@ struct tagExtractor<Tag<T>, Tag<T2>, Args...>
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3>
 struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
 {
-    using type = argList<Args2...>;
+    using type = TypeList<Args2...>;
 };
 
 // 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
-    requires(!std::is_same_v<innerWrapper<Args2...>, argList<Args2...>>)
+    requires(!std::is_same_v<innerWrapper<Args2...>, TypeList<Args2...>>)
 struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
 {
-    using type = argList<Args2...>;
+    using type = TypeList<Args2...>;
 };
 
 // 也很特别的，apFixed<...>可能传入了一个tuple，这个时候需要拆封tuple
 template <typename Tag, typename... Args>
-struct tagExtractor<Tag, argList<Args...>> : tagExtractor<Tag, Args...>
+struct tagExtractor<Tag, TypeList<Args...>> : tagExtractor<Tag, Args...>
 {
 };
 
@@ -739,7 +772,7 @@ struct Qadd_s
 };
 
 template <typename... toArgs>
-struct Qadd_s<argList<toArgs...>> : Qadd_s<toArgs...>
+struct Qadd_s<TypeList<toArgs...>> : Qadd_s<toArgs...>
 {
 };
 
@@ -920,9 +953,13 @@ inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Arg
 }
 
 // ------------------- Vector and Matrix -------------------
+// base version
+template <size_t N, typename... Args>
+class Qvec;
 
-template <size_t N, typename apFixedType=apFixed<>>
-class Qvec
+// specialization for pass in apFixedType
+template <size_t N, typename apFixedType>
+class Qvec<N, apFixedType>
 {
 public:
     std::array<apFixedType, N> data;
@@ -963,9 +1000,9 @@ public:
         }
     }
 
-    inline std::array<double , N> output()
+    inline std::array<double, N> output()
     {
-        std::array<double , N> output;
+        std::array<double, N> output;
         for (int i = 0; i < N; i++)
         {
             output[i] = data[i].output();
@@ -974,7 +1011,97 @@ public:
     }
 };
 
-template < size_t M, size_t N, typename apFixedType = apFixed<>>
+// specialization for pass in only N
+template <size_t N>
+class Qvec<N> : public Qvec<N, apFixed<>>
+{
+    // 委托构造函数
+    using Qvec<N, apFixed<>>::Qvec;
+};
+
+// specialization for pass in TypeList
+
+class IApFixed
+{
+public:
+    virtual ~IApFixed() {}
+    virtual void display(std::string name = "") = 0;
+
+    // overload = operator
+    virtual IApFixed &operator=(int rhs) = 0;
+};
+
+template <typename... Args>
+class ApFixedWrapper : public IApFixed
+{
+public:
+    using apFixedType = apFixed<Args...>;
+    apFixedType data;
+
+    ApFixedWrapper() = default;
+
+    ApFixedWrapper(apFixedType data) : data(data) {}
+
+    void display(std::string name = "") override
+    {
+        data.display(name);
+    }
+
+    IApFixed &operator=(int rhs) override
+    {
+        data = rhs;
+        return *this;
+    }
+};
+
+// 一个辅助的函数，用于创建并返回一个IApFixed的智能指针，根据给定的TypeList和index
+template <size_t N, typename List, size_t index>
+auto makeApFixed(double value) -> std::unique_ptr<IApFixed>
+{
+    using ApFixedType = TypeAt<index, List>;
+
+    return std::make_unique<ApFixedWrapper<ApFixedType>>(value);
+}
+
+// 辅助构造函数的实现细节，特化一个递归结束条件
+template <size_t N, typename List, size_t... Is>
+auto makeArrayHelper(std::initializer_list<double> init, std::index_sequence<Is...>)
+{
+    return std::array<std::unique_ptr<IApFixed>, N>{makeApFixed<N, List, Is>(init.begin()[Is])...};
+}
+
+template <size_t N, typename... Types>
+class Qvec<N, TypeList<Types...>>
+{
+    std::array<std::unique_ptr<IApFixed>, N> data;
+
+public:
+    Qvec(std::initializer_list<double> init) : data(makeArrayHelper<N, TypeList<Types...>>(init, std::make_index_sequence<N>{})) {}
+
+    inline auto &operator[](size_t index)
+    {
+        return *(data[index]);
+    }
+
+    inline size_t size() const
+    {
+        return N;
+    }
+
+    void display(std::string name = "")
+    {
+        if (name != "")
+        {
+            std::cout << name << std::endl;
+        }
+        for (int i = 0; i < N; i++)
+        {
+            data[i]->display();
+        }
+    }
+};
+
+template <size_t M, size_t N, typename apFixedType = apFixed<>>
 class Qmat
 {
 public:
@@ -1023,9 +1150,9 @@ public:
         }
     }
 
-    inline std::array<std::array<double , N>, M> output()
+    inline std::array<std::array<double, N>, M> output()
     {
-        std::array<std::array<double , N>, M> output;
+        std::array<std::array<double, N>, M> output;
         for (int i = 0; i < M; i++)
         {
             output[i] = data[i].output();
@@ -1035,6 +1162,28 @@ public:
 };
 
 // ===================== BLAS =====================
+// ------------------- Reducer -------------------
+// it's not a standard BLAS operation, but exists in realistic ASIC design
+
+template <std::size_t Alen>
+struct Accumulator
+{
+    static inline std::array<int, (Alen + 1) / 2> output = {};
+
+    template <std::size_t... I>
+    static void accumulate_impl(const std::array<int, Alen> &input, std::index_sequence<I...>)
+    {
+        ((I * 2 + 1 < Alen
+              ? output[I] = input[I * 2] + input[I * 2 + 1]
+              : output[I] = input[I * 2]),
+         ...);
+    }
+
+    static void accumulate(const std::array<int, Alen> &input)
+    {
+        accumulate_impl(input, std::make_index_sequence<(Alen + 1) / 2>{});
+    }
+};
 
 // ------------------- Qgemul -------------------
 
@@ -1057,7 +1206,7 @@ struct Qgemul_s
     using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
 
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat< rowB, colB,apFixed<fromArgsB...>> &B)
+    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat<rowB, colB, apFixed<fromArgsB...>> &B)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
         static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
@@ -1119,7 +1268,7 @@ struct Qgemul_s
 };
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat< rowB, colB,apFixed<fromArgsB...>> &B)
+inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat<rowB, colB, apFixed<fromArgsB...>> &B)
 {
     Qgemul_s<interiorArgs...>::apply(C, A, B);
 }
@@ -1155,7 +1304,7 @@ struct Qgemv_s
     using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
 
     template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(Qvec< rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
+    inline static void apply(Qvec<rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
 
@@ -1184,7 +1333,7 @@ struct Qgemv_s
 
     // special version for alpha and beta be template parameters
     template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(Qvec< rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
+    inline static void apply(Qvec<rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
     {
         static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
 
@@ -1195,7 +1344,6 @@ struct Qgemv_s
         auto static constexpr alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
 
         static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
-
 
         auto static constexpr outerLoop = isTransposedA ? colA : rowA;
         auto static constexpr innerLoop = isTransposedA ? rowA : colA;
@@ -1248,13 +1396,13 @@ struct Qgemv_s
 };
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(Qvec< rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
+inline void Qgemv(Qvec<rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
 {
     Qgemv_s<interiorArgs...>::apply(y, beta, alpha, A, x);
 }
 
 template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(Qvec< rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
+inline void Qgemv(Qvec<rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
 {
     Qgemv_s<interiorArgs...>::apply(y, A, x);
 }
@@ -1278,7 +1426,7 @@ struct Qgetrf_s
     using mulArgs = tagExtractor<QgetrfMulArgs<>, interiorArgs...>::type;
 
     template <typename... ArgsA, size_t N>
-    inline static void apply(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
+    inline static void apply(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
     {
         for (int i = 0; i < N; i++)
         {
@@ -1324,7 +1472,7 @@ struct Qgetrf_s
 };
 
 template <typename... interiorArgs, typename... ArgsA, size_t N>
-inline void Qgetrf(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
+inline void Qgetrf(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
 {
     Qgetrf_s<interiorArgs...>::apply(A, ipiv);
 }
@@ -1348,7 +1496,7 @@ struct Qgetrs_s
     using mulArgs = tagExtractor<QgetrsMulArgs<>, interiorArgs...>::type;
 
     template <typename... ArgsA, typename... ArgsB, size_t N>
-    inline static void apply(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
+    inline static void apply(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
     {
         static Qvec<N, apFixed<ArgsB...>> b_permuted;
 
@@ -1382,7 +1530,7 @@ struct Qgetrs_s
 };
 
 template <typename... interiorArgs, typename... ArgsA, typename... ArgsB, size_t N>
-inline void Qgetrs(Qmat< N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
+inline void Qgetrs(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
 {
     Qgetrs_s<interiorArgs...>::apply(A, ipiv, b);
 }
