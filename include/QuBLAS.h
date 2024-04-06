@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -64,7 +65,6 @@ struct is_typelist : std::false_type
 template <typename... Types>
 struct is_typelist<TypeList<Types...>> : std::true_type
 {};
-
 
 // ------------------- tagExtractor -------------------
 
@@ -911,914 +911,96 @@ inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Arg
 }
 
 // ------------------- Vector and Matrix -------------------
-// base version
-template <size_t N, typename... Args>
-class Qvec;
 
-// specialization for pass in apFixedType
-template <size_t N, typename apFixedType>
-class Qvec<N, apFixedType>
+template <size_t... dims>
+struct dimList
 {
-public:
-    std::array<apFixedType, N> data;
+    static inline constexpr size_t dimSize = sizeof...(dims);
+    static inline constexpr size_t elemSize = (dims * ...);
 
-    Qvec() = default;
+    static inline constexpr std::array<size_t, dimSize> dimArray = {dims...};
 
-    Qvec(std::initializer_list<apFixedType> init)
+    template <size_t index>
+        requires(index < dimSize)
+    struct dimAt_s
     {
-        if (init.size() > N)
-            throw std::invalid_argument("Initializer list larger than vector size.");
-        std::copy(init.begin(), init.end(), data.begin());
-    }
-
-    inline constexpr apFixedType &operator[](size_t index)
-    {
-        return data[index];
-    }
-
-    inline constexpr const apFixedType &operator[](size_t index) const
-    {
-        return data[index];
-    }
-
-    inline constexpr size_t size() const
-    {
-        return N;
-    }
-
-    void display(std::string name = "")
-    {
-        if (name != "")
-        {
-            std::cout << name << std::endl;
-        }
-        for (int i = 0; i < N; i++)
-        {
-            data[i].display();
-        }
-    }
-
-    inline std::array<double, N> output()
-    {
-        std::array<double, N> output;
-        for (int i = 0; i < N; i++)
-        {
-            output[i] = data[i].output();
-        }
-        return output;
-    }
-};
-
-// specialization for pass in only N
-template <size_t N>
-class Qvec<N> : public Qvec<N, apFixed<>>
-{
-    // 委托构造函数
-    using Qvec<N, apFixed<>>::Qvec;
-};
-
-// specialization for pass in TypeList
-
-template <size_t N, typename... Types>
-class Qvec<N, TypeList<Types...>>
-{
-    // not implemented yet
-};
-
-template <size_t M, size_t N, typename apFixedType = apFixed<>>
-class Qmat
-{
-public:
-    std::array<Qvec<N, apFixedType>, M> data;
-
-    Qmat() = default;
-
-    Qmat(std::initializer_list<apFixedType> init)
-    {
-        for (int i = 0; i < M; i++)
-        {
-            std::copy(init.begin() + i * N, init.begin() + (i + 1) * N, data[i].data.begin());
-        }
-    }
-
-    inline constexpr Qvec<N, apFixedType> &operator[](size_t index)
-    {
-        return data[index];
-    }
-
-    inline constexpr const Qvec<N, apFixedType> &operator[](size_t index) const
-    {
-        return data[index];
-    }
-
-    void display(std::string name = "")
-    {
-        if (name != "")
-        {
-            std::cout << name << std::endl;
-        }
-        for (int i = 0; i < M; i++)
-        {
-            for (int j = 0; j < N; j++)
-            {
-                if (name != "")
-                {
-                    data[i][j].display();
-                }
-                else
-                {
-                    data[i][j].display(std::to_string(i) + " " + std::to_string(j) + " ");
-                }
-            }
-            std::cout << std::endl;
-        }
-    }
-
-    inline std::array<std::array<double, N>, M> output()
-    {
-        std::array<std::array<double, N>, M> output;
-        for (int i = 0; i < M; i++)
-        {
-            output[i] = data[i].output();
-        }
-        return output;
-    }
-};
-
-// ===================== BLAS =====================
-// ------------------- Reducer -------------------
-// it's not a standard BLAS operation, but exists in realistic ASIC design
-
-template <std::size_t Alen, typename apFixedType>
-struct Accumulator
-{
-    static inline Qvec<(Alen + 1) / 2, apFixedType> output;
-
-    template <std::size_t... I, typename inputT>
-    static inline void accumulate_impl(const Qvec<Alen, inputT> &input, std::index_sequence<I...>)
-    {
-        ((I * 2 + 1 < Alen
-              ? output[I] = Qadd<apFixedType>(input[I * 2], input[I * 2 + 1])
-              : output[I] = input[I * 2]),
-         ...);
-    }
-
-    template <typename inputT>
-    static inline void accumulate(const Qvec<Alen, inputT> &input)
-    {
-        accumulate_impl(input, std::make_index_sequence<(Alen + 1) / 2>{});
-    }
-};
-
-template <std::size_t len, typename... Types>
-struct Reducer;
-
-template <std::size_t len, typename... Types>
-struct Reducer<len, TypeList<Types...>>
-{
-
-    template <typename listLeft, typename vecT>
-    static inline auto reduce_impl(const Qvec<len, vecT> &input)
-    {
-
-        if constexpr (len > 1)
-        {
-            static_assert(listLeft::size > 0, "The input TypeList does not have enough Types");
-            using head = listLeft::head;
-            using tail = listLeft::tail;
-            Accumulator<len, head>::accumulate(input);
-            return Reducer<(len + 1) / 2, tail>::reduce(Accumulator<len, head>::output);
-        }
-        else
-        {
-            return input[0];
-        }
-    }
-
-    template <typename vecT>
-    static inline auto reduce(const Qvec<len, vecT> &input)
-    {
-        return reduce_impl<TypeList<Types...>>(input);
-    }
-};
-
-template <std::size_t len, typename... Types>
-struct Reducer<len, apFixed<Types...>>
-{
-    template <typename vecT>
-    static inline auto reduce_impl(const Qvec<len, vecT> &input)
-    {
-
-        if constexpr (len > 1)
-        {
-            Accumulator<len, apFixed<Types...>>::accumulate(input);
-            return Reducer<(len + 1) / 2, apFixed<Types...>>::reduce(Accumulator<len, apFixed<Types...>>::output);
-        }
-        else
-        {
-            return input[0];
-        }
-    }
-
-    template <typename vecT>
-    static inline auto reduce(const Qvec<len, vecT> &input)
-    {
-        return reduce_impl(input);
-    }
-};
-
-template <typename... Types, size_t len, typename vecTypes>
-auto inline Qreduce(const Qvec<len, vecTypes> &input)
-{
-    if constexpr (sizeof...(Types) == 0)
-    {
-        // Qreduce()
-        return Reducer<len, vecTypes>::reduce(input);
-    }
-    else
-    {
-        using FirstType = std::tuple_element_t<0, std::tuple<Types...>>;
-        if constexpr (is_typelist<FirstType>::value)
-        {
-            // Qreduce<TypeList<...>>()
-            return Reducer<len, FirstType>::reduce(input);
-        }
-        else if constexpr (is_apFixed<FirstType>::value)
-        {
-            if constexpr (sizeof...(Types) == 1)
-            {
-                // Qreduce<apFixed<...>>()
-                return Reducer<len, FirstType>::reduce(input);
-            }
-            else
-            {
-                // Qreduce<apFixed<...>, apFixed<...>, ...>()
-                return Reducer<len, TypeList<Types...>>::reduce(input);
-            }
-        }
-        else
-        {
-            // Qreduce<intBits<...>, fracBits<...>, isSigned<...>, OfMode<...>>()
-            return Reducer<len, apFixed<Types...>>::reduce(input);
-        }
-    }
-}
-
-// ------------------- ve -------------------
-
-template <std::size_t Alen, typename apFixedType>
-struct Qve_s
-{
-    static inline Qvec<Alen, apFixedType> output;
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qmul<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename...Args>
-    static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qmul<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &mul(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        mul_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename...Args>
-    static inline auto &mul(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        mul_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void add_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qadd<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename...Args>
-    static inline void add_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qadd<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &add(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        add_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename...Args>
-    static inline auto &add(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        add_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qsub<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename...Args>
-    static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qsub<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename...Args>
-    static inline void sub_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qsub<apFixedType>(input1, input2[I])), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &sub(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename...Args>
-    static inline auto &sub(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename...Args>
-    static inline auto &sub(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
-    {
-        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void div_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qdiv<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename...Args>
-    static inline void div_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qdiv<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename...Args>
-    static inline void div_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qdiv<apFixedType>(input1, input2[I])), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &div(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        div_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename...Args>
-    static inline auto &div(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        div_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename...Args>
-    static inline auto &div(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
-    {
-        div_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-};
-
-template <typename vecTypes1, typename vecTypes2, typename... Types>
-struct QveTypeHelper
-{
-    template <typename T1, typename T2>
-    struct defaultType
-    {
-        using merger = apFixedMerge<apFixed<>, T1, T2>;
-        using type = apFixed<intBits<merger::toInt>, fracBits<merger::toFrac>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>, isSigned<merger::toIsSigned>>;
+        static inline constexpr size_t value = dimArray[index];
     };
 
-    template <typename... Ts>
-    struct customType
+    template <size_t index>
+        requires(index < dimSize)
+    static inline constexpr size_t dimAt = dimAt_s<index>::value;
+
+    template <size_t index2>
+    struct elemSizeForIndexTail
     {
-        using FirstType = std::tuple_element_t<0, std::tuple<Ts...>>;
-        using type = std::conditional_t<is_apFixed<FirstType>::value, FirstType, apFixed<Ts...>>;
+        static inline constexpr size_t value = std::accumulate(dimArray.begin() + index2, dimArray.end(), 1, std::multiplies<size_t>());
     };
 
-    using outputType = typename std::conditional_t<
-        sizeof...(Types) == 0,
-        defaultType<vecTypes1, vecTypes2>,
-        customType<Types...>>::type;
+    // for example, dimList<2,2,3,4>
+    // absoluteIndex<0,1,1,1> = 0*2*3*4 + 1*3*4 + 1*4 + 1 = 17
+    template <size_t... index>
+        requires(sizeof...(index) == dimSize)
+    struct absoluteIndex_s
+    {
+        template <size_t loc, size_t... index2>
+        struct compute;
+
+        template <size_t loc, size_t firstIndex, size_t... indexLeft>
+        struct compute<loc, firstIndex, indexLeft...>
+        {
+            static inline constexpr size_t value = firstIndex * elemSizeForIndexTail<loc + 1>::value + compute<loc + 1, indexLeft...>::value;
+        };
+
+        template <size_t firstIndex>
+        struct compute<dimSize - 1, firstIndex>
+        {
+            static inline constexpr size_t value = firstIndex;
+        };
+
+        static inline constexpr size_t value = compute<0, index...>::value;
+    };
+
+    template <size_t... index>
+        requires(sizeof...(index) == dimSize)
+    using absoluteIndex = absoluteIndex_s<index...>::value;
 };
 
-// Do not use auto& res = Qve<...>(...), use auto res = instead
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qvem(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+// integrated vector and matrix
+template <size_t... dims, typename... Args>
+class apFixed<dimList<dims...>, apFixed<Args...>>
 {
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::mul(input1, input2);
-}
+public:
+    std::array<apFixed<Args...>, dimList<dims...>::elemSize> data;
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
-inline auto &Qvem(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::mul(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator*(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qvem<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator*(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qvem<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator*(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qvem<>(input2, input1);
-}
-
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qvea(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::add(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
-inline auto &Qvea(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::add(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator+(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qvea<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator+(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qvea<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator+(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qvea<>(input2, input1);
-}
-
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qves(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::sub(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
-inline auto &Qves(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::sub(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
-inline auto &Qves(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
-    return Qve_s<len, outputType>::sub(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator-(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qves<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator-(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qves<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator-(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qves<>(input1, input2);
-}
-
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qved(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::div(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
-inline auto &Qved(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::div(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
-inline auto &Qved(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
-    return Qve_s<len, outputType>::div(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator/(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qved<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator/(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qved<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename...Args>
-inline auto &operator/(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qved<>(input1, input2);
-}
-    
-// ------------------- Qgemul -------------------
-
-template <bool Value>
-struct QgemulTransposedA;
-
-template <bool Value>
-struct QgemulTransposedB;
-
-template <typename... Args>
-struct QgemulAddArgs;
-
-template <typename... Args>
-struct QgemulMulArgs;
-
-template <typename... interiorArgs>
-struct Qgemul_s
-{
-    using addArgs = tagExtractor<QgemulAddArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
-
-    template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat<rowB, colB, apFixed<fromArgsB...>> &B)
+    // initialize with a list of values
+    apFixed(std::initializer_list<apFixed<Args...>> list)
     {
-        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
-        static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
-
-        static_assert(
-            (!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) ||
-                (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) ||
-                (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) ||
-                (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)),
-            "Size mismatch when calling Qgemul");
-
-        for (int i = 0; i < rowC; i++)
+        if (list.size() != dimList<dims...>::elemSize)
         {
-            for (int j = 0; j < colC; j++)
-            {
-
-                apFixed<addArgs> sum = 0;
-
-                for (int k = 0; k < (isTransposedA ? rowA : colA); k++)
-                {
-                    auto a = isTransposedA ? A[k][i] : A[i][k];
-                    auto b = isTransposedB ? B[j][k] : B[k][j];
-
-                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
-                }
-                C[i][j] = sum;
-            }
+            throw std::runtime_error("The size of the list does not match the size of the matrix");
         }
+        std::copy(list.begin(), list.end(), data.begin());
     }
 
-    // special version for C = op(A^T) * op(A)
-    template <typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
-    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A)
+    template <size_t... index>
+    inline constexpr auto get()
     {
-        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
+        return data[dimList<dims...>::template absoluteIndex_s<index...>::value];
+        // return data[dimList<dims...>::template absoluteIndex<index...>];
+    }
 
-        static_assert((isTransposedA ? (rowA == colC) : (colA == colC)) && (rowC == colC), "Size mismatch when calling Qgemul(self-transpose mul version)");
-
-        for (int i = 0; i < rowC; i++)
-        {
-            for (int j = 0; j < colC; j++)
-            {
-                apFixed<addArgs> sum = 0;
-                for (int k = 0; k < (!isTransposedA ? rowA : colA); k++)
-                {
-                    auto a = !isTransposedA ? A[k][i] : A[i][k];
-                    auto b = !isTransposedA ? A[k][j] : A[j][k];
-
-                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
-                }
-                C[i][j] = sum;
-                if (i != j)
-                {
-                    C[j][i] = sum;
-                }
-            }
-        }
+    template <typename... Ints>
+        requires(sizeof...(Ints) == dimList<dims...>::dimSize)
+    inline constexpr auto operator[](Ints... index)
+    {
+        // testing just return the sum of index
+        return  data[(index+...)];
     }
 };
 
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat<rowB, colB, apFixed<fromArgsB...>> &B)
+template <size_t... dims>
+class apFixed<dimList<dims...>> : public apFixed<dimList<dims...>, apFixed<>>
 {
-    Qgemul_s<interiorArgs...>::apply(C, A, B);
-}
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
-inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A)
-{
-    Qgemul_s<interiorArgs...>::apply(C, A);
-}
-
-// ------------------- Qgemv -------------------
-// Perform the operation y = beta * y + alpha * op(A) * x.
-
-template <bool Value = false>
-struct QgemvTransposedA;
-
-template <typename... Args>
-struct QgemvAddArgs;
-
-template <typename... Args>
-struct QgemvMulArgs;
-
-template <apFixed alpha>
-struct QgemvAlpha;
-
-template <apFixed beta>
-struct QgemvBeta;
-
-template <typename... interiorArgs>
-struct Qgemv_s
-{
-    using addArgs = tagExtractor<QgemvAddArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
-
-    template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(Qvec<rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-    {
-        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
-
-        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
-
-        auto static constexpr outerLoop = isTransposedA ? colA : rowA;
-        auto static constexpr innerLoop = isTransposedA ? rowA : colA;
-
-        for (int i = 0; i < outerLoop; i++)
-        {
-            auto betaY = Qmul<mulArgs>(y[i], bata);
-
-            apFixed<addArgs> AxAddTemp = 0;
-
-            for (int j = 0; j < innerLoop; j++)
-            {
-                auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
-            }
-
-            auto alphaAxAdd = Qmul<mulArgs>(alpha, AxAddTemp);
-
-            y[i] = Qadd<addArgs>(betaY, alphaAxAdd);
-        }
-    }
-
-    // special version for alpha and beta be template parameters
-    template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(Qvec<rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-    {
-        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
-
-        auto static constexpr defaultBeta = apFixed<toArgs...>(0);
-        auto static constexpr defaultAlpha = apFixed<toArgs...>(1);
-
-        auto static constexpr beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
-        auto static constexpr alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
-
-        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
-
-        auto static constexpr outerLoop = isTransposedA ? colA : rowA;
-        auto static constexpr innerLoop = isTransposedA ? rowA : colA;
-
-        if constexpr (beta.data != 0)
-        {
-            for (int i = 0; i < outerLoop; i++)
-            {
-                auto betaY = Qmul<mulArgs>(y[i], beta);
-                apFixed<addArgs> AxAddTemp = 0;
-                for (int j = 0; j < innerLoop; j++)
-                {
-                    auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                    AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
-
-                    if constexpr (alpha != apFixed<toArgs...>(1))
-                    {
-                        auto alphaAxAdd = Qmul<mulArgs>(alpha, AxAddTemp);
-                        y[i] = Qadd<addArgs>(betaY, alphaAxAdd);
-                    }
-                    else
-                    {
-                        y[i] = Qadd<addArgs>(betaY, AxAddTemp);
-                    }
-                }
-            }
-        }
-        else
-        {
-
-            for (int i = 0; i < outerLoop; i++)
-            {
-                apFixed<addArgs> AxAddTemp = 0;
-                for (int j = 0; j < innerLoop; j++)
-                {
-                    auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                    AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
-                }
-                if constexpr (alpha != apFixed<toArgs...>(1))
-                {
-                    y[i] = Qmul<mulArgs>(alpha, AxAddTemp);
-                }
-                else
-                {
-                    y[i] = AxAddTemp;
-                }
-            }
-        }
-    }
+    using apFixed<dimList<dims...>, apFixed<>>::apFixed;
 };
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(Qvec<rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-{
-    Qgemv_s<interiorArgs...>::apply(y, beta, alpha, A, x);
-}
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(Qvec<rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-{
-    Qgemv_s<interiorArgs...>::apply(y, A, x);
-}
-
-// ------------------- Qgetrf -------------------
-
-template <typename... Args>
-struct QgetrfDivArgs;
-
-template <typename... Args>
-struct QgetrfSubArgs;
-
-template <typename... Args>
-struct QgetrfMulArgs;
-
-template <typename... interiorArgs>
-struct Qgetrf_s
-{
-    using divArgs = tagExtractor<QgetrfDivArgs<>, interiorArgs...>::type;
-    using subArgs = tagExtractor<QgetrfSubArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgetrfMulArgs<>, interiorArgs...>::type;
-
-    template <typename... ArgsA, size_t N>
-    inline static void apply(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
-    {
-        for (int i = 0; i < N; i++)
-        {
-            ipiv[i] = i;
-        }
-
-        for (int k = 0; k < N; ++k)
-        {
-            apFixed<ArgsA...> maxVal = 0;
-            int i_max = k;
-
-            for (int i = k; i < N; ++i)
-            {
-                auto absVal = Qabs(A[i][k]);
-                if (absVal > maxVal)
-                {
-                    maxVal = absVal;
-                    i_max = i;
-                }
-            }
-
-            if (maxVal.data == 0)
-            {
-                // throw std::runtime_error("Matrix is singular");
-                // theoretically, this indicates the matrix is singular
-                // however, this may occur when the fractional bits are not enough
-                // so we just return
-            }
-
-            std::swap(ipiv[k], ipiv[i_max]);
-            std::swap(A[k], A[i_max]);
-
-            for (int i = k + 1; i < N; ++i)
-            {
-                A[i][k] = Qdiv<divArgs>(A[i][k], A[k][k]);
-                for (int j = k + 1; j < N; ++j)
-                {
-                    A[i][j] = Qsub<subArgs>(A[i][j], Qmul<mulArgs>(A[i][k], A[k][j]));
-                }
-            }
-        }
-    }
-};
-
-template <typename... interiorArgs, typename... ArgsA, size_t N>
-inline void Qgetrf(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
-{
-    Qgetrf_s<interiorArgs...>::apply(A, ipiv);
-}
-
-// ------------------- Qgetrs -------------------
-
-template <typename... Args>
-struct QgetrsDivArgs;
-
-template <typename... Args>
-struct QgetrsSubArgs;
-
-template <typename... Args>
-struct QgetrsMulArgs;
-
-template <typename... interiorArgs>
-struct Qgetrs_s
-{
-    using divArgs = tagExtractor<QgetrsDivArgs<>, interiorArgs...>::type;
-    using subArgs = tagExtractor<QgetrsSubArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgetrsMulArgs<>, interiorArgs...>::type;
-
-    template <typename... ArgsA, typename... ArgsB, size_t N>
-    inline static void apply(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
-    {
-        static Qvec<N, apFixed<ArgsB...>> b_permuted;
-
-        for (int i = 0; i < N; i++)
-        {
-            b_permuted[i] = b[ipiv[i]];
-        }
-
-        for (int i = 0; i < N; i++)
-        {
-            for (int j = 0; j < i; j++)
-            {
-                b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
-            }
-        }
-
-        for (int i = N - 1; i >= 0; i--)
-        {
-            for (int j = i + 1; j < N; j++)
-            {
-                b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
-            }
-            b_permuted[i] = Qdiv<divArgs>(b_permuted[i], A[i][i]);
-        }
-
-        for (int i = 0; i < N; i++)
-        {
-            b[i] = b_permuted[i];
-        }
-    }
-};
-
-template <typename... interiorArgs, typename... ArgsA, typename... ArgsB, size_t N>
-inline void Qgetrs(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
-{
-    Qgetrs_s<interiorArgs...>::apply(A, ipiv, b);
-}
