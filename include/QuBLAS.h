@@ -54,6 +54,18 @@ struct TypeAt_s<index, TypeList<Head, Tail...>>
 template <size_t N, typename List>
 using TypeAt = typename TypeAt_s<N, List>::Result;
 
+// 辅助类型
+// 基础判断，非TypeList
+template <typename T>
+struct is_typelist : std::false_type
+{};
+
+// 特化，是TypeList
+template <typename... Types>
+struct is_typelist<TypeList<Types...>> : std::true_type
+{};
+
+
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -658,7 +670,45 @@ public:
     }
 };
 
+template <typename T>
+struct is_apFixed : std::false_type
+{};
+
+template <typename... Types>
+struct is_apFixed<apFixed<Types...>> : std::true_type
+{};
+
 // ------------------- Basic Operations -------------------
+
+// a strucrt to merge two apFixed types
+template <typename... Args>
+struct apFixedMerge;
+
+template <typename... toArgs, typename... Args1, typename... Args2>
+struct apFixedMerge<apFixed<toArgs...>, apFixed<Args1...>, apFixed<Args2...>>
+{
+    static constexpr auto fromInt1 = apFixed<Args1...>::intB;
+    static constexpr auto fromInt2 = apFixed<Args2...>::intB;
+    static constexpr auto fromFrac1 = apFixed<Args1...>::fracB;
+    static constexpr auto fromFrac2 = apFixed<Args2...>::fracB;
+
+    using fromQuMode1 = typename apFixed<Args1...>::QuM;
+    using fromQuMode2 = typename apFixed<Args2...>::QuM;
+    using fromOfMode1 = typename apFixed<Args1...>::OfM;
+    using fromOfMode2 = typename apFixed<Args2...>::OfM;
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
+    static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+};
 
 template <typename... toArgs>
 struct Qmul_s
@@ -666,42 +716,17 @@ struct Qmul_s
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = f1.intB;
-        static constexpr auto fromInt2 = f2.intB;
-        static constexpr auto fromFrac1 = f1.fracB;
-        static constexpr auto fromFrac2 = f2.fracB;
+        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
 
-        using fromQuMode1 = typename decltype(f1)::QuM;
-        using fromQuMode2 = typename decltype(f2)::QuM;
-        using fromOfMode1 = typename decltype(f1)::OfM;
-        using fromOfMode2 = typename decltype(f2)::OfM;
+        auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
+        auto fracProduct = fracConvert<merger::fromFrac1 + merger::fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
+        auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
 
-        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
-        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
-
-        static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
-
-        if constexpr (debug)
-        {
-            std::cout << "mul debug: " << std::endl;
-            std::cout << "toInt: " << toInt << std::endl;
-            std::cout << "toFrac: " << toFrac << std::endl;
-            std::cout << std::endl;
-        }
-
-        auto fullProduct = static_cast<std::conditional_t<toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
-        auto fracProduct = fracConvert<fromFrac1 + fromFrac2, toFrac, QuMode<toQuMode>>::convert(fullProduct);
-        auto intProduct = intConvert<toInt, toFrac, toIsSigned, OfMode<toOfMode>>::convert(fracProduct);
-
-        return apFixed<intBits<toInt>,
-                       fracBits<toFrac>,
-                       QuMode<toQuMode>,
-                       OfMode<toOfMode>,
-                       isSigned<toIsSigned>>(intProduct, DirectAssignTag{});
+        return apFixed<intBits<merger::toInt>,
+                       fracBits<merger::toFrac>,
+                       QuMode<typename merger::toQuMode>,
+                       OfMode<typename merger::toOfMode>,
+                       isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
     }
 };
 
@@ -728,52 +753,24 @@ struct Qadd_s
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = f1.intB;
-        static constexpr auto fromInt2 = f2.intB;
-        static constexpr auto fromFrac1 = f1.fracB;
-        static constexpr auto fromFrac2 = f2.fracB;
+        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
 
-        using fromQuMode1 = typename decltype(f1)::QuM;
-        using fromQuMode2 = typename decltype(f2)::QuM;
-        using fromOfMode1 = typename decltype(f1)::OfM;
-        using fromOfMode2 = typename decltype(f2)::OfM;
+        auto fullSum = static_cast<long long int>(f1.data << merger::shiftA) + static_cast<long long int>(f2.data << merger::shiftB);
 
-        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
-        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+        auto fracSum = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
 
-        static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+        auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
 
-        if constexpr (debug)
-        {
-            std::cout << "add debug: " << std::endl;
-            std::cout << "toInt: " << toInt << std::endl;
-            std::cout << "toFrac: " << toFrac << std::endl;
-            std::cout << std::endl;
-        }
-
-        static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-        static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
-
-        auto fullSum = static_cast<long long int>(f1.data << shiftA) + static_cast<long long int>(f2.data << shiftB);
-
-        auto fracSum = fracConvert<std::max(fromFrac1, fromFrac2), toFrac, QuMode<toQuMode>>::convert(fullSum);
-
-        auto intSum = intConvert<toInt, toFrac, toIsSigned, OfMode<toOfMode>>::convert(fracSum);
-
-        return apFixed<intBits<toInt>,
-                       fracBits<toFrac>,
-                       QuMode<toQuMode>,
-                       OfMode<toOfMode>,
-                       isSigned<toIsSigned>>(intSum, DirectAssignTag{});
+        return apFixed<intBits<merger::toInt>,
+                       fracBits<merger::toFrac>,
+                       QuMode<typename merger::toQuMode>,
+                       OfMode<typename merger::toOfMode>,
+                       isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
     }
 };
 
-template <typename... toArgs>
-struct Qadd_s<TypeList<toArgs...>> : Qadd_s<toArgs...>
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
 {
 };
 
@@ -795,45 +792,25 @@ struct Qdiv_s
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = f1.intB;
-        static constexpr auto fromInt2 = f2.intB;
-        static constexpr auto fromFrac1 = f1.fracB;
-        static constexpr auto fromFrac2 = f2.fracB;
-
-        using fromQuMode1 = typename decltype(f1)::QuM;
-        using fromQuMode2 = typename decltype(f2)::QuM;
-        using fromOfMode1 = typename decltype(f1)::OfM;
-        using fromOfMode2 = typename decltype(f2)::OfM;
-
-        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
-        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
-
-        static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
-
-        static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-        static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
 
         if (f2.data == 0)
         {
-            return apFixed<intBits<toInt>,
-                           fracBits<toFrac>,
-                           QuMode<toQuMode>,
-                           OfMode<toOfMode>,
-                           isSigned<toIsSigned>>(0, DirectAssignTag{});
+            return apFixed<intBits<merger::toInt>,
+                           fracBits<merger::toFrac>,
+                           QuMode<typename merger::toQuMode>,
+                           OfMode<typename merger::toOfMode>,
+                           isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
         }
 
-        auto fullQuotient = (static_cast<long long int>(f1.data) << shiftA << toFrac) / (static_cast<long long int>(f2.data) << shiftB);
-        auto intQuotient = intConvert<toInt, toFrac, toIsSigned, OfMode<toOfMode>>::convert(fullQuotient);
+        auto fullQuotient = (static_cast<long long int>(f1.data) << merger::shiftA << merger::toFrac) / (static_cast<long long int>(f2.data) << merger::shiftB);
+        auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
 
-        return apFixed<intBits<toInt>,
-                       fracBits<toFrac>,
-                       QuMode<toQuMode>,
-                       OfMode<toOfMode>,
-                       isSigned<toIsSigned>>(intQuotient, DirectAssignTag{});
+        return apFixed<intBits<merger::toInt>,
+                       fracBits<merger::toFrac>,
+                       QuMode<typename merger::toQuMode>,
+                       OfMode<typename merger::toOfMode>,
+                       isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
     }
 };
 
@@ -860,39 +837,19 @@ struct Qsub_s
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
     {
-        static constexpr auto fromInt1 = f1.intB;
-        static constexpr auto fromInt2 = f2.intB;
-        static constexpr auto fromFrac1 = f1.fracB;
-        static constexpr auto fromFrac2 = f2.fracB;
+        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
 
-        using fromQuMode1 = typename decltype(f1)::QuM;
-        using fromQuMode2 = typename decltype(f2)::QuM;
-        using fromOfMode1 = typename decltype(f1)::OfM;
-        using fromOfMode2 = typename decltype(f2)::OfM;
+        auto fullSub = static_cast<long long int>(f1.data << merger::shiftA) - static_cast<long long int>(f2.data << merger::shiftB);
 
-        using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
-        using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+        auto fracSub = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSub);
 
-        static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-        static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-        static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-        using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
-        using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+        auto intSub = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSub);
 
-        static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-        static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
-
-        auto fullSum = static_cast<long long int>(f1.data << shiftA) - static_cast<long long int>(f2.data << shiftB);
-
-        auto fracSum = fracConvert<std::max(fromFrac1, fromFrac2), toFrac, QuMode<toQuMode>>::convert(fullSum);
-
-        auto intSum = intConvert<toInt, toFrac, toIsSigned, OfMode<toOfMode>>::convert(fracSum);
-
-        return apFixed<intBits<toInt>,
-                       fracBits<toFrac>,
-                       QuMode<toQuMode>,
-                       OfMode<toOfMode>,
-                       isSigned<toIsSigned>>(intSum, DirectAssignTag{});
+        return apFixed<intBits<merger::toInt>,
+                       fracBits<merger::toFrac>,
+                       QuMode<typename merger::toQuMode>,
+                       OfMode<typename merger::toOfMode>,
+                       isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
     }
 };
 
@@ -1170,21 +1127,352 @@ struct Reducer<len, apFixed<Types...>>
     }
 };
 
-
 template <typename... Types, size_t len, typename vecTypes>
 auto inline Qreduce(const Qvec<len, vecTypes> &input)
 {
-
     if constexpr (sizeof...(Types) == 0)
     {
+        // Qreduce()
         return Reducer<len, vecTypes>::reduce(input);
     }
     else
     {
-        return Reducer<len, TypeList<Types...>>::reduce(input);
+        using FirstType = std::tuple_element_t<0, std::tuple<Types...>>;
+        if constexpr (is_typelist<FirstType>::value)
+        {
+            // Qreduce<TypeList<...>>()
+            return Reducer<len, FirstType>::reduce(input);
+        }
+        else if constexpr (is_apFixed<FirstType>::value)
+        {
+            if constexpr (sizeof...(Types) == 1)
+            {
+                // Qreduce<apFixed<...>>()
+                return Reducer<len, FirstType>::reduce(input);
+            }
+            else
+            {
+                // Qreduce<apFixed<...>, apFixed<...>, ...>()
+                return Reducer<len, TypeList<Types...>>::reduce(input);
+            }
+        }
+        else
+        {
+            // Qreduce<intBits<...>, fracBits<...>, isSigned<...>, OfMode<...>>()
+            return Reducer<len, apFixed<Types...>>::reduce(input);
+        }
     }
 }
 
+// ------------------- ve -------------------
+
+template <std::size_t Alen, typename apFixedType>
+struct Qve_s
+{
+    static inline Qvec<Alen, apFixedType> output;
+
+    template <std::size_t... I, typename inputT1, typename inputT2>
+    static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qmul<apFixedType>(input1[I], input2[I])), ...));
+    }
+
+    template <std::size_t... I, typename inputT1, typename...Args>
+    static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qmul<apFixedType>(input1[I], input2)), ...));
+    }
+
+    template <typename inputT1, typename inputT2>
+    static inline auto &mul(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
+    {
+        mul_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <typename inputT1, typename...Args>
+    static inline auto &mul(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
+    {
+        mul_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <std::size_t... I, typename inputT1, typename inputT2>
+    static inline void add_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qadd<apFixedType>(input1[I], input2[I])), ...));
+    }
+
+    template <std::size_t... I, typename inputT1, typename...Args>
+    static inline void add_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qadd<apFixedType>(input1[I], input2)), ...));
+    }
+
+    template <typename inputT1, typename inputT2>
+    static inline auto &add(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
+    {
+        add_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <typename inputT1, typename...Args>
+    static inline auto &add(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
+    {
+        add_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <std::size_t... I, typename inputT1, typename inputT2>
+    static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qsub<apFixedType>(input1[I], input2[I])), ...));
+    }
+
+    template <std::size_t... I, typename inputT1, typename...Args>
+    static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qsub<apFixedType>(input1[I], input2)), ...));
+    }
+
+    template <std::size_t... I, typename inputT1, typename...Args>
+    static inline void sub_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qsub<apFixedType>(input1, input2[I])), ...));
+    }
+
+    template <typename inputT1, typename inputT2>
+    static inline auto &sub(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
+    {
+        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <typename inputT1, typename...Args>
+    static inline auto &sub(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
+    {
+        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <typename inputT1, typename...Args>
+    static inline auto &sub(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
+    {
+        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <std::size_t... I, typename inputT1, typename inputT2>
+    static inline void div_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qdiv<apFixedType>(input1[I], input2[I])), ...));
+    }
+
+    template <std::size_t... I, typename inputT1, typename...Args>
+    static inline void div_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qdiv<apFixedType>(input1[I], input2)), ...));
+    }
+
+    template <std::size_t... I, typename inputT1, typename...Args>
+    static inline void div_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
+    {
+        (((output[I] = Qdiv<apFixedType>(input1, input2[I])), ...));
+    }
+
+    template <typename inputT1, typename inputT2>
+    static inline auto &div(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
+    {
+        div_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <typename inputT1, typename...Args>
+    static inline auto &div(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
+    {
+        div_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+    template <typename inputT1, typename...Args>
+    static inline auto &div(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
+    {
+        div_impl(input1, input2, std::make_index_sequence<Alen>{});
+        return output;
+    }
+
+};
+
+template <typename vecTypes1, typename vecTypes2, typename... Types>
+struct QveTypeHelper
+{
+    template <typename T1, typename T2>
+    struct defaultType
+    {
+        using merger = apFixedMerge<apFixed<>, T1, T2>;
+        using type = apFixed<intBits<merger::toInt>, fracBits<merger::toFrac>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>, isSigned<merger::toIsSigned>>;
+    };
+
+    template <typename... Ts>
+    struct customType
+    {
+        using FirstType = std::tuple_element_t<0, std::tuple<Ts...>>;
+        using type = std::conditional_t<is_apFixed<FirstType>::value, FirstType, apFixed<Ts...>>;
+    };
+
+    using outputType = typename std::conditional_t<
+        sizeof...(Types) == 0,
+        defaultType<vecTypes1, vecTypes2>,
+        customType<Types...>>::type;
+};
+
+// Do not use auto& res = Qve<...>(...), use auto res = instead
+template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &Qvem(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    static_assert(len1 == len2, "The two vectors must have the same length");
+    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
+    return Qve_s<len1, outputType>::mul(input1, input2);
+}
+
+template <typename... Types, size_t len, typename vecTypes, typename...Args>
+inline auto &Qvem(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
+    return Qve_s<len, outputType>::mul(input1, input2);
+}
+
+template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &operator*(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    return Qvem<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator*(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    return Qvem<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator*(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
+{
+    return Qvem<>(input2, input1);
+}
+
+template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &Qvea(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    static_assert(len1 == len2, "The two vectors must have the same length");
+    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
+    return Qve_s<len1, outputType>::add(input1, input2);
+}
+
+template <typename... Types, size_t len, typename vecTypes, typename...Args>
+inline auto &Qvea(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
+    return Qve_s<len, outputType>::add(input1, input2);
+}
+
+template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &operator+(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    return Qvea<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator+(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    return Qvea<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator+(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
+{
+    return Qvea<>(input2, input1);
+}
+
+template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &Qves(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    static_assert(len1 == len2, "The two vectors must have the same length");
+    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
+    return Qve_s<len1, outputType>::sub(input1, input2);
+}
+
+template <typename... Types, size_t len, typename vecTypes, typename...Args>
+inline auto &Qves(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
+    return Qve_s<len, outputType>::sub(input1, input2);
+}
+
+template <typename... Types, size_t len, typename vecTypes, typename...Args>
+inline auto &Qves(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
+{
+    using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
+    return Qve_s<len, outputType>::sub(input1, input2);
+}
+
+template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &operator-(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    return Qves<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator-(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    return Qves<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator-(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
+{
+    return Qves<>(input1, input2);
+}
+
+template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &Qved(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    static_assert(len1 == len2, "The two vectors must have the same length");
+    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
+    return Qve_s<len1, outputType>::div(input1, input2);
+}
+
+template <typename... Types, size_t len, typename vecTypes, typename...Args>
+inline auto &Qved(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
+    return Qve_s<len, outputType>::div(input1, input2);
+}
+
+template <typename... Types, size_t len, typename vecTypes, typename...Args>
+inline auto &Qved(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
+{
+    using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
+    return Qve_s<len, outputType>::div(input1, input2);
+}
+
+template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
+inline auto &operator/(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
+{
+    return Qved<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator/(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
+{
+    return Qved<>(input1, input2);
+}
+
+template <size_t len, typename vecTypes, typename...Args>
+inline auto &operator/(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
+{
+    return Qved<>(input1, input2);
+}
+    
 // ------------------- Qgemul -------------------
 
 template <bool Value>

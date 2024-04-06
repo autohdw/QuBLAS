@@ -31,10 +31,9 @@ int main()
 
     Qvec<7,type1> d = {1, 2, 3, 4, 5, 6, 7};
 
-    using shortList = TypeList<type1, type2, type3>;
+    Qvec<7,type2> e = {1, 2, 3, 4, 5, 6, 7};
 
-    auto res = Qreduce(d);
-
-    res.display();
+    apFixed<type3> k = 4;
+    auto f = k * d;
 
 }
