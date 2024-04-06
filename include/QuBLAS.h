@@ -986,8 +986,8 @@ public:
     template <size_t... index>
     inline constexpr auto get()
     {
-        return data[dimList<dims...>::template absoluteIndex_s<index...>::value];
-        // return data[dimList<dims...>::template absoluteIndex<index...>];
+        // return data[dimList<dims...>::template absoluteIndex_s<index...>::value];
+        return data[dimList<dims...>::template absoluteIndex<index...>];
     }
 
     template <typename... Ints>
