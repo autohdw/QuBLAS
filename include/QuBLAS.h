@@ -986,17 +986,56 @@ public:
     template <size_t... index>
     inline constexpr auto get()
     {
-        // return data[dimList<dims...>::template absoluteIndex_s<index...>::value];
-        return data[dimList<dims...>::template absoluteIndex<index...>];
+        return data[dimList<dims...>::template absoluteIndex_s<index...>::value];
+        // return data[dimList<dims...>::template absoluteIndex<index...>];
+    }
+
+    template <size_t... I>
+    size_t access(const std::array<size_t, sizeof...(I)> &indices, std::index_sequence<I...>)
+    {
+        size_t result = 0;
+        size_t partial_product = 1;
+        size_t dimSizes[] = {dims...};
+
+        // Reverse loop to compute the index dynamically
+        for (int i = sizeof...(I) - 1; i >= 0; --i)
+        {
+            result += indices[i] * partial_product;
+            if (i > 0)
+                partial_product *= dimSizes[i];
+        }
+
+        return result;
+    }
+    template <typename... Ints>
+        requires(sizeof...(Ints) == dimList<dims...>::dimSize)
+    inline constexpr auto &operator[](Ints... index)
+    {
+        std::array<size_t, sizeof...(Ints)> indexArray = {static_cast<size_t>(index)...};
+        return data[access(indexArray, std::make_index_sequence<sizeof...(Ints)>{})];
     }
 
     template <typename... Ints>
         requires(sizeof...(Ints) == dimList<dims...>::dimSize)
-    inline constexpr auto operator[](Ints... index)
+    inline constexpr const auto &operator[](Ints... index) const
     {
-        // testing just return the sum of index
-        return  data[(index+...)];
+        std::array<size_t, sizeof...(Ints)> indexArray = {static_cast<size_t>(index)...};
+        return data[access(indexArray, std::make_index_sequence<sizeof...(Ints)>{})];
     }
+
+    void display(std::string name = "")
+    {
+        if (name != "")
+        {
+            std::cout << name << " :";
+        }
+        std::cout << std::endl;
+        for (size_t i = 0; i < dimList<dims...>::elemSize; i++)
+        {
+            data[i].display();
+        }
+    }
+
 };
 
 template <size_t... dims>
