@@ -3,21 +3,18 @@
 
 int main()
 {
-    using list = dim<2, 2, 3, 4>;
 
     using type1 = Qu<intBits<5>,fracBits<6>>;
     using type2 = Qu<intBits<6>,fracBits<7>>;
     using type3 = Qu<intBits<8>,fracBits<9>>;
+    using type4 = Qu<intBits<9>,fracBits<10>>;
+    using type5 = Qu<intBits<10>,fracBits<11>>;
+    using type6 = Qu<intBits<11>,fracBits<12>>;
 
-    Qu<dim<2, 3, 4>,type1> a = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24};
+    using list = TypeList<type1, type2, type3, type4, type5, type6>;
 
-    auto b = a.get<2, 2, 3>();
-    auto c = a[2, 2, 3];
-    auto d = a[1];
- 
- 
+    Qu<dim<2,3>, list> q1 = {1, 2, 3, 4, 5, 6};
 
-    b.display();
-    c.display();
-    d.display();
+    q1.get<1,1>().display();
+    
 }

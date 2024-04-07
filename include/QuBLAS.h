@@ -997,17 +997,18 @@ private:
 
 public:
     // initialize with a list of values
-    Qu(std::initializer_list<QuType> list)
+    template <typename... Types>
+    Qu(Types... values) : data{values...} {}
+
+    template <size_t... index>
+    inline constexpr auto &get()
     {
-        if (list.size() != dim<dims...>::elemSize)
-        {
-            throw std::runtime_error("The size of the list does not match the size of the matrix");
-        }
-        std::copy(list.begin(), list.end(), data.begin());
+        return data[dim<dims...>::template absoluteIndex_s<index...>::value];
+        // return data[dimList<dims...>::template absoluteIndex<index...>];
     }
 
     template <size_t... index>
-    inline constexpr auto get()
+    inline constexpr const auto &get() const
     {
         return data[dim<dims...>::template absoluteIndex_s<index...>::value];
         // return data[dimList<dims...>::template absoluteIndex<index...>];
@@ -1050,6 +1051,35 @@ public:
         {
             data[i].display();
         }
+    }
+};
+
+
+template <size_t... dims, typename... Types>
+requires ((is_Qu<Types>::value && ...) && sizeof...(Types) == dim<dims...>::elemSize)
+class Qu<dim<dims...>, TypeList<Types...>>
+{
+private: 
+    std::tuple<Types...> data;
+
+public:
+    
+    template <typename... Args>
+    Qu(Args... values) : data(values...) {}
+
+    Qu() {}
+
+
+    template <size_t... index>
+    inline constexpr auto& get()
+    {
+        return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+    }
+
+    template <size_t... index>
+    inline constexpr const auto& get() const
+    {
+        return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
     }
 };
 
