@@ -113,7 +113,7 @@ struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
     using type = TypeList<Args2...>;
 };
 
-// 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
+// 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的Qu<...>类型
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
     requires(!std::is_same_v<innerWrapper<Args2...>, TypeList<Args2...>>)
 struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
@@ -121,7 +121,7 @@ struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
     using type = TypeList<Args2...>;
 };
 
-// 也很特别的，apFixed<...>可能传入了一个tuple，这个时候需要拆封tuple
+// 也很特别的，Qu<...>可能传入了一个tuple，这个时候需要拆封tuple
 template <typename Tag, typename... Args>
 struct tagExtractor<Tag, TypeList<Args...>> : tagExtractor<Tag, Args...>
 {
@@ -210,7 +210,7 @@ struct shifter
     }
 };
 
-// ------------------- apFixed -------------------
+// ------------------- Qu -------------------
 
 template <typename T>
 struct QuMode;
@@ -590,7 +590,7 @@ struct DirectAssignTag
 };
 
 template <typename... Args>
-class apFixed
+class Qu_s
 {
 public:
     using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
@@ -608,16 +608,16 @@ public:
 
     template <typename T>
         requires std::is_arithmetic_v<T>
-    constexpr apFixed(T val)
+    constexpr Qu_s(T val)
     {
         data = shifter<fracB>::template input<T, dataType>(val);
     }
 
-    constexpr apFixed() : data(0) {}
-    constexpr apFixed(dataType val, DirectAssignTag) : data(val) {}
+    constexpr Qu_s() : data(0) {}
+    constexpr Qu_s(dataType val, DirectAssignTag) : data(val) {}
 
     template <typename... fromArgs>
-    inline constexpr apFixed &operator=(const apFixed<fromArgs...> &rhs)
+    inline constexpr Qu_s &operator=(const Qu_s<fromArgs...> &rhs)
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -653,7 +653,7 @@ public:
     }
 
     template <typename... fromArgs>
-    inline constexpr bool operator!=(const apFixed<fromArgs...> &&rhs) const
+    inline constexpr bool operator!=(const Qu_s<fromArgs...> &&rhs) const
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -670,32 +670,34 @@ public:
     }
 };
 
-template <typename T>
-struct is_apFixed : std::false_type
-{};
 
-template <typename... Types>
-struct is_apFixed<apFixed<Types...>> : std::true_type
-{};
+
+// template <typename T>
+// struct is_Qu : std::false_type
+// {};
+
+// template <typename... Types>
+// struct is_Qu<Qu_s<Types...>> : std::true_type
+// {};
 
 // ------------------- Basic Operations -------------------
 
-// a strucrt to merge two apFixed types
+// a strucrt to merge two Qu types
 template <typename... Args>
-struct apFixedMerge;
+struct QuMerge;
 
 template <typename... toArgs, typename... Args1, typename... Args2>
-struct apFixedMerge<apFixed<toArgs...>, apFixed<Args1...>, apFixed<Args2...>>
+struct QuMerge<Qu_s<toArgs...>, Qu_s<Args1...>, Qu_s<Args2...>>
 {
-    static constexpr auto fromInt1 = apFixed<Args1...>::intB;
-    static constexpr auto fromInt2 = apFixed<Args2...>::intB;
-    static constexpr auto fromFrac1 = apFixed<Args1...>::fracB;
-    static constexpr auto fromFrac2 = apFixed<Args2...>::fracB;
+    static constexpr auto fromInt1 = Qu_s<Args1...>::intB;
+    static constexpr auto fromInt2 = Qu_s<Args2...>::intB;
+    static constexpr auto fromFrac1 = Qu_s<Args1...>::fracB;
+    static constexpr auto fromFrac2 = Qu_s<Args2...>::fracB;
 
-    using fromQuMode1 = typename apFixed<Args1...>::QuM;
-    using fromQuMode2 = typename apFixed<Args2...>::QuM;
-    using fromOfMode1 = typename apFixed<Args1...>::OfM;
-    using fromOfMode2 = typename apFixed<Args2...>::OfM;
+    using fromQuMode1 = typename Qu_s<Args1...>::QuM;
+    using fromQuMode2 = typename Qu_s<Args2...>::QuM;
+    using fromOfMode1 = typename Qu_s<Args1...>::OfM;
+    using fromOfMode2 = typename Qu_s<Args2...>::OfM;
 
     using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
     using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
@@ -714,15 +716,15 @@ template <typename... toArgs>
 struct Qmul_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu_s<toArgs...>, Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>;
 
         auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
         auto fracProduct = fracConvert<merger::fromFrac1 + merger::fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
 
-        return apFixed<intBits<merger::toInt>,
+        return Qu_s<intBits<merger::toInt>,
                        fracBits<merger::toFrac>,
                        QuMode<typename merger::toQuMode>,
                        OfMode<typename merger::toOfMode>,
@@ -736,13 +738,13 @@ struct Qmul_s<innerWrapper<toArgs...>> : Qmul_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qmul(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qmul(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
 {
     return Qmul_s<toArgs...>::apply(f1, f2);
 }
 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator*(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator*(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     return Qmul<>(f1, f2);
 }
@@ -751,9 +753,9 @@ template <typename... toArgs>
 struct Qadd_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu_s<toArgs...>, Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>;
 
         auto fullSum = static_cast<long long int>(f1.data << merger::shiftA) + static_cast<long long int>(f2.data << merger::shiftB);
 
@@ -761,7 +763,7 @@ struct Qadd_s
 
         auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
 
-        return apFixed<intBits<merger::toInt>,
+        return Qu_s<intBits<merger::toInt>,
                        fracBits<merger::toFrac>,
                        QuMode<typename merger::toQuMode>,
                        OfMode<typename merger::toOfMode>,
@@ -775,13 +777,13 @@ struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qadd(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qadd(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
 {
     return Qadd_s<toArgs...>::apply(f1, f2);
 }
 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator+(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator+(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     return Qadd<>(f1, f2);
 }
@@ -790,13 +792,13 @@ template <typename... toArgs>
 struct Qdiv_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu_s<toArgs...>, Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>;
 
         if (f2.data == 0)
         {
-            return apFixed<intBits<merger::toInt>,
+            return Qu_s<intBits<merger::toInt>,
                            fracBits<merger::toFrac>,
                            QuMode<typename merger::toQuMode>,
                            OfMode<typename merger::toOfMode>,
@@ -806,7 +808,7 @@ struct Qdiv_s
         auto fullQuotient = (static_cast<long long int>(f1.data) << merger::shiftA << merger::toFrac) / (static_cast<long long int>(f2.data) << merger::shiftB);
         auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
 
-        return apFixed<intBits<merger::toInt>,
+        return Qu_s<intBits<merger::toInt>,
                        fracBits<merger::toFrac>,
                        QuMode<typename merger::toQuMode>,
                        OfMode<typename merger::toOfMode>,
@@ -820,13 +822,13 @@ struct Qdiv_s<innerWrapper<toArgs...>> : Qdiv_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qdiv(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qdiv(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
 {
     return Qdiv_s<toArgs...>::apply(f1, f2);
 }
 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator/(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator/(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     return Qdiv<>(f1, f2);
 }
@@ -835,9 +837,9 @@ template <typename... toArgs>
 struct Qsub_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu_s<toArgs...>, Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>;
 
         auto fullSub = static_cast<long long int>(f1.data << merger::shiftA) - static_cast<long long int>(f2.data << merger::shiftB);
 
@@ -845,7 +847,7 @@ struct Qsub_s
 
         auto intSub = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSub);
 
-        return apFixed<intBits<merger::toInt>,
+        return Qu_s<intBits<merger::toInt>,
                        fracBits<merger::toFrac>,
                        QuMode<typename merger::toQuMode>,
                        OfMode<typename merger::toOfMode>,
@@ -859,28 +861,28 @@ struct Qsub_s<innerWrapper<toArgs...>> : Qsub_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qsub(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qsub(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
 {
     return Qsub_s<toArgs...>::apply(f1, f2);
 }
 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator-(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator-(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     return Qsub<>(f1, f2);
 }
 
 template <typename... fromArgs1>
-inline constexpr auto operator-(const apFixed<fromArgs1...> &f1)
+inline constexpr auto operator-(const Qu_s<fromArgs1...> &f1)
 {
 
-    return apFixed<fromArgs1...>(-f1.data, DirectAssignTag{});
+    return Qu_s<fromArgs1...>(-f1.data, DirectAssignTag{});
 }
 
 template <typename... fromArgs>
-inline constexpr auto Qabs(const apFixed<fromArgs...> &f1)
+inline constexpr auto Qabs(const Qu_s<fromArgs...> &f1)
 {
-    return f1.data < 0 ? apFixed<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
+    return f1.data < 0 ? Qu_s<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
 }
 
 // ------------------- Comparison -------------------
@@ -889,7 +891,7 @@ template <typename... Args>
 struct Qcmp_s;
 
 template <typename... Args1, typename... Args2>
-struct Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>
+struct Qcmp_s<Qu_s<Args1...>, Qu_s<Args2...>>
 {
     static constexpr auto fracBits1 = tagExtractor<fracBits<defaultFracBits>, Args1...>::value;
     static constexpr auto fracBits2 = tagExtractor<fracBits<defaultFracBits>, Args2...>::value;
@@ -898,16 +900,16 @@ struct Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>
     static constexpr auto shift1 = fracBits2 > fracBits1 ? fracBits2 - fracBits1 : 0;
     static constexpr auto shift2 = fracBits1 > fracBits2 ? fracBits1 - fracBits2 : 0;
 
-    static constexpr auto apply(const apFixed<Args1...> &f1, const apFixed<Args2...> &f2)
+    static constexpr auto apply(const Qu_s<Args1...> &f1, const Qu_s<Args2...> &f2)
     {
         return (f1.data << shift1) <=> (f2.data << shift2);
     }
 };
 
 template <typename... Args1, typename... Args2>
-inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Args2...> &f2)
+inline constexpr auto operator<=>(const Qu_s<Args1...> &f1, const Qu_s<Args2...> &f2)
 {
-    return Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>::apply(f1, f2);
+    return Qcmp_s<Qu_s<Args1...>, Qu_s<Args2...>>::apply(f1, f2);
 }
 
 // ------------------- Vector and Matrix -------------------
@@ -968,13 +970,28 @@ struct dimList
 
 // integrated vector and matrix
 template <size_t... dims, typename... Args>
-class apFixed<dimList<dims...>, apFixed<Args...>>
+class Qu_s<dimList<dims...>, Qu_s<Args...>>
 {
-public:
-    std::array<apFixed<Args...>, dimList<dims...>::elemSize> data;
+private:
+    std::array<Qu_s<Args...>, dimList<dims...>::elemSize> data;
 
+    template <typename First, typename... Rest>
+    inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
+    {
+        if constexpr (sizeof...(Rest) == 0)
+        {
+            return accum + first;
+        }
+        else
+        {
+            constexpr size_t nextDimProduct = dimList<dims...>::template elemSizeForIndexTail<sizeof...(dims) - sizeof...(Rest)>::value;
+            return calculateIndex(accum + first * nextDimProduct, rest...);
+        }
+    }
+
+public:
     // initialize with a list of values
-    apFixed(std::initializer_list<apFixed<Args...>> list)
+    Qu_s(std::initializer_list<Qu_s<Args...>> list)
     {
         if (list.size() != dimList<dims...>::elemSize)
         {
@@ -990,24 +1007,32 @@ public:
         // return data[dimList<dims...>::template absoluteIndex<index...>];
     }
 
-    template<typename First, typename... Rest>
-    inline constexpr size_t calculateIndex(size_t accum, First first, Rest... rest) {
-        if constexpr (sizeof...(Rest) == 0) {
-            return accum + first;
-        } else {
-            constexpr size_t nextDimProduct = dimList<dims...>::template elemSizeForIndexTail<sizeof...(dims) - sizeof...(Rest)>::value;
-            return calculateIndex(accum + first * nextDimProduct, rest...);
-        }
-    }
-
     template <typename... Ints>
-    requires(sizeof...(Ints) == dimList<dims...>::dimSize)
-    inline constexpr auto& operator[](Ints... indices) {
+        requires(sizeof...(Ints) == dimList<dims...>::dimSize)
+    inline constexpr auto &operator[](Ints... indices)
+    {
         size_t index = calculateIndex(0, indices...);
         return data[index];
     }
 
- 
+    template <typename... Ints>
+        requires(sizeof...(Ints) == dimList<dims...>::dimSize)
+    inline constexpr const auto &operator[](Ints... indices) const
+    {
+        size_t index = calculateIndex(0, indices...);
+        return data[index];
+    }
+
+    inline constexpr auto &operator[](size_t index)
+    {
+        return data[index];
+    }
+
+    inline constexpr const auto &operator[](size_t index) const
+    {
+        return data[index];
+    }
+
     void display(std::string name = "")
     {
         if (name != "")
@@ -1020,11 +1045,10 @@ public:
             data[i].display();
         }
     }
-
 };
 
 template <size_t... dims>
-class apFixed<dimList<dims...>> : public apFixed<dimList<dims...>, apFixed<>>
+class Qu_s<dimList<dims...>> : public Qu_s<dimList<dims...>, Qu_s<>>
 {
-    using apFixed<dimList<dims...>, apFixed<>>::apFixed;
+    using Qu_s<dimList<dims...>, Qu_s<>>::Qu_s;
 };
