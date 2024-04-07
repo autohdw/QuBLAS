@@ -67,6 +67,19 @@ template <typename... Types>
 struct is_typelist<TypeList<Types...>> : std::true_type
 {};
 
+// to tuple
+template <typename List>
+struct toTuple
+{
+    using type = std::nullptr_t;
+};
+
+template <typename... Types>
+struct toTuple<TypeList<Types...>>
+{
+    using type = std::tuple<Types...>;
+};
+
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -127,8 +140,6 @@ template <typename Tag, typename... Args>
 struct tagExtractor<Tag, TypeList<Args...>> : tagExtractor<Tag, Args...>
 {
 };
-
-
 
 // 匹配失败，类型不符，继续递归
 template <typename Tag, typename Tag2, typename... Args>
@@ -674,8 +685,6 @@ public:
     }
 };
 
-
-
 template <typename T>
 struct is_Qu : std::false_type
 {};
@@ -683,6 +692,12 @@ struct is_Qu : std::false_type
 template <typename... Types>
 struct is_Qu<Qu<Types...>> : std::true_type
 {};
+
+template <typename... Types>
+struct is_Qu<TypeList<Types...>>
+{
+    static inline constexpr bool value = (is_Qu<Types>::value || ...);
+};
 
 // ------------------- Basic Operations -------------------
 
@@ -729,10 +744,10 @@ struct Qmul_s
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
 
         return Qu<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
     }
 };
 
@@ -768,10 +783,10 @@ struct Qadd_s
         auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
 
         return Qu<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
     }
 };
 
@@ -803,20 +818,20 @@ struct Qdiv_s
         if (f2.data == 0)
         {
             return Qu<intBits<merger::toInt>,
-                           fracBits<merger::toFrac>,
-                           QuMode<typename merger::toQuMode>,
-                           OfMode<typename merger::toOfMode>,
-                           isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
+                      fracBits<merger::toFrac>,
+                      QuMode<typename merger::toQuMode>,
+                      OfMode<typename merger::toOfMode>,
+                      isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
         }
 
         auto fullQuotient = (static_cast<long long int>(f1.data) << merger::shiftA << merger::toFrac) / (static_cast<long long int>(f2.data) << merger::shiftB);
         auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
 
         return Qu<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
     }
 };
 
@@ -852,10 +867,10 @@ struct Qsub_s
         auto intSub = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSub);
 
         return Qu<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
     }
 };
 
@@ -972,14 +987,22 @@ struct dim
     using absoluteIndex = absoluteIndex_s<index...>::value;
 };
 
-// integrated vector and matrix
 template <size_t... dims, typename... Args>
 class Qu<dim<dims...>, Args...>
 {
 private:
-    using QuType = std::conditional_t<is_Qu<typename TypeList<Args...>::head>::value, typename TypeList<Args...>::head, Qu<Args...>>;
+    using headType = typename TypeList<Args...>::head;
 
-    std::array<QuType, dim<dims...>::elemSize> data;
+public:
+    static inline constexpr bool isElementQu = is_typelist<headType>::value;
+
+private:
+    // only used when isElementQu is false
+    using QuType = std::conditional_t<is_Qu<headType>::value, headType, Qu<Args...>>;
+
+    using arrayType = std::conditional_t<isElementQu, typename toTuple<headType>::type, std::array<QuType, dim<dims...>::elemSize>>;
+
+    arrayType data;
 
     template <typename First, typename... Rest>
     inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
@@ -996,100 +1019,112 @@ private:
     }
 
 public:
-    // initialize with a list of values
     template <typename... Types>
     Qu(Types... values) : data{values...} {}
+
+    Qu() {}
 
     template <size_t... index>
     inline constexpr auto &get()
     {
-        return data[dim<dims...>::template absoluteIndex_s<index...>::value];
-        // return data[dimList<dims...>::template absoluteIndex<index...>];
+        if constexpr (isElementQu)
+        {
+            return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+        }
+        else
+        {
+            return data[dim<dims...>::template absoluteIndex_s<index...>::value];
+        }
     }
 
     template <size_t... index>
     inline constexpr const auto &get() const
     {
-        return data[dim<dims...>::template absoluteIndex_s<index...>::value];
-        // return data[dimList<dims...>::template absoluteIndex<index...>];
+        if constexpr (isElementQu)
+        {
+            return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+        }
+        else
+        {
+            return data[dim<dims...>::template absoluteIndex_s<index...>::value];
+        }
     }
 
     template <typename... Ints>
         requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
     inline constexpr auto &operator[](Ints... indices)
     {
-        size_t index = calculateIndex(0, indices...);
-        return data[index];
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            size_t index = calculateIndex(0, indices...);
+            return data[index];
+        }
     }
 
     template <typename... Ints>
         requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
     inline constexpr const auto &operator[](Ints... indices) const
     {
-        size_t index = calculateIndex(0, indices...);
-        return data[index];
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            size_t index = calculateIndex(0, indices...);
+            return data[index];
+        }
     }
 
     inline constexpr auto &operator[](size_t index)
     {
-        return data[index];
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            return data[index];
+        }
     }
 
     inline constexpr const auto &operator[](size_t index) const
     {
-        return data[index];
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            return data[index];
+        }
     }
 
     void display(std::string name = "")
     {
-        if (name != "")
+        if constexpr (isElementQu)
         {
-            std::cout << name << " :";
+            static_assert(!isElementQu, "Not implemented yet");
         }
-        std::cout << std::endl;
-        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        else
         {
-            data[i].display();
+            if (name != "")
+            {
+                std::cout << name << " :";
+            }
+            std::cout << std::endl;
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                data[i].display();
+            }
         }
     }
 };
-
-
-template <size_t... dims, typename... Types>
-requires ((is_Qu<Types>::value && ...) && sizeof...(Types) == dim<dims...>::elemSize)
-class Qu<dim<dims...>, TypeList<Types...>>
-{
-private: 
-    std::tuple<Types...> data;
-
-public:
-    
-    template <typename... Args>
-    Qu(Args... values) : data(values...) {}
-
-    Qu() {}
-
-
-    template <size_t... index>
-    inline constexpr auto& get()
-    {
-        return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
-    }
-
-    template <size_t... index>
-    inline constexpr const auto& get() const
-    {
-        return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
-    }
-};
-
-
-
-
-
-
-
-
-
-
-
