@@ -119,7 +119,7 @@ int main()
     // 静态索引是指在编译期就可以确定的索引，这种索引的速度会非常快
     // 静态索引使用.get<>()函数
 
-    // mat1.get<0, 0>() = 0;
+    mat1.get<0, 0>() = 0;
 
     // 如果你要用变量，请将变量指定为constexpr
     constexpr int indexX = 1;
@@ -167,8 +167,5 @@ int main()
 
 
 
-    using dim1 =dim<4,4>;
-    auto temp2= dim1::elemSizeForIndexHead<0>::value;
-    auto temp = dim1::absoluteIndex_s<0, 1>::value;
 
 }
