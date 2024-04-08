@@ -699,238 +699,6 @@ struct is_Qu<TypeList<Types...>>
     static inline constexpr bool value = (is_Qu<Types>::value || ...);
 };
 
-// ------------------- Basic Operations -------------------
-
-// a strucrt to merge two Qu types
-template <typename... Args>
-struct QuMerge;
-
-template <typename... toArgs, typename... Args1, typename... Args2>
-struct QuMerge<Qu<toArgs...>, Qu<Args1...>, Qu<Args2...>>
-{
-    static inline constexpr auto fromInt1 = Qu<Args1...>::intB;
-    static inline constexpr auto fromInt2 = Qu<Args2...>::intB;
-    static inline constexpr auto fromFrac1 = Qu<Args1...>::fracB;
-    static inline constexpr auto fromFrac2 = Qu<Args2...>::fracB;
-
-    using fromQuMode1 = typename Qu<Args1...>::QuM;
-    using fromQuMode2 = typename Qu<Args2...>::QuM;
-    using fromOfMode1 = typename Qu<Args1...>::OfM;
-    using fromOfMode2 = typename Qu<Args2...>::OfM;
-
-    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
-    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
-
-    static inline constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-    static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-    static inline constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
-    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
-    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
-
-    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
-};
-
-template <typename... toArgs>
-struct Qmul_s
-{
-    template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-    {
-        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
-
-        auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
-        auto fracProduct = fracConvert<merger::fromFrac1 + merger::fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
-        auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
-
-        return Qu<intBits<merger::toInt>,
-                  fracBits<merger::toFrac>,
-                  QuMode<typename merger::toQuMode>,
-                  OfMode<typename merger::toOfMode>,
-                  isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
-    }
-};
-
-template <template <typename...> class innerWrapper, typename... toArgs>
-struct Qmul_s<innerWrapper<toArgs...>> : Qmul_s<toArgs...>
-{
-};
-
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qmul(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-{
-    return Qmul_s<toArgs...>::apply(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator*(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
-{
-    return Qmul<>(f1, f2);
-}
-
-template <typename... toArgs>
-struct Qadd_s
-{
-    template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-    {
-        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
-
-        auto fullSum = static_cast<long long int>(f1.data << merger::shiftA) + static_cast<long long int>(f2.data << merger::shiftB);
-
-        auto fracSum = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
-
-        auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
-
-        return Qu<intBits<merger::toInt>,
-                  fracBits<merger::toFrac>,
-                  QuMode<typename merger::toQuMode>,
-                  OfMode<typename merger::toOfMode>,
-                  isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
-    }
-};
-
-template <template <typename...> class innerWrapper, typename... toArgs>
-struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
-{
-};
-
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qadd(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-{
-    return Qadd_s<toArgs...>::apply(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator+(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
-{
-    return Qadd<>(f1, f2);
-}
-
-template <typename... toArgs>
-struct Qdiv_s
-{
-    template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-    {
-        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
-
-        if (f2.data == 0)
-        {
-            return Qu<intBits<merger::toInt>,
-                      fracBits<merger::toFrac>,
-                      QuMode<typename merger::toQuMode>,
-                      OfMode<typename merger::toOfMode>,
-                      isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
-        }
-
-        auto fullQuotient = (static_cast<long long int>(f1.data) << merger::shiftA << merger::toFrac) / (static_cast<long long int>(f2.data) << merger::shiftB);
-        auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
-
-        return Qu<intBits<merger::toInt>,
-                  fracBits<merger::toFrac>,
-                  QuMode<typename merger::toQuMode>,
-                  OfMode<typename merger::toOfMode>,
-                  isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
-    }
-};
-
-template <template <typename...> class innerWrapper, typename... toArgs>
-struct Qdiv_s<innerWrapper<toArgs...>> : Qdiv_s<toArgs...>
-{
-};
-
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qdiv(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-{
-    return Qdiv_s<toArgs...>::apply(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator/(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
-{
-    return Qdiv<>(f1, f2);
-}
-
-template <typename... toArgs>
-struct Qsub_s
-{
-    template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-    {
-        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
-
-        auto fullSub = static_cast<long long int>(f1.data << merger::shiftA) - static_cast<long long int>(f2.data << merger::shiftB);
-
-        auto fracSub = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSub);
-
-        auto intSub = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSub);
-
-        return Qu<intBits<merger::toInt>,
-                  fracBits<merger::toFrac>,
-                  QuMode<typename merger::toQuMode>,
-                  OfMode<typename merger::toOfMode>,
-                  isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
-    }
-};
-
-template <template <typename...> class innerWrapper, typename... toArgs>
-struct Qsub_s<innerWrapper<toArgs...>> : Qsub_s<toArgs...>
-{
-};
-
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qsub(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
-{
-    return Qsub_s<toArgs...>::apply(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator-(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
-{
-    return Qsub<>(f1, f2);
-}
-
-template <typename... fromArgs1>
-inline constexpr auto operator-(const Qu<fromArgs1...> &f1)
-{
-
-    return Qu<fromArgs1...>(-f1.data, DirectAssignTag{});
-}
-
-template <typename... fromArgs>
-inline constexpr auto Qabs(const Qu<fromArgs...> &f1)
-{
-    return f1.data < 0 ? Qu<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
-}
-
-// ------------------- Comparison -------------------
-// seems dummy, maybe optimize later
-template <typename... Args>
-struct Qcmp_s;
-
-template <typename... Args1, typename... Args2>
-struct Qcmp_s<Qu<Args1...>, Qu<Args2...>>
-{
-    static constexpr auto fracBits1 = tagExtractor<fracBits<defaultFracBits>, Args1...>::value;
-    static constexpr auto fracBits2 = tagExtractor<fracBits<defaultFracBits>, Args2...>::value;
-
-    // the value to left shift for each number
-    static constexpr auto shift1 = fracBits2 > fracBits1 ? fracBits2 - fracBits1 : 0;
-    static constexpr auto shift2 = fracBits1 > fracBits2 ? fracBits1 - fracBits2 : 0;
-
-    static constexpr auto apply(const Qu<Args1...> &f1, const Qu<Args2...> &f2)
-    {
-        return (f1.data << shift1) <=> (f2.data << shift2);
-    }
-};
-
-template <typename... Args1, typename... Args2>
-inline constexpr auto operator<=>(const Qu<Args1...> &f1, const Qu<Args2...> &f2)
-{
-    return Qcmp_s<Qu<Args1...>, Qu<Args2...>>::apply(f1, f2);
-}
-
 // ------------------- Vector and Matrix -------------------
 
 template <size_t... dims>
@@ -1128,3 +896,245 @@ public:
         }
     }
 };
+
+
+
+
+
+// ------------------- Basic Operations -------------------
+
+// a strucrt to merge two Qu types
+template <typename... Args>
+struct QuMerge;
+
+template <typename... toArgs, typename... Args1, typename... Args2>
+struct QuMerge<Qu<toArgs...>, Qu<Args1...>, Qu<Args2...>>
+{
+    static inline constexpr auto fromInt1 = Qu<Args1...>::intB;
+    static inline constexpr auto fromInt2 = Qu<Args2...>::intB;
+    static inline constexpr auto fromFrac1 = Qu<Args1...>::fracB;
+    static inline constexpr auto fromFrac2 = Qu<Args2...>::fracB;
+
+    using fromQuMode1 = typename Qu<Args1...>::QuM;
+    using fromQuMode2 = typename Qu<Args2...>::QuM;
+    using fromOfMode1 = typename Qu<Args1...>::OfM;
+    using fromOfMode2 = typename Qu<Args2...>::OfM;
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
+    static inline constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+};
+
+template <typename... toArgs>
+struct Qmul_s
+{
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+    {
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
+
+        auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
+        auto fracProduct = fracConvert<merger::fromFrac1 + merger::fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
+        auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
+
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
+    }
+};
+
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qmul_s<innerWrapper<toArgs...>> : Qmul_s<toArgs...>
+{
+};
+
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qmul(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+{
+    return Qmul_s<toArgs...>::apply(f1, f2);
+}
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator*(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+{
+    return Qmul<>(f1, f2);
+}
+
+template <typename... toArgs>
+struct Qadd_s
+{
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+    {
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
+
+        auto fullSum = static_cast<long long int>(f1.data << merger::shiftA) + static_cast<long long int>(f2.data << merger::shiftB);
+
+        auto fracSum = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
+
+        auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
+
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
+    }
+
+    template <size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>,fromArgs1...> f1, const Qu<dim<dims2...>,fromArgs2...> f2)
+    {
+        
+    }
+};
+
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
+{
+};
+
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qadd(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+{
+    return Qadd_s<toArgs...>::apply(f1, f2);
+}
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator+(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+{
+    return Qadd<>(f1, f2);
+}
+
+template <typename... toArgs>
+struct Qdiv_s
+{
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+    {
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
+
+        if (f2.data == 0)
+        {
+            return Qu<intBits<merger::toInt>,
+                      fracBits<merger::toFrac>,
+                      QuMode<typename merger::toQuMode>,
+                      OfMode<typename merger::toOfMode>,
+                      isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
+        }
+
+        auto fullQuotient = (static_cast<long long int>(f1.data) << merger::shiftA << merger::toFrac) / (static_cast<long long int>(f2.data) << merger::shiftB);
+        auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
+
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
+    }
+};
+
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qdiv_s<innerWrapper<toArgs...>> : Qdiv_s<toArgs...>
+{
+};
+
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qdiv(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+{
+    return Qdiv_s<toArgs...>::apply(f1, f2);
+}
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator/(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+{
+    return Qdiv<>(f1, f2);
+}
+
+template <typename... toArgs>
+struct Qsub_s
+{
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+    {
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
+
+        auto fullSub = static_cast<long long int>(f1.data << merger::shiftA) - static_cast<long long int>(f2.data << merger::shiftB);
+
+        auto fracSub = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSub);
+
+        auto intSub = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSub);
+
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
+    }
+};
+
+template <template <typename...> class innerWrapper, typename... toArgs>
+struct Qsub_s<innerWrapper<toArgs...>> : Qsub_s<toArgs...>
+{
+};
+
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qsub(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+{
+    return Qsub_s<toArgs...>::apply(f1, f2);
+}
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator-(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+{
+    return Qsub<>(f1, f2);
+}
+
+template <typename... fromArgs1>
+inline constexpr auto operator-(const Qu<fromArgs1...> &f1)
+{
+
+    return Qu<fromArgs1...>(-f1.data, DirectAssignTag{});
+}
+
+template <typename... fromArgs>
+inline constexpr auto Qabs(const Qu<fromArgs...> &f1)
+{
+    return f1.data < 0 ? Qu<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
+}
+
+// ------------------- Comparison -------------------
+// seems dummy, maybe optimize later
+template <typename... Args>
+struct Qcmp_s;
+
+template <typename... Args1, typename... Args2>
+struct Qcmp_s<Qu<Args1...>, Qu<Args2...>>
+{
+    static constexpr auto fracBits1 = tagExtractor<fracBits<defaultFracBits>, Args1...>::value;
+    static constexpr auto fracBits2 = tagExtractor<fracBits<defaultFracBits>, Args2...>::value;
+
+    // the value to left shift for each number
+    static constexpr auto shift1 = fracBits2 > fracBits1 ? fracBits2 - fracBits1 : 0;
+    static constexpr auto shift2 = fracBits1 > fracBits2 ? fracBits1 - fracBits2 : 0;
+
+    static constexpr auto apply(const Qu<Args1...> &f1, const Qu<Args2...> &f2)
+    {
+        return (f1.data << shift1) <=> (f2.data << shift2);
+    }
+};
+
+template <typename... Args1, typename... Args2>
+inline constexpr auto operator<=>(const Qu<Args1...> &f1, const Qu<Args2...> &f2)
+{
+    return Qcmp_s<Qu<Args1...>, Qu<Args2...>>::apply(f1, f2);
+}

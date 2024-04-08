@@ -33,5 +33,7 @@ int main()
 
     // dynamic access not possible
     // q2[1,1].display(); 
+
+    Qadd(q1, q2);
     
 }
