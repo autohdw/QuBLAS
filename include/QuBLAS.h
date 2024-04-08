@@ -65,7 +65,6 @@ template <typename... Types>
 struct is_typelist<TypeList<Types...>> : std::true_type
 {};
 
-
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -617,7 +616,24 @@ public:
     constexpr apFixed(dataType val, DirectAssignTag) : data(val) {}
 
     template <typename... fromArgs>
-    inline constexpr apFixed &operator=(const apFixed<fromArgs...> &rhs)
+    inline constexpr apFixed (const apFixed<fromArgs...> rhs)
+    {
+        static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
+        static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
+        static constexpr auto fromIsSigned = tagExtractor<isSigned<defaultIsSigned>, fromArgs...>::value;
+
+        if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
+        {
+            data = rhs.data;
+        }
+        else
+        {
+            data = intConvert<intB, fracB, isS, OfMode<OfM>>::convert(fracConvert<fromFrac, fracB, QuMode<QuM>>::convert(rhs.data));
+        }
+    }
+
+    template <typename... fromArgs>
+    inline constexpr apFixed operator=(const apFixed<fromArgs...> rhs)
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -653,7 +669,7 @@ public:
     }
 
     template <typename... fromArgs>
-    inline constexpr bool operator!=(const apFixed<fromArgs...> &&rhs) const
+    inline constexpr bool operator!=(const apFixed<fromArgs...> rhs) const
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -662,6 +678,23 @@ public:
         if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
         {
             return data != rhs.data;
+        }
+        else
+        {
+            return true;
+        }
+    }
+
+    template <typename... fromArgs>
+    inline constexpr bool operator==(const apFixed<fromArgs...> rhs) const
+    {
+        static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
+        static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
+        static constexpr auto fromIsSigned = tagExtractor<isSigned<defaultIsSigned>, fromArgs...>::value;
+
+        if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
+        {
+            return data == rhs.data;
         }
         else
         {
@@ -1177,7 +1210,7 @@ struct Qve_s
         (((output[I] = Qmul<apFixedType>(input1[I], input2[I])), ...));
     }
 
-    template <std::size_t... I, typename inputT1, typename...Args>
+    template <std::size_t... I, typename inputT1, typename... Args>
     static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
     {
         (((output[I] = Qmul<apFixedType>(input1[I], input2)), ...));
@@ -1190,7 +1223,7 @@ struct Qve_s
         return output;
     }
 
-    template <typename inputT1, typename...Args>
+    template <typename inputT1, typename... Args>
     static inline auto &mul(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
     {
         mul_impl(input1, input2, std::make_index_sequence<Alen>{});
@@ -1203,7 +1236,7 @@ struct Qve_s
         (((output[I] = Qadd<apFixedType>(input1[I], input2[I])), ...));
     }
 
-    template <std::size_t... I, typename inputT1, typename...Args>
+    template <std::size_t... I, typename inputT1, typename... Args>
     static inline void add_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
     {
         (((output[I] = Qadd<apFixedType>(input1[I], input2)), ...));
@@ -1216,7 +1249,7 @@ struct Qve_s
         return output;
     }
 
-    template <typename inputT1, typename...Args>
+    template <typename inputT1, typename... Args>
     static inline auto &add(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
     {
         add_impl(input1, input2, std::make_index_sequence<Alen>{});
@@ -1229,13 +1262,13 @@ struct Qve_s
         (((output[I] = Qsub<apFixedType>(input1[I], input2[I])), ...));
     }
 
-    template <std::size_t... I, typename inputT1, typename...Args>
+    template <std::size_t... I, typename inputT1, typename... Args>
     static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
     {
         (((output[I] = Qsub<apFixedType>(input1[I], input2)), ...));
     }
 
-    template <std::size_t... I, typename inputT1, typename...Args>
+    template <std::size_t... I, typename inputT1, typename... Args>
     static inline void sub_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
     {
         (((output[I] = Qsub<apFixedType>(input1, input2[I])), ...));
@@ -1248,14 +1281,14 @@ struct Qve_s
         return output;
     }
 
-    template <typename inputT1, typename...Args>
+    template <typename inputT1, typename... Args>
     static inline auto &sub(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
     {
         sub_impl(input1, input2, std::make_index_sequence<Alen>{});
         return output;
     }
 
-    template <typename inputT1, typename...Args>
+    template <typename inputT1, typename... Args>
     static inline auto &sub(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
     {
         sub_impl(input1, input2, std::make_index_sequence<Alen>{});
@@ -1268,13 +1301,13 @@ struct Qve_s
         (((output[I] = Qdiv<apFixedType>(input1[I], input2[I])), ...));
     }
 
-    template <std::size_t... I, typename inputT1, typename...Args>
+    template <std::size_t... I, typename inputT1, typename... Args>
     static inline void div_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
     {
         (((output[I] = Qdiv<apFixedType>(input1[I], input2)), ...));
     }
 
-    template <std::size_t... I, typename inputT1, typename...Args>
+    template <std::size_t... I, typename inputT1, typename... Args>
     static inline void div_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
     {
         (((output[I] = Qdiv<apFixedType>(input1, input2[I])), ...));
@@ -1287,20 +1320,19 @@ struct Qve_s
         return output;
     }
 
-    template <typename inputT1, typename...Args>
+    template <typename inputT1, typename... Args>
     static inline auto &div(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
     {
         div_impl(input1, input2, std::make_index_sequence<Alen>{});
         return output;
     }
 
-    template <typename inputT1, typename...Args>
+    template <typename inputT1, typename... Args>
     static inline auto &div(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
     {
         div_impl(input1, input2, std::make_index_sequence<Alen>{});
         return output;
     }
-
 };
 
 template <typename vecTypes1, typename vecTypes2, typename... Types>
@@ -1335,7 +1367,7 @@ inline auto &Qvem(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes
     return Qve_s<len1, outputType>::mul(input1, input2);
 }
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
+template <typename... Types, size_t len, typename vecTypes, typename... Args>
 inline auto &Qvem(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
@@ -1348,13 +1380,13 @@ inline auto &operator*(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vec
     return Qvem<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator*(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     return Qvem<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator*(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
 {
     return Qvem<>(input2, input1);
@@ -1368,7 +1400,7 @@ inline auto &Qvea(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes
     return Qve_s<len1, outputType>::add(input1, input2);
 }
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
+template <typename... Types, size_t len, typename vecTypes, typename... Args>
 inline auto &Qvea(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
@@ -1381,13 +1413,13 @@ inline auto &operator+(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vec
     return Qvea<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator+(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     return Qvea<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator+(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
 {
     return Qvea<>(input2, input1);
@@ -1401,14 +1433,14 @@ inline auto &Qves(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes
     return Qve_s<len1, outputType>::sub(input1, input2);
 }
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
+template <typename... Types, size_t len, typename vecTypes, typename... Args>
 inline auto &Qves(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
     return Qve_s<len, outputType>::sub(input1, input2);
 }
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
+template <typename... Types, size_t len, typename vecTypes, typename... Args>
 inline auto &Qves(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
 {
     using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
@@ -1421,13 +1453,13 @@ inline auto &operator-(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vec
     return Qves<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator-(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     return Qves<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator-(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
 {
     return Qves<>(input1, input2);
@@ -1441,14 +1473,14 @@ inline auto &Qved(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes
     return Qve_s<len1, outputType>::div(input1, input2);
 }
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
+template <typename... Types, size_t len, typename vecTypes, typename... Args>
 inline auto &Qved(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
     return Qve_s<len, outputType>::div(input1, input2);
 }
 
-template <typename... Types, size_t len, typename vecTypes, typename...Args>
+template <typename... Types, size_t len, typename vecTypes, typename... Args>
 inline auto &Qved(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
 {
     using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
@@ -1461,18 +1493,18 @@ inline auto &operator/(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vec
     return Qved<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator/(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
 {
     return Qved<>(input1, input2);
 }
 
-template <size_t len, typename vecTypes, typename...Args>
+template <size_t len, typename vecTypes, typename... Args>
 inline auto &operator/(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
 {
     return Qved<>(input1, input2);
 }
-    
+
 // ------------------- Qgemul -------------------
 
 template <bool Value>
