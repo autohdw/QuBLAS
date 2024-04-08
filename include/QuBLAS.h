@@ -631,7 +631,24 @@ public:
     constexpr Qu(dataType val, DirectAssignTag) : data(val) {}
 
     template <typename... fromArgs>
-    inline constexpr Qu &operator=(const Qu<fromArgs...> &rhs)
+    inline constexpr Qu (const Qu<fromArgs...> rhs)
+    {
+        static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
+        static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
+        static constexpr auto fromIsSigned = tagExtractor<isSigned<defaultIsSigned>, fromArgs...>::value;
+
+        if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
+        {
+            data = rhs.data;
+        }
+        else
+        {
+            data = intConvert<intB, fracB, isS, OfMode<OfM>>::convert(fracConvert<fromFrac, fracB, QuMode<QuM>>::convert(rhs.data));
+        }
+    }
+
+    template <typename... fromArgs>
+    inline constexpr Qu& operator=(const Qu<fromArgs...> rhs)
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -668,7 +685,7 @@ public:
     }
 
     template <typename... fromArgs>
-    inline constexpr bool operator!=(const Qu<fromArgs...> &&rhs) const
+    inline constexpr bool operator!=(const Qu<fromArgs...> rhs) const
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
