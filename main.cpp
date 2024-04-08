@@ -88,7 +88,7 @@ int main()
     // 所有的向量和矩阵同样也是Qu，区别在于要传一个维度进去
     // 维度用dim<>创建，可以是任意长度，只要你需要
     using vecDim = dim<3>;
-    using matDim = dim<3, 3>;
+    using matDim = dim<4, 4>;
     using cudeDim = dim<3, 3, 3>;
     using fourDim = dim<3, 3, 3, 3>;
 
@@ -110,7 +110,7 @@ int main()
     vecType1 vec4 = {1, 2, 3};
 
     // 矩阵同理
-    Qu<matDim,type2> mat1 = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    Qu<matDim,type2> mat1 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,14, 15};
 
 
     // ---------- 索引 ----------
@@ -119,25 +119,26 @@ int main()
     // 静态索引是指在编译期就可以确定的索引，这种索引的速度会非常快
     // 静态索引使用.get<>()函数
 
-    mat1.get<0, 0>() = 1;
+    // mat1.get<0, 0>() = 0;
 
     // 如果你要用变量，请将变量指定为constexpr
     constexpr int indexX = 1;
     constexpr int indexY = 2;
-    mat1.get<indexX, indexY>() = 1;
+    mat1.get<indexX, indexY>() = 114514;
 
     // 动态索引就是在运行期才能确定的索引，这种索引的速度会慢一些
     // 但是更方便， 而且就是你比较熟悉的那种索引
     // 动态索引使用[]运算符，直接传入任意长度的索引即可
     // ！！！！！！ 注意！！！！！！
     // 如果你想用for循环遍历矩阵，那么请使用动态索引，静态索引不可以用for循环
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
     {
-        for (int j = 0; j < 3; j++)
+        for (int j = 0; j < 4; j++)
         {
           // !!!!!! 注意，是mat1[i, j]而不是mat1[i][j
-            mat1[i, j] = 1;
+            std::cout << mat1[i, j].output() << " ";
         }
+        std::cout << std::endl;
     }
 
     // ---------- 元素级量化向量/矩阵 ----------
@@ -145,9 +146,10 @@ int main()
     // 非常特殊地，你可以创建一个每一位元素的量化类型都不一样的向量或者矩阵
     // 这个时候你需要传入一个元素量化类型的数组，数组的长度就是向量或者矩阵的元素个数
 
+    using matDim2 = dim<3, 3>;
     using typeList =TypeList<type1, type2, type1, type2, type1, type2, type1, type2, type1>;
 
-    Qu<matDim, typeList> mat2 = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    Qu<matDim2, typeList> mat2 = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 
     // ！！！！！！ 注意！！！！！！
     // 你需要保证元素量化类型的数组的长度和向量或者矩阵的元素个数一致
@@ -162,5 +164,11 @@ int main()
 
     // 错误示范
     // mat2[0, 0] = Qadd<type1>(mat2[0, 0], mat2[1, 1]); // error
+
+
+
+    using dim1 =dim<4,4>;
+    auto temp2= dim1::elemSizeForIndexHead<0>::value;
+    auto temp = dim1::absoluteIndex_s<0, 1>::value;
 
 }

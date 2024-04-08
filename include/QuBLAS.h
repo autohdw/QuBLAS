@@ -738,9 +738,9 @@ struct dim
     static inline constexpr size_t dimAt = dimAt_s<index>::value;
 
     template <size_t index2>
-    struct elemSizeForIndexTail
+    struct elemSizeForIndexHead
     {
-        static inline constexpr size_t value = std::accumulate(dimArray.begin() + index2, dimArray.end(), 1, std::multiplies<size_t>());
+        static inline constexpr size_t value = std::accumulate(dimArray.begin(), dimArray.begin() + index2, 1, std::multiplies<size_t>());
     };
 
     // for example, dimList<2,2,3,4>
@@ -755,13 +755,13 @@ struct dim
         template <size_t loc, size_t firstIndex, size_t... indexLeft>
         struct compute<loc, firstIndex, indexLeft...>
         {
-            static inline constexpr size_t value = firstIndex * elemSizeForIndexTail<loc + 1>::value + compute<loc + 1, indexLeft...>::value;
+            static inline constexpr size_t value = firstIndex * elemSizeForIndexHead<loc>::value + compute<loc + 1, indexLeft...>::value;
         };
 
         template <size_t firstIndex>
         struct compute<dimSize - 1, firstIndex>
         {
-            static inline constexpr size_t value = firstIndex;
+            static inline constexpr size_t value = firstIndex * elemSizeForIndexHead<dimSize - 1>::value;
         };
 
         static inline constexpr size_t value = compute<0, index...>::value;
@@ -794,11 +794,11 @@ private:
     {
         if constexpr (sizeof...(Rest) == 0)
         {
-            return accum + first;
+            return accum + first * dim<dims...>::template elemSizeForIndexHead<sizeof...(dims)-1>::value;
         }
         else
         {
-            constexpr size_t nextDimProduct = dim<dims...>::template elemSizeForIndexTail<sizeof...(dims) - sizeof...(Rest)>::value;
+            constexpr size_t nextDimProduct = dim<dims...>::template elemSizeForIndexHead<sizeof...(dims)-sizeof...(Rest)-1>::value;
             return calculateIndex(accum + first * nextDimProduct, rest...);
         }
     }
