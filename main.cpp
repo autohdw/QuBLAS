@@ -4,17 +4,16 @@
 int main()
 {
 
-
-  //    ================ 1. Qu的创建 =================
+    //    ================ 1. Qu的创建 =================
     // 最基础的变量创建，采用默认参数，整数位宽=12，小数位宽=12，带符号位，defaultQuMode = TRN::TCPL , defaultOfMode = SAT::TCPL
     Qu a = 1.0;
 
     // 完整的创建, 有五个支持的选项
     Qu<intBits<8>,
-            fracBits<8>,
-            isSigned<true>,
-            QuMode<RND::ZERO>,
-            OfMode<SAT::TCPL>>
+       fracBits<8>,
+       isSigned<true>,
+       QuMode<RND::ZERO>,
+       OfMode<SAT::TCPL>>
         b = 1.0;
 
     // 你可以随意地传入选项，按照任意顺序，传入任意个数
@@ -53,7 +52,6 @@ int main()
     bool agb = a > b;
     bool aeb = a != b;
 
-
     // += -= *= /=等运算符暂不支持，需要的话喊我
     // a += b; // error
 
@@ -73,7 +71,6 @@ int main()
 
     // 你也可以直接指定输出类型，这个会先按照type1的类型进行运算和量化，然后再转换为type2的类型，再进行一次量化
     type2 hhh = Qadd<type1>(a, b);
-
 
     // ！！！！！！ 注意！！！！！！
     // 虽然输入形式很自由，但是不要整烂活
@@ -110,8 +107,7 @@ int main()
     vecType1 vec4 = {1, 2, 3};
 
     // 矩阵同理
-    Qu<matDim,type2> mat1 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,14, 15};
-
+    Qu<matDim, type2> mat1 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
     // ---------- 索引 ----------
     // 矩阵的索引有两种模式，静态索引和动态索引
@@ -135,7 +131,7 @@ int main()
     {
         for (int j = 0; j < 4; j++)
         {
-          // !!!!!! 注意，是mat1[i, j]而不是mat1[i][j
+            // !!!!!! 注意，是mat1[i, j]而不是mat1[i][j
             std::cout << mat1[i, j].output() << " ";
         }
         std::cout << std::endl;
@@ -147,7 +143,7 @@ int main()
     // 这个时候你需要传入一个元素量化类型的数组，数组的长度就是向量或者矩阵的元素个数
 
     using matDim2 = dim<3, 3>;
-    using typeList =TypeList<type1, type2, type1, type2, type1, type2, type1, type2, type1>;
+    using typeList = TypeList<type1, type2, type1, type2, type1, type2, type1, type2, type1>;
 
     Qu<matDim2, typeList> mat2 = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 
@@ -165,7 +161,23 @@ int main()
     // 错误示范
     // mat2[0, 0] = Qadd<type1>(mat2[0, 0], mat2[1, 1]); // error
 
+    // ----------------------------------
 
+    using Mat1Dim = dim<2, 2>;
+    using Mat2Dim = dim<2, 2>;
 
+    Qu<Mat1Dim, type1> mat3 = {1, 2, 3, 4};
+    Qu<Mat2Dim, type2> mat4 = {1, 2, 3, 4};
+
+    auto mat5 = Qmul(mat3, mat4);
+    auto mat6 = mat3 * mat4;
+
+    Qu<Mat1Dim, type1> mat7;
+
+    Qmul(mat7, mat3, mat4); 
+
+    auto mat8 = Qadd< type1>(mat3, mat4);
+
+    mat8.display();
 
 }

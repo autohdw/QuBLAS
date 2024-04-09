@@ -631,7 +631,7 @@ public:
     constexpr Qu(dataType val, DirectAssignTag) : data(val) {}
 
     template <typename... fromArgs>
-    inline constexpr Qu (const Qu<fromArgs...> rhs)
+    inline constexpr Qu(const Qu<fromArgs...> rhs)
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -648,7 +648,7 @@ public:
     }
 
     template <typename... fromArgs>
-    inline constexpr Qu& operator=(const Qu<fromArgs...> rhs)
+    inline constexpr Qu &operator=(const Qu<fromArgs...> rhs)
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -794,11 +794,11 @@ private:
     {
         if constexpr (sizeof...(Rest) == 0)
         {
-            return accum + first * dim<dims...>::template elemSizeForIndexHead<sizeof...(dims)-1>::value;
+            return accum + first * dim<dims...>::template elemSizeForIndexHead<sizeof...(dims) - 1>::value;
         }
         else
         {
-            constexpr size_t nextDimProduct = dim<dims...>::template elemSizeForIndexHead<sizeof...(dims)-sizeof...(Rest)-1>::value;
+            constexpr size_t nextDimProduct = dim<dims...>::template elemSizeForIndexHead<sizeof...(dims) - sizeof...(Rest) - 1>::value;
             return calculateIndex(accum + first * nextDimProduct, rest...);
         }
     }
@@ -914,9 +914,320 @@ public:
     }
 };
 
+// ------------------- element wise operations -------------------
 
+namespace elementWise {
+// completed empty struct just to convey the dims
+template <size_t... dims>
+struct indice;
 
+template <typename A, typename B, typename accumulated = indice<>>
+struct BroadcastHelper;
 
+template <size_t... Dims1, size_t... accumulatedDims>
+struct BroadcastHelper<dim<Dims1...>, dim<>, indice<accumulatedDims...>> : BroadcastHelper<dim<Dims1...>, dim<1>, indice<accumulatedDims...>>
+{
+};
+
+template <size_t... Dims2, size_t... accumulatedDims>
+struct BroadcastHelper<dim<>, dim<Dims2...>, indice<accumulatedDims...>> : BroadcastHelper<dim<1>, dim<Dims2...>, indice<accumulatedDims...>>
+{
+};
+
+template <size_t... accumulatedDims>
+struct BroadcastHelper<dim<>, dim<>, indice<accumulatedDims...>>
+{
+    inline constexpr static bool canBroadcast = true;
+    using resultDim = dim<accumulatedDims...>;
+};
+
+template <size_t sameDim, size_t... Dims1, size_t... Dims2, size_t... accumulatedDims>
+struct BroadcastHelper<dim<sameDim, Dims1...>, dim<sameDim, Dims2...>, indice<accumulatedDims...>>
+{
+    using next = BroadcastHelper<dim<Dims1...>, dim<Dims2...>, indice<accumulatedDims..., sameDim>>;
+    inline constexpr static bool canBroadcast = next::canBroadcast;
+    using resultDim = typename next::resultDim;
+};
+
+template <size_t firstDim1, size_t firstDim2, size_t... Dims1, size_t... Dims2, size_t... accumulatedDims>
+    requires(firstDim1 != firstDim2)
+struct BroadcastHelper<dim<firstDim1, Dims1...>, dim<firstDim2, Dims2...>, indice<accumulatedDims...>>
+{
+    inline constexpr static bool oneExists = (firstDim1 == 1 || firstDim2 == 1);
+
+    using next = BroadcastHelper<dim<Dims1...>, dim<Dims2...>, indice<accumulatedDims..., oneExists ? std::max(firstDim1, firstDim2) : firstDim1>>;
+
+    inline constexpr static bool canBroadcast = oneExists ? next::canBroadcast : false;
+    using resultDim = std::conditional_t<oneExists, typename next::resultDim, std::nullptr_t>;
+};
+
+template <typename T>
+struct dimGet_s;
+
+template <size_t... dims>
+struct dimGet_s<indice<dims...>>
+{
+    template <size_t... dims2, typename... Args>
+    static inline constexpr auto &get(Qu<dim<dims2...>, Args...> &f)
+    {
+        return f.template get<dims...>();
+    }
+
+    template <size_t... dims2, typename... Args>
+    static inline constexpr const auto &get(const Qu<dim<dims2...>, Args...> &f)
+    {
+        return f.template get<dims...>();
+    }
+};
+
+template <typename T, typename dim, size_t... dims, typename... Args>
+inline constexpr auto &dimGet(Qu<dim, Args...> &f)
+{
+    return dimGet_s<T>::get(f);
+}
+
+template <typename T, typename dim, size_t... dims, typename... Args>
+inline constexpr const auto &dimGet(const Qu<dim, Args...> &f)
+{
+    return dimGet_s<T>::get(f);
+}
+
+template <typename... indices>
+struct numList;
+
+template <typename... Type>
+struct parallel;
+
+template <template <typename...> typename numList1, typename... nums1, template <typename...> typename numList2, typename... nums2, template <typename...> typename numList3, typename... nums3, typename... toArgs>
+struct parallel<numList1<nums1...>, numList2<nums2...>, numList3<nums3...>, toArgs...>
+{
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeMulition(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qmul<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeAddition(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qadd<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeSubtraction(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qsub<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeDivision(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qdiv<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+};
+
+// ----------------- numsExtenderParallel -----------------
+
+template <size_t N, typename T>
+struct numsExtender;
+
+template <size_t... num, size_t N>
+struct numsExtender<N, indice<num...>>
+{
+    using result = indice<num..., N>;
+};
+
+template <typename... Args>
+struct numsListExtender;
+
+template <typename... num, size_t... N>
+struct numsListExtender<numList<num...>, std::index_sequence<N...>>
+{
+    using result = numList<typename numsExtender<N, num>::result...>;
+};
+
+//-------------------- numListDuplicator --------------------
+
+// 基本模板，不做任何事，只定义类型
+template <typename List1, typename List2>
+struct Concatenate;
+
+// 特化版本，用于实际连接两个numList
+template <typename... Nums1, typename... Nums2>
+struct Concatenate<numList<Nums1...>, numList<Nums2...>>
+{
+    using type = numList<Nums1..., Nums2...>;
+};
+
+// 前向声明
+template <typename List, size_t N, typename... Accumulated>
+struct Duplicate;
+
+// 终止条件特化版本，当N为0时终止递归
+template <typename List, typename... Accumulated>
+struct Duplicate<List, 0, Accumulated...>
+{
+    using type = numList<>;
+};
+
+// N > 0 的情况，递归展开
+template <typename List, size_t N, typename... Accumulated>
+struct Duplicate
+{
+    using type = typename Concatenate<
+        typename Duplicate<List, 1>::type,
+        typename Duplicate<List, N - 1, Accumulated...>::type>::type;
+};
+
+// 特化N = 1的情况，直接返回List
+template <typename List, typename... Accumulated>
+struct Duplicate<List, 1, Accumulated...>
+{
+    using type = List;
+};
+
+template <typename List, size_t N>
+struct numListDuplicator
+{
+    using type = typename Duplicate<List, N>::type;
+};
+
+// ----------------- numsDuplicator -----------------
+
+// 重复每个元素loop次的辅助模板
+template <typename Seq, typename Loop>
+struct repeat_seq_impl;
+
+template <size_t... Loop, size_t... I>
+struct repeat_seq_impl<std::index_sequence<I...>, std::index_sequence<Loop...>>
+{
+
+    template <size_t N>
+    using repeat = std::index_sequence<((void)Loop, N)...>;
+
+    // 连接多个index_sequence
+    template <typename... Sequences>
+    struct concat;
+
+    template <size_t... I1, size_t... I2, typename... Rest>
+    struct concat<std::index_sequence<I1...>, std::index_sequence<I2...>, Rest...>
+    {
+        using type = typename concat<std::index_sequence<I1..., I2...>, Rest...>::type;
+    };
+
+    template <size_t... I2>
+    struct concat<std::index_sequence<I2...>>
+    {
+        using type = std::index_sequence<I2...>;
+    };
+
+    using type = typename concat<repeat<I>...>::type;
+};
+
+// 用户接口
+template <int N, size_t Loop>
+struct makeExtIdxSeq
+{
+    using type = typename repeat_seq_impl<std::make_index_sequence<N>, std::make_index_sequence<Loop>>::type;
+};
+
+// ----------------- begin -----------------
+
+template <typename T>
+struct indexSeqToNumList;
+
+template <size_t... index>
+struct indexSeqToNumList<std::index_sequence<index...>>
+{
+    using type = numList<indice<index>...>;
+};
+
+template <typename T>
+struct guillotine;
+
+template <template <auto...> typename list, auto first, auto... indice>
+struct guillotine<list<first, indice...>>
+{
+    using type = list<indice...>;
+};
+
+template <typename... Args>
+struct indexModifier;
+
+template <size_t... num, size_t... dims, size_t firstNum, size_t firstDim, size_t... accuNum>
+struct indexModifier<indice<firstNum, num...>, dim<firstDim, dims...>, indice<accuNum...>>
+{
+    static constexpr size_t newNum = firstDim == 1 ? 0 : firstNum;
+    using res = indexModifier<indice<num...>, dim<dims...>, indice<accuNum..., newNum>>::res;
+};
+
+// 终止
+template <size_t... accuNum, size_t firstNum, size_t... num>
+struct indexModifier<indice<firstNum, num...>, dim<>, indice<accuNum...>>
+{
+    using res = indice<accuNum...>;
+};
+
+template <size_t... accuNum>
+struct indexModifier<indice<>, dim<>, indice<accuNum...>>
+{
+    using res = indice<accuNum...>;
+};
+
+template <typename... Args>
+struct indexModifierParallel;
+
+template <typename... indices, size_t... dims>
+struct indexModifierParallel<numList<indices...>, dim<dims...>>
+{
+    using res = numList<typename indexModifier<indices, dim<dims...>, indice<>>::res...>;
+};
+
+template <typename... Args>
+struct elemwiseIndexCalculator;
+
+template <size_t... dims1, size_t... dims2>
+struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
+{
+
+    using Cdim = typename BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+
+    template <typename... Args>
+    struct begin;
+
+    template <size_t... dims>
+    struct begin<numList<>, dim<dims...>>
+    {
+        static constexpr size_t initDim = dim<dims...>::dimArray[0];
+
+        using initList = indexSeqToNumList<std::make_index_sequence<initDim>>::type;
+
+        using res = begin<initList, typename guillotine<dim<dims...>>::type>::res;
+    };
+
+    template <typename... accuNums, size_t... dims>
+    struct begin<numList<accuNums...>, dim<dims...>>
+    {
+        static constexpr size_t initDim = dim<dims...>::dimArray[0];
+        using duplicatedList = numListDuplicator<numList<accuNums...>, initDim>::type;
+        using numToAdd = makeExtIdxSeq<initDim, sizeof...(accuNums)>::type;
+
+        using newList = numsListExtender<duplicatedList, numToAdd>::result;
+
+        using res = begin<newList, typename guillotine<dim<dims...>>::type>::res;
+    };
+
+    template <typename... accuNums>
+    struct begin<numList<accuNums...>, dim<>>
+    {
+        using res = numList<accuNums...>;
+    };
+
+    using outputIndexList = begin<numList<>, Cdim>::res;
+    using input1IndexList = indexModifierParallel<outputIndexList, dim<dims1...>>::res;
+    using input2IndexList = indexModifierParallel<outputIndexList, dim<dims2...>>::res;
+};
+} // namespace elementWise
 
 // ------------------- Basic Operations -------------------
 
@@ -970,6 +1281,34 @@ struct Qmul_s
     }
 };
 
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise multiplication");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto& apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeMulition(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeMulition(f1, f2, f3);
+    }
+};
+
 template <template <typename...> class innerWrapper, typename... toArgs>
 struct Qmul_s<innerWrapper<toArgs...>> : Qmul_s<toArgs...>
 {
@@ -985,6 +1324,24 @@ template <typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator*(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
 {
     return Qmul<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qmul(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator* (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+{
+    return Qmul<>(f1, f2);
+}
+
+template < typename... toArgs,size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qmul(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
 
 template <typename... toArgs>
@@ -1009,9 +1366,36 @@ struct Qadd_s
     }
 
     template <size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const Qu<dim<dims1...>,fromArgs1...> f1, const Qu<dim<dims2...>,fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
     {
-        
+    }
+};
+
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise addition");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeAddition(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeAddition(f1, f2, f3);
     }
 };
 
@@ -1031,6 +1415,25 @@ inline constexpr auto operator+(const Qu<fromArgs1...> &f1, const Qu<fromArgs2..
 {
     return Qadd<>(f1, f2);
 }
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qadd(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator+ (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+{
+    return Qadd<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qadd(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
+}
+
 
 template <typename... toArgs>
 struct Qdiv_s
@@ -1060,6 +1463,34 @@ struct Qdiv_s
     }
 };
 
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qdiv_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise division");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeDivision(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeDivision(f1, f2, f3);
+    }
+};
+
 template <template <typename...> class innerWrapper, typename... toArgs>
 struct Qdiv_s<innerWrapper<toArgs...>> : Qdiv_s<toArgs...>
 {
@@ -1075,6 +1506,24 @@ template <typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator/(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
 {
     return Qdiv<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qdiv(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qdiv_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator/ (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+{
+    return Qdiv<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qdiv(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qdiv_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
 
 template <typename... toArgs>
@@ -1096,6 +1545,34 @@ struct Qsub_s
                   QuMode<typename merger::toQuMode>,
                   OfMode<typename merger::toOfMode>,
                   isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
+    }
+};
+
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qsub_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise subtraction");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeSubtraction(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeSubtraction(f1, f2, f3);
     }
 };
 
@@ -1121,6 +1598,24 @@ inline constexpr auto operator-(const Qu<fromArgs1...> &f1)
 {
 
     return Qu<fromArgs1...>(-f1.data, DirectAssignTag{});
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qsub(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qsub_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator- (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+{
+    return Qsub<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qsub(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qsub_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
 
 template <typename... fromArgs>
