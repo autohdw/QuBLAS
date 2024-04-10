@@ -66,7 +66,7 @@ struct is_typelist : std::false_type
 template <typename... Types>
 struct is_typelist<TypeList<Types...>> : std::true_type
 {};
-
+ 
 // to tuple
 template <typename List>
 struct toTuple
@@ -80,6 +80,7 @@ struct toTuple<TypeList<Types...>>
     using type = std::tuple<Types...>;
 };
 
+ 
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -648,7 +649,10 @@ public:
     }
 
     template <typename... fromArgs>
+
     inline constexpr Qu &operator=(const Qu<fromArgs...> rhs)
+
+
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -685,7 +689,10 @@ public:
     }
 
     template <typename... fromArgs>
+
     inline constexpr bool operator!=(const Qu<fromArgs...> rhs) const
+
+ 
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -694,6 +701,23 @@ public:
         if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
         {
             return data != rhs.data;
+        }
+        else
+        {
+            return true;
+        }
+    }
+
+    template <typename... fromArgs>
+    inline constexpr bool operator==(const apFixed<fromArgs...> rhs) const
+    {
+        static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
+        static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
+        static constexpr auto fromIsSigned = tagExtractor<isSigned<defaultIsSigned>, fromArgs...>::value;
+
+        if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
+        {
+            return data == rhs.data;
         }
         else
         {
@@ -1200,13 +1224,17 @@ struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
     {
         static constexpr size_t initDim = dim<dims...>::dimArray[0];
 
+ 
         using initList = indexSeqToNumList<std::make_index_sequence<initDim>>::type;
+ 
 
         using res = begin<initList, typename guillotine<dim<dims...>>::type>::res;
     };
 
+ 
     template <typename... accuNums, size_t... dims>
     struct begin<numList<accuNums...>, dim<dims...>>
+ 
     {
         static constexpr size_t initDim = dim<dims...>::dimArray[0];
         using duplicatedList = numListDuplicator<numList<accuNums...>, initDim>::type;
@@ -1214,8 +1242,10 @@ struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
 
         using newList = numsListExtender<duplicatedList, numToAdd>::result;
 
+ 
         using res = begin<newList, typename guillotine<dim<dims...>>::type>::res;
     };
+ 
 
     template <typename... accuNums>
     struct begin<numList<accuNums...>, dim<>>
@@ -1223,14 +1253,17 @@ struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
         using res = numList<accuNums...>;
     };
 
+ 
     using outputIndexList = begin<numList<>, Cdim>::res;
     using input1IndexList = indexModifierParallel<outputIndexList, dim<dims1...>>::res;
     using input2IndexList = indexModifierParallel<outputIndexList, dim<dims2...>>::res;
 };
 } // namespace elementWise
+ 
 
 // ------------------- Basic Operations -------------------
 
+ 
 // a strucrt to merge two Qu types
 template <typename... Args>
 struct QuMerge;
@@ -1242,12 +1275,14 @@ struct QuMerge<Qu<toArgs...>, Qu<Args1...>, Qu<Args2...>>
     static inline constexpr auto fromInt2 = Qu<Args2...>::intB;
     static inline constexpr auto fromFrac1 = Qu<Args1...>::fracB;
     static inline constexpr auto fromFrac2 = Qu<Args2...>::fracB;
+ 
 
     using fromQuMode1 = typename Qu<Args1...>::QuM;
     using fromQuMode2 = typename Qu<Args2...>::QuM;
     using fromOfMode1 = typename Qu<Args1...>::OfM;
     using fromOfMode2 = typename Qu<Args2...>::OfM;
 
+ 
     using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
     using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
 
@@ -1256,22 +1291,27 @@ struct QuMerge<Qu<toArgs...>, Qu<Args1...>, Qu<Args2...>>
     static inline constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
     using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
     using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+ 
 
     static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
     static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 };
 
+ 
 template <typename... toArgs>
 struct Qmul_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+ 
     {
         using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
 
+ 
         auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
         auto fracProduct = fracConvert<merger::fromFrac1 + merger::fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
+ 
 
         return Qu<intBits<merger::toInt>,
                   fracBits<merger::toFrac>,
@@ -1293,8 +1333,10 @@ struct Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>
     using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
     using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
 
+ 
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto& apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
     {
         static Qu<resDim, toArgs...> f3;
         elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeMulition(f1, f2, f3);
@@ -1302,8 +1344,10 @@ struct Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>
         return f3;
     }
 
+ 
     template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
     inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
     {
         elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeMulition(f1, f2, f3);
     }
@@ -1320,8 +1364,10 @@ inline constexpr auto Qmul(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
     return Qmul_s<toArgs...>::apply(f1, f2);
 }
 
+ 
 template <typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator*(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+ 
 {
     return Qmul<>(f1, f2);
 }
@@ -1332,14 +1378,18 @@ inline constexpr auto Qmul(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<di
     return Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
 }
 
+ 
 template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator* (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+ 
 {
     return Qmul<>(f1, f2);
 }
 
+ 
 template < typename... toArgs,size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto Qmul(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
 {
     return Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
@@ -1352,10 +1402,13 @@ struct Qadd_s
     {
         using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
 
+ 
         auto fullSum = static_cast<long long int>(f1.data << merger::shiftA) + static_cast<long long int>(f2.data << merger::shiftB);
+ 
 
         auto fracSum = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
 
+ 
         auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
 
         return Qu<intBits<merger::toInt>,
@@ -1364,6 +1417,7 @@ struct Qadd_s
                   OfMode<typename merger::toOfMode>,
                   isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
     }
+ 
 
     template <size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
@@ -1371,18 +1425,23 @@ struct Qadd_s
     }
 };
 
+ 
 template <size_t... dims1, size_t... dims2, typename... toArgs>
 struct Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>
+ 
 {
     using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
     static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
 
+ 
     static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise addition");
+ 
 
     using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
     using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
     using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
 
+ 
     template <typename... fromArgs1, typename... fromArgs2>
     inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
     {
@@ -1398,20 +1457,24 @@ struct Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>
         elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeAddition(f1, f2, f3);
     }
 };
+ 
 
 template <template <typename...> class innerWrapper, typename... toArgs>
 struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
 {
 };
-
+ 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto Qadd(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+ 
 {
     return Qadd_s<toArgs...>::apply(f1, f2);
 }
 
+ 
 template <typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator+(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+ 
 {
     return Qadd<>(f1, f2);
 }
@@ -1422,17 +1485,22 @@ inline constexpr auto Qadd(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<di
     return Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
 }
 
+ 
 template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator+ (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+ 
 {
     return Qadd<>(f1, f2);
 }
 
+ 
 template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto Qadd(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
 {
     return Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
+ 
 
 
 template <typename... toArgs>
