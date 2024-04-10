@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -20,6 +21,7 @@ constexpr bool debug = false;
 template <typename... Types>
 struct TypeList
 {
+    using head = std::nullptr_t;
     static inline constexpr size_t size = sizeof...(Types);
 };
 
@@ -64,7 +66,21 @@ struct is_typelist : std::false_type
 template <typename... Types>
 struct is_typelist<TypeList<Types...>> : std::true_type
 {};
+ 
+// to tuple
+template <typename List>
+struct toTuple
+{
+    using type = std::nullptr_t;
+};
 
+template <typename... Types>
+struct toTuple<TypeList<Types...>>
+{
+    using type = std::tuple<Types...>;
+};
+
+ 
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -112,7 +128,7 @@ struct tagExtractor<Tag<Args...>, Tag<Args2...>, Args3...>
     using type = TypeList<Args2...>;
 };
 
-// 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的apFixed<...>类型
+// 特别地，有可能会是一个复合类型。这个情况应该只会出现在BLAS函数中的复合Tag中，用于拆封传入的Qu<...>类型
 template <template <typename...> class Tag, typename... Args, typename... Args2, typename... Args3, template <typename...> class innerWrapper>
     requires(!std::is_same_v<innerWrapper<Args2...>, TypeList<Args2...>>)
 struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
@@ -120,7 +136,7 @@ struct tagExtractor<Tag<Args...>, Tag<innerWrapper<Args2...>>, Args3...>
     using type = TypeList<Args2...>;
 };
 
-// 也很特别的，apFixed<...>可能传入了一个tuple，这个时候需要拆封tuple
+// 也很特别的，Qu<...>可能传入了一个tuple，这个时候需要拆封tuple
 template <typename Tag, typename... Args>
 struct tagExtractor<Tag, TypeList<Args...>> : tagExtractor<Tag, Args...>
 {
@@ -209,7 +225,7 @@ struct shifter
     }
 };
 
-// ------------------- apFixed -------------------
+// ------------------- Qu -------------------
 
 template <typename T>
 struct QuMode;
@@ -589,7 +605,7 @@ struct DirectAssignTag
 };
 
 template <typename... Args>
-class apFixed
+class Qu
 {
 public:
     using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
@@ -607,16 +623,16 @@ public:
 
     template <typename T>
         requires std::is_arithmetic_v<T>
-    constexpr apFixed(T val)
+    constexpr Qu(T val)
     {
         data = shifter<fracB>::template input<T, dataType>(val);
     }
 
-    constexpr apFixed() : data(0) {}
-    constexpr apFixed(dataType val, DirectAssignTag) : data(val) {}
+    constexpr Qu() : data(0) {}
+    constexpr Qu(dataType val, DirectAssignTag) : data(val) {}
 
     template <typename... fromArgs>
-    inline constexpr apFixed (const apFixed<fromArgs...> rhs)
+    inline constexpr Qu(const Qu<fromArgs...> rhs)
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -633,7 +649,10 @@ public:
     }
 
     template <typename... fromArgs>
-    inline constexpr apFixed operator=(const apFixed<fromArgs...> rhs)
+
+    inline constexpr Qu &operator=(const Qu<fromArgs...> rhs)
+
+
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -661,6 +680,7 @@ public:
         {
             std::cout << name << " :";
         }
+        std::cout << " intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << " ";
         std::cout << std::endl;
         std::cout << "Binary: " << std::bitset<intB + fracB>(data) << std::endl;
         std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
@@ -669,7 +689,10 @@ public:
     }
 
     template <typename... fromArgs>
-    inline constexpr bool operator!=(const apFixed<fromArgs...> rhs) const
+
+    inline constexpr bool operator!=(const Qu<fromArgs...> rhs) const
+
+ 
     {
         static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
         static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
@@ -704,62 +727,629 @@ public:
 };
 
 template <typename T>
-struct is_apFixed : std::false_type
+struct is_Qu : std::false_type
 {};
 
 template <typename... Types>
-struct is_apFixed<apFixed<Types...>> : std::true_type
+struct is_Qu<Qu<Types...>> : std::true_type
 {};
+
+template <typename... Types>
+struct is_Qu<TypeList<Types...>>
+{
+    static inline constexpr bool value = (is_Qu<Types>::value || ...);
+};
+
+// ------------------- Vector and Matrix -------------------
+
+template <size_t... dims>
+struct dim
+{
+    static inline constexpr size_t dimSize = sizeof...(dims);
+    static inline constexpr size_t elemSize = (dims * ...);
+
+    static inline constexpr std::array<size_t, dimSize> dimArray = {dims...};
+
+    template <size_t index>
+        requires(index < dimSize)
+    struct dimAt_s
+    {
+        static inline constexpr size_t value = dimArray[index];
+    };
+
+    template <size_t index>
+        requires(index < dimSize)
+    static inline constexpr size_t dimAt = dimAt_s<index>::value;
+
+    template <size_t index2>
+    struct elemSizeForIndexHead
+    {
+        static inline constexpr size_t value = std::accumulate(dimArray.begin(), dimArray.begin() + index2, 1, std::multiplies<size_t>());
+    };
+
+    // for example, dimList<2,2,3,4>
+    // absoluteIndex<0,1,1,1> = 0*2*3*4 + 1*3*4 + 1*4 + 1 = 17
+    template <size_t... index>
+        requires(sizeof...(index) == dimSize)
+    struct absoluteIndex_s
+    {
+        template <size_t loc, size_t... index2>
+        struct compute;
+
+        template <size_t loc, size_t firstIndex, size_t... indexLeft>
+        struct compute<loc, firstIndex, indexLeft...>
+        {
+            static inline constexpr size_t value = firstIndex * elemSizeForIndexHead<loc>::value + compute<loc + 1, indexLeft...>::value;
+        };
+
+        template <size_t firstIndex>
+        struct compute<dimSize - 1, firstIndex>
+        {
+            static inline constexpr size_t value = firstIndex * elemSizeForIndexHead<dimSize - 1>::value;
+        };
+
+        static inline constexpr size_t value = compute<0, index...>::value;
+    };
+
+    template <size_t... index>
+        requires(sizeof...(index) == dimSize)
+    using absoluteIndex = absoluteIndex_s<index...>::value;
+};
+
+template <size_t... dims, typename... Args>
+class Qu<dim<dims...>, Args...>
+{
+private:
+    using headType = typename TypeList<Args...>::head;
+
+public:
+    static inline constexpr bool isElementQu = is_typelist<headType>::value;
+
+private:
+    // only used when isElementQu is false
+    using QuType = std::conditional_t<is_Qu<headType>::value, headType, Qu<Args...>>;
+
+    using arrayType = std::conditional_t<isElementQu, typename toTuple<headType>::type, std::array<QuType, dim<dims...>::elemSize>>;
+
+    arrayType data;
+
+    template <typename First, typename... Rest>
+    inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
+    {
+        if constexpr (sizeof...(Rest) == 0)
+        {
+            return accum + first * dim<dims...>::template elemSizeForIndexHead<sizeof...(dims) - 1>::value;
+        }
+        else
+        {
+            constexpr size_t nextDimProduct = dim<dims...>::template elemSizeForIndexHead<sizeof...(dims) - sizeof...(Rest) - 1>::value;
+            return calculateIndex(accum + first * nextDimProduct, rest...);
+        }
+    }
+
+public:
+    template <typename... Types>
+    Qu(Types... values) : data{values...} {}
+
+    Qu() {}
+
+    template <size_t... index>
+    inline constexpr auto &get()
+    {
+        if constexpr (isElementQu)
+        {
+            return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+        }
+        else
+        {
+            return data[dim<dims...>::template absoluteIndex_s<index...>::value];
+        }
+    }
+
+    template <size_t... index>
+    inline constexpr const auto &get() const
+    {
+        if constexpr (isElementQu)
+        {
+            return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+        }
+        else
+        {
+            return data[dim<dims...>::template absoluteIndex_s<index...>::value];
+        }
+    }
+
+    template <typename... Ints>
+        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
+    inline constexpr auto &operator[](Ints... indices)
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            size_t index = calculateIndex(0, indices...);
+            return data[index];
+        }
+    }
+
+    template <typename... Ints>
+        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
+    inline constexpr const auto &operator[](Ints... indices) const
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            size_t index = calculateIndex(0, indices...);
+            return data[index];
+        }
+    }
+
+    inline constexpr auto &operator[](size_t index)
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            return data[index];
+        }
+    }
+
+    inline constexpr const auto &operator[](size_t index) const
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            return data[index];
+        }
+    }
+
+    void display(std::string name = "")
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Not implemented yet");
+        }
+        else
+        {
+            if (name != "")
+            {
+                std::cout << name << " :";
+            }
+            std::cout << std::endl;
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                data[i].display();
+            }
+        }
+    }
+};
+
+// ------------------- element wise operations -------------------
+
+namespace elementWise {
+// completed empty struct just to convey the dims
+template <size_t... dims>
+struct indice;
+
+template <typename A, typename B, typename accumulated = indice<>>
+struct BroadcastHelper;
+
+template <size_t... Dims1, size_t... accumulatedDims>
+struct BroadcastHelper<dim<Dims1...>, dim<>, indice<accumulatedDims...>> : BroadcastHelper<dim<Dims1...>, dim<1>, indice<accumulatedDims...>>
+{
+};
+
+template <size_t... Dims2, size_t... accumulatedDims>
+struct BroadcastHelper<dim<>, dim<Dims2...>, indice<accumulatedDims...>> : BroadcastHelper<dim<1>, dim<Dims2...>, indice<accumulatedDims...>>
+{
+};
+
+template <size_t... accumulatedDims>
+struct BroadcastHelper<dim<>, dim<>, indice<accumulatedDims...>>
+{
+    inline constexpr static bool canBroadcast = true;
+    using resultDim = dim<accumulatedDims...>;
+};
+
+template <size_t sameDim, size_t... Dims1, size_t... Dims2, size_t... accumulatedDims>
+struct BroadcastHelper<dim<sameDim, Dims1...>, dim<sameDim, Dims2...>, indice<accumulatedDims...>>
+{
+    using next = BroadcastHelper<dim<Dims1...>, dim<Dims2...>, indice<accumulatedDims..., sameDim>>;
+    inline constexpr static bool canBroadcast = next::canBroadcast;
+    using resultDim = typename next::resultDim;
+};
+
+template <size_t firstDim1, size_t firstDim2, size_t... Dims1, size_t... Dims2, size_t... accumulatedDims>
+    requires(firstDim1 != firstDim2)
+struct BroadcastHelper<dim<firstDim1, Dims1...>, dim<firstDim2, Dims2...>, indice<accumulatedDims...>>
+{
+    inline constexpr static bool oneExists = (firstDim1 == 1 || firstDim2 == 1);
+
+    using next = BroadcastHelper<dim<Dims1...>, dim<Dims2...>, indice<accumulatedDims..., oneExists ? std::max(firstDim1, firstDim2) : firstDim1>>;
+
+    inline constexpr static bool canBroadcast = oneExists ? next::canBroadcast : false;
+    using resultDim = std::conditional_t<oneExists, typename next::resultDim, std::nullptr_t>;
+};
+
+template <typename T>
+struct dimGet_s;
+
+template <size_t... dims>
+struct dimGet_s<indice<dims...>>
+{
+    template <size_t... dims2, typename... Args>
+    static inline constexpr auto &get(Qu<dim<dims2...>, Args...> &f)
+    {
+        return f.template get<dims...>();
+    }
+
+    template <size_t... dims2, typename... Args>
+    static inline constexpr const auto &get(const Qu<dim<dims2...>, Args...> &f)
+    {
+        return f.template get<dims...>();
+    }
+};
+
+template <typename T, typename dim, size_t... dims, typename... Args>
+inline constexpr auto &dimGet(Qu<dim, Args...> &f)
+{
+    return dimGet_s<T>::get(f);
+}
+
+template <typename T, typename dim, size_t... dims, typename... Args>
+inline constexpr const auto &dimGet(const Qu<dim, Args...> &f)
+{
+    return dimGet_s<T>::get(f);
+}
+
+template <typename... indices>
+struct numList;
+
+template <typename... Type>
+struct parallel;
+
+template <template <typename...> typename numList1, typename... nums1, template <typename...> typename numList2, typename... nums2, template <typename...> typename numList3, typename... nums3, typename... toArgs>
+struct parallel<numList1<nums1...>, numList2<nums2...>, numList3<nums3...>, toArgs...>
+{
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeMulition(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qmul<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeAddition(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qadd<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeSubtraction(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qsub<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+
+    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
+    static void executeDivision(const Qu<dim<dims1...>, Args1...> &f1, const Qu<dim<dims2...>, Args2...> &f2, Qu<dim<dims3...>, Args3...> &f3)
+    {
+        ((dimGet<nums3>(f3) = Qdiv<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
+    }
+};
+
+// ----------------- numsExtenderParallel -----------------
+
+template <size_t N, typename T>
+struct numsExtender;
+
+template <size_t... num, size_t N>
+struct numsExtender<N, indice<num...>>
+{
+    using result = indice<num..., N>;
+};
+
+template <typename... Args>
+struct numsListExtender;
+
+template <typename... num, size_t... N>
+struct numsListExtender<numList<num...>, std::index_sequence<N...>>
+{
+    using result = numList<typename numsExtender<N, num>::result...>;
+};
+
+//-------------------- numListDuplicator --------------------
+
+// 基本模板，不做任何事，只定义类型
+template <typename List1, typename List2>
+struct Concatenate;
+
+// 特化版本，用于实际连接两个numList
+template <typename... Nums1, typename... Nums2>
+struct Concatenate<numList<Nums1...>, numList<Nums2...>>
+{
+    using type = numList<Nums1..., Nums2...>;
+};
+
+// 前向声明
+template <typename List, size_t N, typename... Accumulated>
+struct Duplicate;
+
+// 终止条件特化版本，当N为0时终止递归
+template <typename List, typename... Accumulated>
+struct Duplicate<List, 0, Accumulated...>
+{
+    using type = numList<>;
+};
+
+// N > 0 的情况，递归展开
+template <typename List, size_t N, typename... Accumulated>
+struct Duplicate
+{
+    using type = typename Concatenate<
+        typename Duplicate<List, 1>::type,
+        typename Duplicate<List, N - 1, Accumulated...>::type>::type;
+};
+
+// 特化N = 1的情况，直接返回List
+template <typename List, typename... Accumulated>
+struct Duplicate<List, 1, Accumulated...>
+{
+    using type = List;
+};
+
+template <typename List, size_t N>
+struct numListDuplicator
+{
+    using type = typename Duplicate<List, N>::type;
+};
+
+// ----------------- numsDuplicator -----------------
+
+// 重复每个元素loop次的辅助模板
+template <typename Seq, typename Loop>
+struct repeat_seq_impl;
+
+template <size_t... Loop, size_t... I>
+struct repeat_seq_impl<std::index_sequence<I...>, std::index_sequence<Loop...>>
+{
+
+    template <size_t N>
+    using repeat = std::index_sequence<((void)Loop, N)...>;
+
+    // 连接多个index_sequence
+    template <typename... Sequences>
+    struct concat;
+
+    template <size_t... I1, size_t... I2, typename... Rest>
+    struct concat<std::index_sequence<I1...>, std::index_sequence<I2...>, Rest...>
+    {
+        using type = typename concat<std::index_sequence<I1..., I2...>, Rest...>::type;
+    };
+
+    template <size_t... I2>
+    struct concat<std::index_sequence<I2...>>
+    {
+        using type = std::index_sequence<I2...>;
+    };
+
+    using type = typename concat<repeat<I>...>::type;
+};
+
+// 用户接口
+template <int N, size_t Loop>
+struct makeExtIdxSeq
+{
+    using type = typename repeat_seq_impl<std::make_index_sequence<N>, std::make_index_sequence<Loop>>::type;
+};
+
+// ----------------- begin -----------------
+
+template <typename T>
+struct indexSeqToNumList;
+
+template <size_t... index>
+struct indexSeqToNumList<std::index_sequence<index...>>
+{
+    using type = numList<indice<index>...>;
+};
+
+template <typename T>
+struct guillotine;
+
+template <template <auto...> typename list, auto first, auto... indice>
+struct guillotine<list<first, indice...>>
+{
+    using type = list<indice...>;
+};
+
+template <typename... Args>
+struct indexModifier;
+
+template <size_t... num, size_t... dims, size_t firstNum, size_t firstDim, size_t... accuNum>
+struct indexModifier<indice<firstNum, num...>, dim<firstDim, dims...>, indice<accuNum...>>
+{
+    static constexpr size_t newNum = firstDim == 1 ? 0 : firstNum;
+    using res = indexModifier<indice<num...>, dim<dims...>, indice<accuNum..., newNum>>::res;
+};
+
+// 终止
+template <size_t... accuNum, size_t firstNum, size_t... num>
+struct indexModifier<indice<firstNum, num...>, dim<>, indice<accuNum...>>
+{
+    using res = indice<accuNum...>;
+};
+
+template <size_t... accuNum>
+struct indexModifier<indice<>, dim<>, indice<accuNum...>>
+{
+    using res = indice<accuNum...>;
+};
+
+template <typename... Args>
+struct indexModifierParallel;
+
+template <typename... indices, size_t... dims>
+struct indexModifierParallel<numList<indices...>, dim<dims...>>
+{
+    using res = numList<typename indexModifier<indices, dim<dims...>, indice<>>::res...>;
+};
+
+template <typename... Args>
+struct elemwiseIndexCalculator;
+
+template <size_t... dims1, size_t... dims2>
+struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
+{
+
+    using Cdim = typename BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+
+    template <typename... Args>
+    struct begin;
+
+    template <size_t... dims>
+    struct begin<numList<>, dim<dims...>>
+    {
+        static constexpr size_t initDim = dim<dims...>::dimArray[0];
+
+ 
+        using initList = indexSeqToNumList<std::make_index_sequence<initDim>>::type;
+ 
+
+        using res = begin<initList, typename guillotine<dim<dims...>>::type>::res;
+    };
+
+ 
+    template <typename... accuNums, size_t... dims>
+    struct begin<numList<accuNums...>, dim<dims...>>
+ 
+    {
+        static constexpr size_t initDim = dim<dims...>::dimArray[0];
+        using duplicatedList = numListDuplicator<numList<accuNums...>, initDim>::type;
+        using numToAdd = makeExtIdxSeq<initDim, sizeof...(accuNums)>::type;
+
+        using newList = numsListExtender<duplicatedList, numToAdd>::result;
+
+ 
+        using res = begin<newList, typename guillotine<dim<dims...>>::type>::res;
+    };
+ 
+
+    template <typename... accuNums>
+    struct begin<numList<accuNums...>, dim<>>
+    {
+        using res = numList<accuNums...>;
+    };
+
+ 
+    using outputIndexList = begin<numList<>, Cdim>::res;
+    using input1IndexList = indexModifierParallel<outputIndexList, dim<dims1...>>::res;
+    using input2IndexList = indexModifierParallel<outputIndexList, dim<dims2...>>::res;
+};
+} // namespace elementWise
+ 
 
 // ------------------- Basic Operations -------------------
 
-// a strucrt to merge two apFixed types
+ 
+// a strucrt to merge two Qu types
 template <typename... Args>
-struct apFixedMerge;
+struct QuMerge;
 
 template <typename... toArgs, typename... Args1, typename... Args2>
-struct apFixedMerge<apFixed<toArgs...>, apFixed<Args1...>, apFixed<Args2...>>
+struct QuMerge<Qu<toArgs...>, Qu<Args1...>, Qu<Args2...>>
 {
-    static constexpr auto fromInt1 = apFixed<Args1...>::intB;
-    static constexpr auto fromInt2 = apFixed<Args2...>::intB;
-    static constexpr auto fromFrac1 = apFixed<Args1...>::fracB;
-    static constexpr auto fromFrac2 = apFixed<Args2...>::fracB;
+    static inline constexpr auto fromInt1 = Qu<Args1...>::intB;
+    static inline constexpr auto fromInt2 = Qu<Args2...>::intB;
+    static inline constexpr auto fromFrac1 = Qu<Args1...>::fracB;
+    static inline constexpr auto fromFrac2 = Qu<Args2...>::fracB;
+ 
 
-    using fromQuMode1 = typename apFixed<Args1...>::QuM;
-    using fromQuMode2 = typename apFixed<Args2...>::QuM;
-    using fromOfMode1 = typename apFixed<Args1...>::OfM;
-    using fromOfMode2 = typename apFixed<Args2...>::OfM;
+    using fromQuMode1 = typename Qu<Args1...>::QuM;
+    using fromQuMode2 = typename Qu<Args2...>::QuM;
+    using fromOfMode1 = typename Qu<Args1...>::OfM;
+    using fromOfMode2 = typename Qu<Args2...>::OfM;
 
+ 
     using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
     using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
 
-    static constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-    static constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-    static constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
+    static inline constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
+    static inline constexpr auto toIsSigned = tagExtractor<isSigned<defaultIsSigned>, toArgs...>::value;
     using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
     using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+ 
 
-    static constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-    static constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 };
 
+ 
 template <typename... toArgs>
 struct Qmul_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+ 
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
 
+ 
         auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
         auto fracProduct = fracConvert<merger::fromFrac1 + merger::fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
+ 
 
-        return apFixed<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intProduct, DirectAssignTag{});
+    }
+};
+
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise multiplication");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+ 
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto& apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeMulition(f1, f2, f3);
+
+        return f3;
+    }
+
+ 
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeMulition(f1, f2, f3);
     }
 };
 
@@ -769,81 +1359,203 @@ struct Qmul_s<innerWrapper<toArgs...>> : Qmul_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qmul(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qmul(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
 {
     return Qmul_s<toArgs...>::apply(f1, f2);
 }
 
+ 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator*(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator*(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+ 
 {
     return Qmul<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qmul(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+ 
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator* (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+ 
+{
+    return Qmul<>(f1, f2);
+}
+
+ 
+template < typename... toArgs,size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qmul(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
+{
+    return Qmul_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
 
 template <typename... toArgs>
 struct Qadd_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
 
+ 
         auto fullSum = static_cast<long long int>(f1.data << merger::shiftA) + static_cast<long long int>(f2.data << merger::shiftB);
+ 
 
         auto fracSum = fracConvert<std::max(merger::fromFrac1, merger::fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
 
+ 
         auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
 
-        return apFixed<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intSum, DirectAssignTag{});
+    }
+ 
+
+    template <size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
     }
 };
+
+ 
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>
+ 
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+ 
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise addition");
+ 
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+ 
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeAddition(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeAddition(f1, f2, f3);
+    }
+};
+ 
 
 template <template <typename...> class innerWrapper, typename... toArgs>
 struct Qadd_s<innerWrapper<toArgs...>> : Qadd_s<toArgs...>
 {
 };
-
+ 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qadd(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qadd(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
+ 
 {
     return Qadd_s<toArgs...>::apply(f1, f2);
 }
 
+ 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator+(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator+(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
+ 
 {
     return Qadd<>(f1, f2);
 }
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qadd(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+ 
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator+ (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+ 
+{
+    return Qadd<>(f1, f2);
+}
+
+ 
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qadd(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+ 
+{
+    return Qadd_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
+}
+ 
+
 
 template <typename... toArgs>
 struct Qdiv_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
 
         if (f2.data == 0)
         {
-            return apFixed<intBits<merger::toInt>,
-                           fracBits<merger::toFrac>,
-                           QuMode<typename merger::toQuMode>,
-                           OfMode<typename merger::toOfMode>,
-                           isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
+            return Qu<intBits<merger::toInt>,
+                      fracBits<merger::toFrac>,
+                      QuMode<typename merger::toQuMode>,
+                      OfMode<typename merger::toOfMode>,
+                      isSigned<merger::toIsSigned>>(0, DirectAssignTag{});
         }
 
         auto fullQuotient = (static_cast<long long int>(f1.data) << merger::shiftA << merger::toFrac) / (static_cast<long long int>(f2.data) << merger::shiftB);
         auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
 
-        return apFixed<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intQuotient, DirectAssignTag{});
+    }
+};
+
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qdiv_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise division");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeDivision(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeDivision(f1, f2, f3);
     }
 };
 
@@ -853,24 +1565,42 @@ struct Qdiv_s<innerWrapper<toArgs...>> : Qdiv_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qdiv(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qdiv(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
 {
     return Qdiv_s<toArgs...>::apply(f1, f2);
 }
 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator/(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator/(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
 {
     return Qdiv<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qdiv(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qdiv_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator/ (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+{
+    return Qdiv<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qdiv(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qdiv_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
 
 template <typename... toArgs>
 struct Qsub_s
 {
     template <typename... fromArgs1, typename... fromArgs2>
-    inline static constexpr auto apply(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+    inline static constexpr auto apply(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
     {
-        using merger = apFixedMerge<apFixed<toArgs...>, apFixed<fromArgs1...>, apFixed<fromArgs2...>>;
+        using merger = QuMerge<Qu<toArgs...>, Qu<fromArgs1...>, Qu<fromArgs2...>>;
 
         auto fullSub = static_cast<long long int>(f1.data << merger::shiftA) - static_cast<long long int>(f2.data << merger::shiftB);
 
@@ -878,11 +1608,39 @@ struct Qsub_s
 
         auto intSub = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSub);
 
-        return apFixed<intBits<merger::toInt>,
-                       fracBits<merger::toFrac>,
-                       QuMode<typename merger::toQuMode>,
-                       OfMode<typename merger::toOfMode>,
-                       isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
+        return Qu<intBits<merger::toInt>,
+                  fracBits<merger::toFrac>,
+                  QuMode<typename merger::toQuMode>,
+                  OfMode<typename merger::toOfMode>,
+                  isSigned<merger::toIsSigned>>(intSub, DirectAssignTag{});
+    }
+};
+
+template <size_t... dims1, size_t... dims2, typename... toArgs>
+struct Qsub_s<dim<dims1...>, dim<dims2...>, toArgs...>
+{
+    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
+    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
+
+    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise subtraction");
+
+    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
+    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
+    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
+
+    template <typename... fromArgs1, typename... fromArgs2>
+    inline static constexpr auto apply(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        static Qu<resDim, toArgs...> f3;
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeSubtraction(f1, f2, f3);
+
+        return f3;
+    }
+
+    template <typename... fromArgs1, typename... fromArgs2, typename... resArgs>
+    inline static constexpr auto apply(Qu<resDim,resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+    {
+        elementWise::parallel<outIndex, in1Index, in2Index, toArgs...>::executeSubtraction(f1, f2, f3);
     }
 };
 
@@ -892,28 +1650,46 @@ struct Qsub_s<innerWrapper<toArgs...>> : Qsub_s<toArgs...>
 };
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto Qsub(const apFixed<fromArgs1...> f1, const apFixed<fromArgs2...> f2)
+inline constexpr auto Qsub(const Qu<fromArgs1...> f1, const Qu<fromArgs2...> f2)
 {
     return Qsub_s<toArgs...>::apply(f1, f2);
 }
 
 template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator-(const apFixed<fromArgs1...> &f1, const apFixed<fromArgs2...> &f2)
+inline constexpr auto operator-(const Qu<fromArgs1...> &f1, const Qu<fromArgs2...> &f2)
 {
     return Qsub<>(f1, f2);
 }
 
 template <typename... fromArgs1>
-inline constexpr auto operator-(const apFixed<fromArgs1...> &f1)
+inline constexpr auto operator-(const Qu<fromArgs1...> &f1)
 {
 
-    return apFixed<fromArgs1...>(-f1.data, DirectAssignTag{});
+    return Qu<fromArgs1...>(-f1.data, DirectAssignTag{});
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qsub(const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qsub_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f1, f2);
+}
+
+template<typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto operator- (const Qu<dim<dims1...>, fromArgs1...> &f1, const Qu<dim<dims2...>, fromArgs2...> &f2)
+{
+    return Qsub<>(f1, f2);
+}
+
+template <typename... toArgs, size_t... dims1, size_t... dims2, typename... resArgs, typename... fromArgs1, typename... fromArgs2>
+inline constexpr auto Qsub(Qu<dim<dims1...>, resArgs...> &f3, const Qu<dim<dims1...>, fromArgs1...> f1, const Qu<dim<dims2...>, fromArgs2...> f2)
+{
+    return Qsub_s<dim<dims1...>, dim<dims2...>, toArgs...>::apply(f3, f1, f2);
 }
 
 template <typename... fromArgs>
-inline constexpr auto Qabs(const apFixed<fromArgs...> &f1)
+inline constexpr auto Qabs(const Qu<fromArgs...> &f1)
 {
-    return f1.data < 0 ? apFixed<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
+    return f1.data < 0 ? Qu<fromArgs...>(-f1.data, DirectAssignTag{}) : f1;
 }
 
 // ------------------- Comparison -------------------
@@ -922,7 +1698,7 @@ template <typename... Args>
 struct Qcmp_s;
 
 template <typename... Args1, typename... Args2>
-struct Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>
+struct Qcmp_s<Qu<Args1...>, Qu<Args2...>>
 {
     static constexpr auto fracBits1 = tagExtractor<fracBits<defaultFracBits>, Args1...>::value;
     static constexpr auto fracBits2 = tagExtractor<fracBits<defaultFracBits>, Args2...>::value;
@@ -931,926 +1707,14 @@ struct Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>
     static constexpr auto shift1 = fracBits2 > fracBits1 ? fracBits2 - fracBits1 : 0;
     static constexpr auto shift2 = fracBits1 > fracBits2 ? fracBits1 - fracBits2 : 0;
 
-    static constexpr auto apply(const apFixed<Args1...> &f1, const apFixed<Args2...> &f2)
+    static constexpr auto apply(const Qu<Args1...> &f1, const Qu<Args2...> &f2)
     {
         return (f1.data << shift1) <=> (f2.data << shift2);
     }
 };
 
 template <typename... Args1, typename... Args2>
-inline constexpr auto operator<=>(const apFixed<Args1...> &f1, const apFixed<Args2...> &f2)
+inline constexpr auto operator<=>(const Qu<Args1...> &f1, const Qu<Args2...> &f2)
 {
-    return Qcmp_s<apFixed<Args1...>, apFixed<Args2...>>::apply(f1, f2);
-}
-
-// ------------------- Vector and Matrix -------------------
-// base version
-template <size_t N, typename... Args>
-class Qvec;
-
-// specialization for pass in apFixedType
-template <size_t N, typename apFixedType>
-class Qvec<N, apFixedType>
-{
-public:
-    std::array<apFixedType, N> data;
-
-    Qvec() = default;
-
-    Qvec(std::initializer_list<apFixedType> init)
-    {
-        if (init.size() > N)
-            throw std::invalid_argument("Initializer list larger than vector size.");
-        std::copy(init.begin(), init.end(), data.begin());
-    }
-
-    inline constexpr apFixedType &operator[](size_t index)
-    {
-        return data[index];
-    }
-
-    inline constexpr const apFixedType &operator[](size_t index) const
-    {
-        return data[index];
-    }
-
-    inline constexpr size_t size() const
-    {
-        return N;
-    }
-
-    void display(std::string name = "")
-    {
-        if (name != "")
-        {
-            std::cout << name << std::endl;
-        }
-        for (int i = 0; i < N; i++)
-        {
-            data[i].display();
-        }
-    }
-
-    inline std::array<double, N> output()
-    {
-        std::array<double, N> output;
-        for (int i = 0; i < N; i++)
-        {
-            output[i] = data[i].output();
-        }
-        return output;
-    }
-};
-
-// specialization for pass in only N
-template <size_t N>
-class Qvec<N> : public Qvec<N, apFixed<>>
-{
-    // 委托构造函数
-    using Qvec<N, apFixed<>>::Qvec;
-};
-
-// specialization for pass in TypeList
-
-template <size_t N, typename... Types>
-class Qvec<N, TypeList<Types...>>
-{
-    // not implemented yet
-};
-
-template <size_t M, size_t N, typename apFixedType = apFixed<>>
-class Qmat
-{
-public:
-    std::array<Qvec<N, apFixedType>, M> data;
-
-    Qmat() = default;
-
-    Qmat(std::initializer_list<apFixedType> init)
-    {
-        for (int i = 0; i < M; i++)
-        {
-            std::copy(init.begin() + i * N, init.begin() + (i + 1) * N, data[i].data.begin());
-        }
-    }
-
-    inline constexpr Qvec<N, apFixedType> &operator[](size_t index)
-    {
-        return data[index];
-    }
-
-    inline constexpr const Qvec<N, apFixedType> &operator[](size_t index) const
-    {
-        return data[index];
-    }
-
-    void display(std::string name = "")
-    {
-        if (name != "")
-        {
-            std::cout << name << std::endl;
-        }
-        for (int i = 0; i < M; i++)
-        {
-            for (int j = 0; j < N; j++)
-            {
-                if (name != "")
-                {
-                    data[i][j].display();
-                }
-                else
-                {
-                    data[i][j].display(std::to_string(i) + " " + std::to_string(j) + " ");
-                }
-            }
-            std::cout << std::endl;
-        }
-    }
-
-    inline std::array<std::array<double, N>, M> output()
-    {
-        std::array<std::array<double, N>, M> output;
-        for (int i = 0; i < M; i++)
-        {
-            output[i] = data[i].output();
-        }
-        return output;
-    }
-};
-
-// ===================== BLAS =====================
-// ------------------- Reducer -------------------
-// it's not a standard BLAS operation, but exists in realistic ASIC design
-
-template <std::size_t Alen, typename apFixedType>
-struct Accumulator
-{
-    static inline Qvec<(Alen + 1) / 2, apFixedType> output;
-
-    template <std::size_t... I, typename inputT>
-    static inline void accumulate_impl(const Qvec<Alen, inputT> &input, std::index_sequence<I...>)
-    {
-        ((I * 2 + 1 < Alen
-              ? output[I] = Qadd<apFixedType>(input[I * 2], input[I * 2 + 1])
-              : output[I] = input[I * 2]),
-         ...);
-    }
-
-    template <typename inputT>
-    static inline void accumulate(const Qvec<Alen, inputT> &input)
-    {
-        accumulate_impl(input, std::make_index_sequence<(Alen + 1) / 2>{});
-    }
-};
-
-template <std::size_t len, typename... Types>
-struct Reducer;
-
-template <std::size_t len, typename... Types>
-struct Reducer<len, TypeList<Types...>>
-{
-
-    template <typename listLeft, typename vecT>
-    static inline auto reduce_impl(const Qvec<len, vecT> &input)
-    {
-
-        if constexpr (len > 1)
-        {
-            static_assert(listLeft::size > 0, "The input TypeList does not have enough Types");
-            using head = listLeft::head;
-            using tail = listLeft::tail;
-            Accumulator<len, head>::accumulate(input);
-            return Reducer<(len + 1) / 2, tail>::reduce(Accumulator<len, head>::output);
-        }
-        else
-        {
-            return input[0];
-        }
-    }
-
-    template <typename vecT>
-    static inline auto reduce(const Qvec<len, vecT> &input)
-    {
-        return reduce_impl<TypeList<Types...>>(input);
-    }
-};
-
-template <std::size_t len, typename... Types>
-struct Reducer<len, apFixed<Types...>>
-{
-    template <typename vecT>
-    static inline auto reduce_impl(const Qvec<len, vecT> &input)
-    {
-
-        if constexpr (len > 1)
-        {
-            Accumulator<len, apFixed<Types...>>::accumulate(input);
-            return Reducer<(len + 1) / 2, apFixed<Types...>>::reduce(Accumulator<len, apFixed<Types...>>::output);
-        }
-        else
-        {
-            return input[0];
-        }
-    }
-
-    template <typename vecT>
-    static inline auto reduce(const Qvec<len, vecT> &input)
-    {
-        return reduce_impl(input);
-    }
-};
-
-template <typename... Types, size_t len, typename vecTypes>
-auto inline Qreduce(const Qvec<len, vecTypes> &input)
-{
-    if constexpr (sizeof...(Types) == 0)
-    {
-        // Qreduce()
-        return Reducer<len, vecTypes>::reduce(input);
-    }
-    else
-    {
-        using FirstType = std::tuple_element_t<0, std::tuple<Types...>>;
-        if constexpr (is_typelist<FirstType>::value)
-        {
-            // Qreduce<TypeList<...>>()
-            return Reducer<len, FirstType>::reduce(input);
-        }
-        else if constexpr (is_apFixed<FirstType>::value)
-        {
-            if constexpr (sizeof...(Types) == 1)
-            {
-                // Qreduce<apFixed<...>>()
-                return Reducer<len, FirstType>::reduce(input);
-            }
-            else
-            {
-                // Qreduce<apFixed<...>, apFixed<...>, ...>()
-                return Reducer<len, TypeList<Types...>>::reduce(input);
-            }
-        }
-        else
-        {
-            // Qreduce<intBits<...>, fracBits<...>, isSigned<...>, OfMode<...>>()
-            return Reducer<len, apFixed<Types...>>::reduce(input);
-        }
-    }
-}
-
-// ------------------- ve -------------------
-
-template <std::size_t Alen, typename apFixedType>
-struct Qve_s
-{
-    static inline Qvec<Alen, apFixedType> output;
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qmul<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename... Args>
-    static inline void mul_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qmul<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &mul(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        mul_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename... Args>
-    static inline auto &mul(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        mul_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void add_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qadd<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename... Args>
-    static inline void add_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qadd<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &add(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        add_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename... Args>
-    static inline auto &add(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        add_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qsub<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename... Args>
-    static inline void sub_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qsub<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename... Args>
-    static inline void sub_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qsub<apFixedType>(input1, input2[I])), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &sub(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename... Args>
-    static inline auto &sub(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename... Args>
-    static inline auto &sub(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
-    {
-        sub_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <std::size_t... I, typename inputT1, typename inputT2>
-    static inline void div_impl(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qdiv<apFixedType>(input1[I], input2[I])), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename... Args>
-    static inline void div_impl(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qdiv<apFixedType>(input1[I], input2)), ...));
-    }
-
-    template <std::size_t... I, typename inputT1, typename... Args>
-    static inline void div_impl(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2, std::index_sequence<I...>)
-    {
-        (((output[I] = Qdiv<apFixedType>(input1, input2[I])), ...));
-    }
-
-    template <typename inputT1, typename inputT2>
-    static inline auto &div(const Qvec<Alen, inputT1> &input1, const Qvec<Alen, inputT2> input2)
-    {
-        div_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename... Args>
-    static inline auto &div(const Qvec<Alen, inputT1> &input1, const apFixed<Args...> &input2)
-    {
-        div_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-
-    template <typename inputT1, typename... Args>
-    static inline auto &div(const apFixed<Args...> &input1, const Qvec<Alen, inputT1> &input2)
-    {
-        div_impl(input1, input2, std::make_index_sequence<Alen>{});
-        return output;
-    }
-};
-
-template <typename vecTypes1, typename vecTypes2, typename... Types>
-struct QveTypeHelper
-{
-    template <typename T1, typename T2>
-    struct defaultType
-    {
-        using merger = apFixedMerge<apFixed<>, T1, T2>;
-        using type = apFixed<intBits<merger::toInt>, fracBits<merger::toFrac>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>, isSigned<merger::toIsSigned>>;
-    };
-
-    template <typename... Ts>
-    struct customType
-    {
-        using FirstType = std::tuple_element_t<0, std::tuple<Ts...>>;
-        using type = std::conditional_t<is_apFixed<FirstType>::value, FirstType, apFixed<Ts...>>;
-    };
-
-    using outputType = typename std::conditional_t<
-        sizeof...(Types) == 0,
-        defaultType<vecTypes1, vecTypes2>,
-        customType<Types...>>::type;
-};
-
-// Do not use auto& res = Qve<...>(...), use auto res = instead
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qvem(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::mul(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename... Args>
-inline auto &Qvem(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::mul(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator*(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qvem<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator*(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qvem<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator*(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qvem<>(input2, input1);
-}
-
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qvea(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::add(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename... Args>
-inline auto &Qvea(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::add(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator+(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qvea<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator+(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qvea<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator+(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qvea<>(input2, input1);
-}
-
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qves(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::sub(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename... Args>
-inline auto &Qves(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::sub(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename... Args>
-inline auto &Qves(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
-    return Qve_s<len, outputType>::sub(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator-(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qves<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator-(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qves<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator-(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qves<>(input1, input2);
-}
-
-template <typename... Types, size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &Qved(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    static_assert(len1 == len2, "The two vectors must have the same length");
-    using outputType = typename QveTypeHelper<vecTypes1, vecTypes2, Types...>::outputType;
-    return Qve_s<len1, outputType>::div(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename... Args>
-inline auto &Qved(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    using outputType = typename QveTypeHelper<vecTypes, apFixed<Args...>, Types...>::outputType;
-    return Qve_s<len, outputType>::div(input1, input2);
-}
-
-template <typename... Types, size_t len, typename vecTypes, typename... Args>
-inline auto &Qved(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    using outputType = typename QveTypeHelper<apFixed<Args...>, vecTypes, Types...>::outputType;
-    return Qve_s<len, outputType>::div(input1, input2);
-}
-
-template <size_t len1, size_t len2, typename vecTypes1, typename vecTypes2>
-inline auto &operator/(const Qvec<len1, vecTypes1> &input1, const Qvec<len2, vecTypes2> &input2)
-{
-    return Qved<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator/(const Qvec<len, vecTypes> &input1, const apFixed<Args...> &input2)
-{
-    return Qved<>(input1, input2);
-}
-
-template <size_t len, typename vecTypes, typename... Args>
-inline auto &operator/(const apFixed<Args...> &input1, const Qvec<len, vecTypes> &input2)
-{
-    return Qved<>(input1, input2);
-}
-
-// ------------------- Qgemul -------------------
-
-template <bool Value>
-struct QgemulTransposedA;
-
-template <bool Value>
-struct QgemulTransposedB;
-
-template <typename... Args>
-struct QgemulAddArgs;
-
-template <typename... Args>
-struct QgemulMulArgs;
-
-template <typename... interiorArgs>
-struct Qgemul_s
-{
-    using addArgs = tagExtractor<QgemulAddArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
-
-    template <typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat<rowB, colB, apFixed<fromArgsB...>> &B)
-    {
-        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
-        static constexpr auto isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
-
-        static_assert(
-            (!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) ||
-                (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) ||
-                (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) ||
-                (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)),
-            "Size mismatch when calling Qgemul");
-
-        for (int i = 0; i < rowC; i++)
-        {
-            for (int j = 0; j < colC; j++)
-            {
-
-                apFixed<addArgs> sum = 0;
-
-                for (int k = 0; k < (isTransposedA ? rowA : colA); k++)
-                {
-                    auto a = isTransposedA ? A[k][i] : A[i][k];
-                    auto b = isTransposedB ? B[j][k] : B[k][j];
-
-                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
-                }
-                C[i][j] = sum;
-            }
-        }
-    }
-
-    // special version for C = op(A^T) * op(A)
-    template <typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
-    inline static void apply(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A)
-    {
-        static constexpr auto isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
-
-        static_assert((isTransposedA ? (rowA == colC) : (colA == colC)) && (rowC == colC), "Size mismatch when calling Qgemul(self-transpose mul version)");
-
-        for (int i = 0; i < rowC; i++)
-        {
-            for (int j = 0; j < colC; j++)
-            {
-                apFixed<addArgs> sum = 0;
-                for (int k = 0; k < (!isTransposedA ? rowA : colA); k++)
-                {
-                    auto a = !isTransposedA ? A[k][i] : A[i][k];
-                    auto b = !isTransposedA ? A[k][j] : A[j][k];
-
-                    sum = Qadd<addArgs>(sum, Qmul<mulArgs>(a, b));
-                }
-                C[i][j] = sum;
-                if (i != j)
-                {
-                    C[j][i] = sum;
-                }
-            }
-        }
-    }
-};
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsB, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB>
-inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qmat<rowB, colB, apFixed<fromArgsB...>> &B)
-{
-    Qgemul_s<interiorArgs...>::apply(C, A, B);
-}
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, size_t rowC, size_t colC, size_t rowA, size_t colA>
-inline void Qgemul(Qmat<rowC, colC, apFixed<toArgs...>> &C, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A)
-{
-    Qgemul_s<interiorArgs...>::apply(C, A);
-}
-
-// ------------------- Qgemv -------------------
-// Perform the operation y = beta * y + alpha * op(A) * x.
-
-template <bool Value = false>
-struct QgemvTransposedA;
-
-template <typename... Args>
-struct QgemvAddArgs;
-
-template <typename... Args>
-struct QgemvMulArgs;
-
-template <apFixed alpha>
-struct QgemvAlpha;
-
-template <apFixed beta>
-struct QgemvBeta;
-
-template <typename... interiorArgs>
-struct Qgemv_s
-{
-    using addArgs = tagExtractor<QgemvAddArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
-
-    template <typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(Qvec<rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> bata, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-    {
-        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
-
-        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
-
-        auto static constexpr outerLoop = isTransposedA ? colA : rowA;
-        auto static constexpr innerLoop = isTransposedA ? rowA : colA;
-
-        for (int i = 0; i < outerLoop; i++)
-        {
-            auto betaY = Qmul<mulArgs>(y[i], bata);
-
-            apFixed<addArgs> AxAddTemp = 0;
-
-            for (int j = 0; j < innerLoop; j++)
-            {
-                auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
-            }
-
-            auto alphaAxAdd = Qmul<mulArgs>(alpha, AxAddTemp);
-
-            y[i] = Qadd<addArgs>(betaY, alphaAxAdd);
-        }
-    }
-
-    // special version for alpha and beta be template parameters
-    template <typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-    inline static void apply(Qvec<rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-    {
-        static constexpr auto isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
-
-        auto static constexpr defaultBeta = apFixed<toArgs...>(0);
-        auto static constexpr defaultAlpha = apFixed<toArgs...>(1);
-
-        auto static constexpr beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
-        auto static constexpr alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
-
-        static_assert((!isTransposedA && (colA == rowX && rowA == rowY)) || (isTransposedA && (rowA == rowX && colA == rowY)), "Size mismatch when calling Qgemv");
-
-        auto static constexpr outerLoop = isTransposedA ? colA : rowA;
-        auto static constexpr innerLoop = isTransposedA ? rowA : colA;
-
-        if constexpr (beta.data != 0)
-        {
-            for (int i = 0; i < outerLoop; i++)
-            {
-                auto betaY = Qmul<mulArgs>(y[i], beta);
-                apFixed<addArgs> AxAddTemp = 0;
-                for (int j = 0; j < innerLoop; j++)
-                {
-                    auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                    AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
-
-                    if constexpr (alpha != apFixed<toArgs...>(1))
-                    {
-                        auto alphaAxAdd = Qmul<mulArgs>(alpha, AxAddTemp);
-                        y[i] = Qadd<addArgs>(betaY, alphaAxAdd);
-                    }
-                    else
-                    {
-                        y[i] = Qadd<addArgs>(betaY, AxAddTemp);
-                    }
-                }
-            }
-        }
-        else
-        {
-
-            for (int i = 0; i < outerLoop; i++)
-            {
-                apFixed<addArgs> AxAddTemp = 0;
-                for (int j = 0; j < innerLoop; j++)
-                {
-                    auto AxMul = Qmul<mulArgs>(isTransposedA ? A[j][i] : A[i][j], x[j]);
-                    AxAddTemp = Qadd<addArgs>(AxAddTemp, AxMul);
-                }
-                if constexpr (alpha != apFixed<toArgs...>(1))
-                {
-                    y[i] = Qmul<mulArgs>(alpha, AxAddTemp);
-                }
-                else
-                {
-                    y[i] = AxAddTemp;
-                }
-            }
-        }
-    }
-};
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsAlpha, typename... fromArgsBeta, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(Qvec<rowY, apFixed<toArgs...>> &y, const apFixed<fromArgsBeta...> beta, const apFixed<fromArgsAlpha...> alpha, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-{
-    Qgemv_s<interiorArgs...>::apply(y, beta, alpha, A, x);
-}
-
-template <typename... interiorArgs, typename... toArgs, typename... fromArgsA, typename... fromArgsX, typename... fromArgsY, size_t rowA, size_t colA, size_t rowX, size_t rowY>
-inline void Qgemv(Qvec<rowY, apFixed<toArgs...>> &y, const Qmat<rowA, colA, apFixed<fromArgsA...>> &A, const Qvec<rowX, apFixed<fromArgsX...>> &x)
-{
-    Qgemv_s<interiorArgs...>::apply(y, A, x);
-}
-
-// ------------------- Qgetrf -------------------
-
-template <typename... Args>
-struct QgetrfDivArgs;
-
-template <typename... Args>
-struct QgetrfSubArgs;
-
-template <typename... Args>
-struct QgetrfMulArgs;
-
-template <typename... interiorArgs>
-struct Qgetrf_s
-{
-    using divArgs = tagExtractor<QgetrfDivArgs<>, interiorArgs...>::type;
-    using subArgs = tagExtractor<QgetrfSubArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgetrfMulArgs<>, interiorArgs...>::type;
-
-    template <typename... ArgsA, size_t N>
-    inline static void apply(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
-    {
-        for (int i = 0; i < N; i++)
-        {
-            ipiv[i] = i;
-        }
-
-        for (int k = 0; k < N; ++k)
-        {
-            apFixed<ArgsA...> maxVal = 0;
-            int i_max = k;
-
-            for (int i = k; i < N; ++i)
-            {
-                auto absVal = Qabs(A[i][k]);
-                if (absVal > maxVal)
-                {
-                    maxVal = absVal;
-                    i_max = i;
-                }
-            }
-
-            if (maxVal.data == 0)
-            {
-                // throw std::runtime_error("Matrix is singular");
-                // theoretically, this indicates the matrix is singular
-                // however, this may occur when the fractional bits are not enough
-                // so we just return
-            }
-
-            std::swap(ipiv[k], ipiv[i_max]);
-            std::swap(A[k], A[i_max]);
-
-            for (int i = k + 1; i < N; ++i)
-            {
-                A[i][k] = Qdiv<divArgs>(A[i][k], A[k][k]);
-                for (int j = k + 1; j < N; ++j)
-                {
-                    A[i][j] = Qsub<subArgs>(A[i][j], Qmul<mulArgs>(A[i][k], A[k][j]));
-                }
-            }
-        }
-    }
-};
-
-template <typename... interiorArgs, typename... ArgsA, size_t N>
-inline void Qgetrf(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv)
-{
-    Qgetrf_s<interiorArgs...>::apply(A, ipiv);
-}
-
-// ------------------- Qgetrs -------------------
-
-template <typename... Args>
-struct QgetrsDivArgs;
-
-template <typename... Args>
-struct QgetrsSubArgs;
-
-template <typename... Args>
-struct QgetrsMulArgs;
-
-template <typename... interiorArgs>
-struct Qgetrs_s
-{
-    using divArgs = tagExtractor<QgetrsDivArgs<>, interiorArgs...>::type;
-    using subArgs = tagExtractor<QgetrsSubArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgetrsMulArgs<>, interiorArgs...>::type;
-
-    template <typename... ArgsA, typename... ArgsB, size_t N>
-    inline static void apply(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
-    {
-        static Qvec<N, apFixed<ArgsB...>> b_permuted;
-
-        for (int i = 0; i < N; i++)
-        {
-            b_permuted[i] = b[ipiv[i]];
-        }
-
-        for (int i = 0; i < N; i++)
-        {
-            for (int j = 0; j < i; j++)
-            {
-                b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
-            }
-        }
-
-        for (int i = N - 1; i >= 0; i--)
-        {
-            for (int j = i + 1; j < N; j++)
-            {
-                b_permuted[i] = Qsub<subArgs>(b_permuted[i], Qmul<mulArgs>(A[i][j], b_permuted[j]));
-            }
-            b_permuted[i] = Qdiv<divArgs>(b_permuted[i], A[i][i]);
-        }
-
-        for (int i = 0; i < N; i++)
-        {
-            b[i] = b_permuted[i];
-        }
-    }
-};
-
-template <typename... interiorArgs, typename... ArgsA, typename... ArgsB, size_t N>
-inline void Qgetrs(Qmat<N, N, apFixed<ArgsA...>> &A, std::array<size_t, N> &ipiv, Qvec<N, apFixed<ArgsB...>> &b)
-{
-    Qgetrs_s<interiorArgs...>::apply(A, ipiv, b);
+    return Qcmp_s<Qu<Args1...>, Qu<Args2...>>::apply(f1, f2);
 }
