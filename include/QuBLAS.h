@@ -708,22 +708,6 @@ public:
         }
     }
 
-    template <typename... fromArgs>
-    inline constexpr bool operator==(const apFixed<fromArgs...> rhs) const
-    {
-        static constexpr auto fromInt = tagExtractor<intBits<defaultIntBits>, fromArgs...>::value;
-        static constexpr auto fromFrac = tagExtractor<fracBits<defaultFracBits>, fromArgs...>::value;
-        static constexpr auto fromIsSigned = tagExtractor<isSigned<defaultIsSigned>, fromArgs...>::value;
-
-        if constexpr (fromInt == intB && fromFrac == fracB && fromIsSigned == isS)
-        {
-            return data == rhs.data;
-        }
-        else
-        {
-            return true;
-        }
-    }
 };
 
 template <typename T>
