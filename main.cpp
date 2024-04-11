@@ -6,7 +6,7 @@ int main()
 
     //    ================ 1. Qu的创建 =================
     // 最基础的变量创建，采用默认参数，整数位宽=12，小数位宽=12，带符号位，defaultQuMode = TRN::TCPL , defaultOfMode = SAT::TCPL
-    Qu a = 1.0;
+    Qu<> a = 1.0;
 
     // 完整的创建, 有五个支持的选项
     Qu<intBits<8>,
@@ -174,7 +174,7 @@ int main()
 
     Qu<Mat1Dim, type1> mat7;
 
-    Qmul(mat7, mat3, mat4); 
+ 
 
     auto mat8 = Qadd< type1>(mat3, mat4);
 
