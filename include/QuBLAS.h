@@ -458,27 +458,33 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 
         if constexpr (toIsSigned)
         {
-            // the last toInt + toFrac bits are the value bits
-            static constexpr unsigned long long int mask = (1ULL << (toInt + toFrac)) - 1;
+             
+            static constexpr unsigned long long int mask = (1ULL << (toInt + toFrac + 1 +toFrac)) - 1 - ((1ULL << (toFrac))-1);
 
-            // judge the sign bit, which is the last toInt + toFrac + 1 bit
-            long long int lastBits = val & mask;
+            auto maskedVal = val & mask;
 
-            static constexpr unsigned long long int mask2 = 1ULL << (toInt + toFrac);
+            static constexpr unsigned long long int mask2 = (1ULL << (toInt + toFrac +toFrac));
 
-            if (val & mask2)
+            auto highestBit = val & mask2;
+
+            if (highestBit)
             {
-                return -((~(lastBits - 1)) & mask);
+                // negative
+                return -static_cast<int>(shifter<toFrac>::template shiftRight(maskedVal));
             }
             else
             {
-                return (lastBits & mask);
+                return static_cast<int>(shifter<toFrac>::template shiftRight(maskedVal));
             }
         }
         else
         {
-            constexpr unsigned long long int mask = (1ULL << (toInt + toFrac)) - 1;
-            return static_cast<int>(val & mask);
+            constexpr unsigned long long int mask = (1ULL << (toInt + toFrac + toFrac)) - 1 - ((1ULL << (toFrac))-1);
+
+            auto maskedVal = val & mask;
+
+            return static_cast<int>(shifter<toFrac>::template shiftRight(maskedVal));
+     
         }
     }
 };
