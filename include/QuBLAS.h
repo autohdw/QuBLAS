@@ -123,6 +123,13 @@ struct tagExtractor<Tag<Value>, Tag<Value2>, Args...>
     static constexpr T value = Value2;
 };
 
+// 类型匹配成功，单个参数版本
+template <template <typename> class Tag, typename T, typename T2, typename... Args>
+struct tagExtractor<Tag<T>, Tag<T2>, Args...>
+{
+    using type = T2;
+};
+
 // 匹配失败，类型不符，继续递归
 template <typename Tag, typename Tag2, typename... Args>
 struct tagExtractor<Tag, Tag2, Args...> : tagExtractor<Tag, Args...>
@@ -134,21 +141,11 @@ struct tagExtractor<Tag, Tag2, Args...> : tagExtractor<Tag, Args...>
 template <typename T, typename... Types>
 concept within = (std::is_same_v<T, Types> || ...);
 
-template <typename T>
-concept longlongInt = within<T, long long int, unsigned long long int>;
-
-template <typename T>
-concept shortInt = within<T, int, unsigned int>;
-
-template <typename T>
-concept allInt = longlongInt<T> || shortInt<T>;
-
 // ------------------- shifter -------------------
 template <int shift>
 struct shifter
 {
     template <typename T>
-        requires allInt<T>
     inline static constexpr T shiftLeft(T val)
     {
         // shift >=0 : left shift, shift < 0 : right shift
@@ -163,7 +160,6 @@ struct shifter
     }
 
     template <typename T>
-        requires allInt<T>
     inline static constexpr T shiftRight(T val)
     {
         // shift >=0 : left shift, shift < 0 : right shift
@@ -178,7 +174,6 @@ struct shifter
     }
 
     template <typename T>
-        requires shortInt<T>
     inline static double output(T val)
     {
         if constexpr (shift >= 0)
@@ -191,17 +186,16 @@ struct shifter
         }
     }
 
-    template <typename T, typename returnType>
-        requires std::is_arithmetic_v<T> && shortInt<returnType>
-    inline static constexpr returnType input(T val)
+    template <typename T>
+    inline static constexpr int input(T val)
     {
         if constexpr (shift >= 0)
         {
-            return static_cast<returnType>(static_cast<double>(val) * (1 << shift));
+            return static_cast<int>(static_cast<double>(val) * (1 << shift));
         }
         else
         {
-            return static_cast<returnType>(static_cast<double>(val) / (1 << (-shift)));
+            return static_cast<int>(static_cast<double>(val) / (1 << (-shift)));
         }
     }
 };
@@ -234,19 +228,17 @@ struct fracConvert;
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 {
-    template <typename T>
-    inline static auto convert(T val)
+    inline static auto convert(int val)
     {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<returnType>(val) << (toFrac - fromFrac);
+            return static_cast<long long int>(val) << (toFrac - fromFrac);
         }
         else
         {
             static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
-            returnType floor = val & mask;
-            returnType ceil = floor + (1 << (fromFrac - toFrac));
+            long long int floor = val & mask;
+            long long int ceil = floor + (1 << (fromFrac - toFrac));
 
             return ((val - floor) < (ceil - val) ? floor : ceil) >> (fromFrac - toFrac);
         }
@@ -256,20 +248,17 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::NEG_INF>>
 {
-    template <typename T>
-    inline static auto convert(T val)
+    inline static auto convert(int val)
     {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<returnType>(val) << (toFrac - fromFrac);
+            return static_cast<long long int>(val) << (toFrac - fromFrac);
         }
         else
         {
-
             static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
-            returnType floor = val & mask;
-            returnType ceil = floor + (1 << (fromFrac - toFrac));
+            long long int floor = val & mask;
+            long long int ceil = floor + (1 << (fromFrac - toFrac));
 
             return ((val - floor) <= (ceil - val) ? floor : ceil) >> (fromFrac - toFrac);
         }
@@ -279,28 +268,19 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::NEG_INF>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::ZERO>>
 {
-    template <typename T>
-    inline static auto convert(T val)
+    inline static auto convert(int val)
     {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<returnType>(val) << (toFrac - fromFrac);
+            return static_cast<long long int>(val) << (toFrac - fromFrac);
         }
         else
         {
-            if constexpr (std::is_signed_v<T>)
-            {
-                static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
-                long long int floor = val & mask;
-                long long int ceil = floor + (1 << (fromFrac - toFrac));
+            static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
+            long long int floor = val & mask;
+            long long int ceil = floor + (1 << (fromFrac - toFrac));
 
-                return (floor + ceil) > 0 ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
-            }
-            else
-            {
-                return static_cast<returnType>(val) >> (fromFrac - toFrac);
-            }
+            return (floor + ceil) > 0 ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
         }
     }
 };
@@ -308,28 +288,20 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::ZERO>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::INF>>
 {
-    template <typename T>
-    inline static auto convert(T val)
+    inline static auto convert(int val)
     {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
+        using returnType = long long int;
         if constexpr (fromFrac <= toFrac)
         {
             return static_cast<returnType>(val) << (toFrac - fromFrac);
         }
         else
         {
-            if constexpr (std::is_signed_v<T>)
-            {
-                static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
-                long long int floor = val & mask;
-                long long int ceil = floor + (1 << (fromFrac - toFrac));
+            static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
+            long long int floor = val & mask;
+            long long int ceil = floor + (1 << (fromFrac - toFrac));
 
-                return (floor + ceil) < 0 ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
-            }
-            else
-            {
-                return static_cast<returnType>((val + (1 << (fromFrac - toFrac)) - 1)) >> (fromFrac - toFrac);
-            }
+            return (floor + ceil) < 0 ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
         }
     }
 };
@@ -337,18 +309,15 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::INF>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
 {
-    template <typename T>
-    inline static auto convert(T val)
+    inline static auto convert(int val)
     {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
+        using returnType =long long int;
         if constexpr (fromFrac <= toFrac)
         {
             return static_cast<returnType>(val) << (toFrac - fromFrac);
         }
         else
         {
-            if constexpr (std::is_signed_v<T>)
-            {
                 static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
                 long long int floor = val & mask;
                 long long int ceil = floor + (1 << (fromFrac - toFrac));
@@ -367,26 +336,6 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
                 }
 
                 return (val - floor) < (ceil - val) ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
-            }
-            else
-            {
-                static constexpr unsigned long long int mask = 1 << (fromFrac - toFrac);
-                unsigned long long int floor = val & mask;
-                unsigned long long int ceil = floor + (1 << (fromFrac - toFrac));
-
-                if (floor + ceil == val << 1)
-                {
-                    if (floor & mask)
-                    {
-                        return ceil >> (fromFrac - toFrac);
-                    }
-                    else
-                    {
-                        return floor >> (fromFrac - toFrac);
-                    }
-                }
-                return (val - floor) < (ceil - val) ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
-            }
         }
     }
 };
@@ -394,40 +343,37 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
 {
-    template <typename T>
-    inline static auto convert(T val)
+    inline static auto convert(int val)
     {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
-
-        return shifter<fromFrac - toFrac>::shiftRight(static_cast<returnType>(val));
+        return shifter<fromFrac - toFrac>::shiftRight(static_cast<long long int>(val));
     }
 };
 
-template <int fromFrac, int toFrac>
-struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
-{
-    template <typename T>
-    inline static auto convert(T val)
-    {
-        using returnType = std::conditional_t<std::is_signed_v<T>, long long int, unsigned long long int>;
+// template <int fromFrac, int toFrac>
+// struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
+// {
+//     template <typename T>
+//     inline static auto convert(T val)
+//     {
+//         using returnType =long long int;
 
-        if constexpr (fromFrac < toFrac)
-        {
-            return static_cast<returnType>(val) << (toFrac - fromFrac);
-        }
-        else
-        {
-            if (val >= 0)
-            {
-                return static_cast<returnType>(val) >> (fromFrac - toFrac);
-            }
-            else
-            {
-                return -((-static_cast<returnType>(val)) >> (fromFrac - toFrac));
-            }
-        }
-    }
-};
+//         if constexpr (fromFrac < toFrac)
+//         {
+//             return static_cast<returnType>(val) << (toFrac - fromFrac);
+//         }
+//         else
+//         {
+//             if (val >= 0)
+//             {
+//                 return static_cast<returnType>(val) >> (fromFrac - toFrac);
+//             }
+//             else
+//             {
+//                 return -((-static_cast<returnType>(val)) >> (fromFrac - toFrac));
+//             }
+//         }
+//     }
+// };
 
 template <typename T>
 struct OfMode;
@@ -456,52 +402,44 @@ struct intConvert;
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
 {
-    template <typename T>
-        requires longlongInt<T>
-    inline static auto convert(T val) -> std::conditional_t<std::is_signed_v<T>, int, unsigned int>
+    inline static auto convert(long long int val)
     {
-        static constexpr auto maxVal = static_cast<T>((1ULL << (toInt + toFrac)) - 1);
-        static constexpr auto minVal = static_cast<T>(toIsSigned ? -maxVal - 1 : 0);
+        static constexpr auto maxVal = static_cast<long long int>((1ULL << (toInt + toFrac)) - 1);
+        static constexpr auto minVal = static_cast<long long int>(toIsSigned ? -maxVal - 1 : 0);
 
-        const auto clampedVal = std::min(std::max(val, minVal), maxVal);
+        auto clampedVal = std::min(std::max(val, minVal), maxVal);
 
-        return static_cast<std::conditional_t<std::is_signed_v<T>, int, unsigned int>>(clampedVal);
+        return static_cast<int>(clampedVal);
     }
 };
 
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
 {
-
-    template <typename T>
-        requires longlongInt<T>
-    inline static auto convert(T val)
+    inline static auto convert(long long int val)
     {
-        static constexpr auto maxVal = static_cast<T>((1ULL << (toInt + toFrac)) - 1);
-        static constexpr auto minVal = static_cast<T>(toIsSigned ? -maxVal - 1 : 0);
+        static constexpr auto maxVal = static_cast<long long int>((1ULL << (toInt + toFrac)) - 1);
+        static constexpr auto minVal = static_cast<long long int>(toIsSigned ? -maxVal - 1 : 0);
 
         if (val > maxVal || val < minVal)
         {
             return 0;
         }
-        return static_cast<std::conditional_t<std::is_signed_v<T>, int, unsigned int>>(val);
+        return static_cast<int>(val);
     }
 };
 
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
 {
-
-    template <typename T>
-        requires longlongInt<T>
-    inline static auto convert(T val)
+    inline static auto convert(long long int val)
     {
-        static constexpr auto maxVal = static_cast<T>((1ULL << (toInt + toFrac)) - 1);
-        static constexpr auto minVal = static_cast<T>(toIsSigned ? -maxVal - 1 : 0);
+        static constexpr auto maxVal = static_cast<long long int>((1ULL << (toInt + toFrac)) - 1);
+        static constexpr auto minVal = static_cast<long long int>(toIsSigned ? -maxVal - 1 : 0);
 
-        const auto clampedVal = std::min(std::max(val, minVal + 1), maxVal);
+        auto clampedVal = std::min(std::max(val, minVal + 1), maxVal);
 
-        return static_cast<std::conditional_t<std::is_signed_v<T>, int, unsigned int>>(clampedVal);
+        return static_cast<int>(clampedVal);
     }
 };
 
@@ -509,9 +447,7 @@ template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 {
 
-    template <typename T>
-        requires longlongInt<T>
-    inline static auto convert(T val) -> std::conditional_t<toIsSigned, int, unsigned int>
+    inline static auto convert(long long int val)
     {
 
         if constexpr (toIsSigned)
@@ -536,7 +472,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
         else
         {
             constexpr unsigned long long int mask = (1ULL << (toInt + toFrac)) - 1;
-            return static_cast<unsigned int>(val & mask);
+            return static_cast<int>(val & mask);
         }
     }
 };
@@ -544,9 +480,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 template <int toInt, int toFrac, bool toIsSigned, auto N>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
 {
-    template <typename T>
-        requires longlongInt<T>
-    inline static auto convert(T val) -> std::conditional_t<toIsSigned, int, unsigned int>
+    inline static auto convert(long long int val)
     {
         throw std::runtime_error("Very cool, coming soon");
         // if constexpr (N == 1)
@@ -598,7 +532,7 @@ template <int intBitsInput, int fracBitsInput, bool isSignedInput, typename QuMo
 class Qu_s<intBits<intBitsInput>, fracBits<fracBitsInput>, isSigned<isSignedInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
 {
 public:
-    static_assert(0 < (intBitsInput + fracBitsInput) <= (isSignedInput ? 31 : 32), " Illegal bit width");
+    static_assert(0 <= (intBitsInput + fracBitsInput) <= 31, " Illegal bit width");
 
     inline static constexpr int intB = intBitsInput;
     inline static constexpr int fracB = fracBitsInput;
@@ -606,18 +540,20 @@ public:
     using QuM = QuModeInput;
     using OfM = OfModeInput;
 
-    using dataType = std::conditional_t<isSignedInput, int, unsigned int>;
-    dataType data;
+    int data;
 
     template <typename T>
         requires std::is_arithmetic_v<T>
     constexpr Qu_s(T val)
     {
-        data = shifter<fracB>::template input<T, dataType>(val);
+        data = shifter<fracB>::template input<T>(val);
+
+        data = fracConvert<fracBitsInput, fracB, QuMode<QuM>>::convert(data);
+        data = intConvert<intBitsInput, fracBitsInput, isSignedInput, OfMode<OfM>>::convert(data);
     }
 
     inline constexpr Qu_s() : data(0) {}
-    inline constexpr Qu_s(dataType val, DirectAssignTag) : data(val) {}
+    inline constexpr Qu_s(auto val, DirectAssignTag) : data(val) {}
 
     template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
     inline constexpr Qu_s(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> &val)
@@ -660,7 +596,7 @@ public:
         std::cout << std::endl;
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << " ";
         std::cout << std::endl;
-        std::cout << "Binary: " << std::bitset<intB + fracB>(data) << std::endl;
+        std::cout << "Binary: " << std::bitset<intB + fracB + (isS ? 1 : 0)>(data) << std::endl;
         std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
 
         std::cout << "Decimal: " << shifter<fracB>::output(data) << std::endl;
@@ -1422,5 +1358,3 @@ inline constexpr auto operator<=>(const Qu_s<fromArgs1...> &f1, const Qu_s<fromA
 {
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::cmp(f1, f2);
 }
-
-
