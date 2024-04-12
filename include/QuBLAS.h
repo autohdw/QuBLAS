@@ -195,7 +195,15 @@ struct shifter
         }
         else
         {
-            return static_cast<int>(static_cast<double>(val) / (1 << (-shift)));
+
+            if (val < (1 << (-shift)))
+            {
+                return (static_cast<int>((static_cast<double>(val) * (1 << (-shift))) / (1 << (-shift)))) >> (-shift);
+            }
+            else
+            {
+                return static_cast<int>(static_cast<double>(val) / (1 << (-shift)));
+            }
         }
     }
 };
@@ -311,31 +319,31 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
 {
     inline static auto convert(int val)
     {
-        using returnType =long long int;
+        using returnType = long long int;
         if constexpr (fromFrac <= toFrac)
         {
             return static_cast<returnType>(val) << (toFrac - fromFrac);
         }
         else
         {
-                static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
-                long long int floor = val & mask;
-                long long int ceil = floor + (1 << (fromFrac - toFrac));
+            static constexpr unsigned long long int mask = 0 - (1 << (fromFrac - toFrac));
+            long long int floor = val & mask;
+            long long int ceil = floor + (1 << (fromFrac - toFrac));
 
-                if (floor + ceil == val << 1)
+            if (floor + ceil == val << 1)
+            {
+                static constexpr unsigned long long int mask2 = 1 << (fromFrac - toFrac);
+                if (floor & mask2)
                 {
-                    static constexpr unsigned long long int mask2 = 1 << (fromFrac - toFrac);
-                    if (floor & mask2)
-                    {
-                        return ceil >> (fromFrac - toFrac);
-                    }
-                    else
-                    {
-                        return floor >> (fromFrac - toFrac);
-                    }
+                    return ceil >> (fromFrac - toFrac);
                 }
+                else
+                {
+                    return floor >> (fromFrac - toFrac);
+                }
+            }
 
-                return (val - floor) < (ceil - val) ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
+            return (val - floor) < (ceil - val) ? floor >> (fromFrac - toFrac) : ceil >> (fromFrac - toFrac);
         }
     }
 };
@@ -923,7 +931,7 @@ struct numList;
 template <typename... Type>
 struct parallel;
 
-template < typename... nums1,  typename... nums2, typename... nums3, typename... toArgs>
+template <typename... nums1, typename... nums2, typename... nums3, typename... toArgs>
 struct parallel<numList<nums1...>, numList<nums2...>, numList<nums3...>, toArgs...>
 {
     template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
