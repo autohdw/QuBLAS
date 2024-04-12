@@ -357,31 +357,29 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
     }
 };
 
-// template <int fromFrac, int toFrac>
-// struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
-// {
-//     template <typename T>
-//     inline static auto convert(T val)
-//     {
-//         using returnType =long long int;
+template <int fromFrac, int toFrac>
+struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
+{
+    inline static auto convert(int val)
+    {
 
-//         if constexpr (fromFrac < toFrac)
-//         {
-//             return static_cast<returnType>(val) << (toFrac - fromFrac);
-//         }
-//         else
-//         {
-//             if (val >= 0)
-//             {
-//                 return static_cast<returnType>(val) >> (fromFrac - toFrac);
-//             }
-//             else
-//             {
-//                 return -((-static_cast<returnType>(val)) >> (fromFrac - toFrac));
-//             }
-//         }
-//     }
-// };
+        if constexpr (fromFrac < toFrac)
+        {
+            return static_cast<long long int>(val) << (toFrac - fromFrac);
+        }
+        else
+        {
+            if (val >= 0)
+            {
+                return static_cast<long long int>(val) >> (fromFrac - toFrac);
+            }
+            else
+            {
+                return -((-static_cast<long long int>(val)) >> (fromFrac - toFrac));
+            }
+        }
+    }
+};
 
 template <typename T>
 struct OfMode;
