@@ -692,17 +692,14 @@ struct dim
     using absoluteIndex = absoluteIndex_s<index...>::value;
 };
 
-template <size_t... dims, typename... Args>
-class Qu_s<dim<dims...>, Args...>
+template <size_t... dims, typename Arg>
+    requires(isA<Arg, TypeList<>> || isA<Arg, Qu_s<>>)
+class Qu_s<dim<dims...>, Arg>
 {
 public:
-    using headType = typename TypeList<Args...>::head;
+    static inline constexpr bool isElementQu = isA<Arg, TypeList<>>;
 
-    static inline constexpr bool isElementQu = isA<headType, TypeList<>>;
-
-    using QuType = Qu<Args...>;
-
-    using arrayType = std::conditional_t<isElementQu, typename toTuple<headType>::type, std::array<QuType, dim<dims...>::elemSize>>;
+    using arrayType = std::conditional_t<isElementQu, typename toTuple<Arg>::type, std::array<Arg, dim<dims...>::elemSize>>;
 
     arrayType data;
 
@@ -833,13 +830,13 @@ public:
 template <typename... Args, size_t... dims>
 struct QuInputHelper<dim<dims...>, Args...>
 {
-    using type = Qu_s<dim<dims...>, Args...>;
+    using type = Qu_s<dim<dims...>, Qu<Args...>>;
 };
 
 template <typename... Args, size_t... dims>
-struct QuInputHelper<dim<dims...>, Qu_s<Args...>>
+struct QuInputHelper<dim<dims...>, TypeList<Args...>>
 {
-    using type = Qu_s<dim<dims...>, Args...>;
+    using type = Qu_s<dim<dims...>, TypeList<Args...>>;
 };
 
 // ------------------- element wise operations -------------------
@@ -1243,7 +1240,7 @@ struct Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, Qu_s<toArgs...>> : Qop<Qu_s<f
 
 template <size_t... dims1, size_t... dims2, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
     requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
-struct Qop<Qu_s<dim<dims1...>, intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<dim<dims2...>, intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+struct Qop<Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>
 {
     using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
     static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
@@ -1266,35 +1263,34 @@ struct Qop<Qu_s<dim<dims1...>, intBits<fromInt1>, fracBits<fromFrac1>, isSigned<
     static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
     static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
-    inline static constexpr auto mul(const Qu_s<dim<dims1...>, intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+    inline static constexpr auto mul(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
     {
-        static Qu_s<resDim, intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>> res;
+        static Qu_s<resDim, Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> res;
         elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeMulition(f1, f2, res);
         return res;
     }
 
-    inline static constexpr auto add(const Qu_s<dim<dims1...>, intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+    inline static constexpr auto add(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
     {
-        static Qu_s<resDim, intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>> res;
+        static Qu_s<resDim, Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> res;
         elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeAddition(f1, f2, res);
         return res;
     }
 
-    inline static constexpr auto sub(const Qu_s<dim<dims1...>, intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+    inline static constexpr auto sub(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
     {
-        static Qu_s<resDim, intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>> res;
+        static Qu_s<resDim, Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> res;
         elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeSubtraction(f1, f2, res);
         return res;
     }
 
-    inline static constexpr auto div(const Qu_s<dim<dims1...>, intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+    inline static constexpr auto div(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
     {
-        static Qu_s<resDim, intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>> res;
+        static Qu_s<resDim, Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> res;
         elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeDivision(f1, f2, res);
         return res;
     }
 };
-
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto Qmul(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
@@ -1373,35 +1369,39 @@ inline constexpr auto operator<=>(const Qu_s<fromArgs1...> f1, const Qu_s<fromAr
 // ------------------- Reducer -------------------
 // it's not a standard BLAS operation
 
-template <std::size_t Alen, typename... toArgs>
-struct Accumulator
+template <std::size_t Alen, typename... Args>
+struct Accumulator;
+
+template <std::size_t Alen, typename... toArgs, typename... fromArgs>
+struct Accumulator<Alen, Qu_s<fromArgs...>, TypeList<toArgs...>>
 {
-    
-    // static inline constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
-    // static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
-    // static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
-    // using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
-    // using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+    static constexpr inline auto resInt = tagExtractor<intBits<Qu_s<fromArgs...>::intB>, toArgs...>::value;
+    static constexpr inline auto resFrac = tagExtractor<fracBits<Qu_s<fromArgs...>::fracB>, toArgs...>::value;
+    static constexpr inline auto resIsSigned = tagExtractor<isSigned<Qu_s<fromArgs...>::isS>, toArgs...>::value;
+    using resQuMode = tagExtractor<QuMode<typename Qu_s<fromArgs...>::QuM>, toArgs...>::type;
+    using resOfMode = tagExtractor<OfMode<typename Qu_s<fromArgs...>::OfM>, toArgs...>::type;
 
-    static inline Qu<dim<(Alen + 1) / 2>, toArgs...> output;
+    static inline Qu<dim<(Alen + 1) / 2>, Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>>> output;
 
-    template <std::size_t... I, typename... inputArgs>
-    static inline void accumulate_impl(const Qu_s<dim<Alen>, inputArgs...> &input, std::index_sequence<I...>)
+    template <size_t... I>
+    static inline void accumulate_impl(const Qu_s<dim<Alen>, Qu_s<fromArgs...>> &input, std::index_sequence<I...>)
     {
         ((I * 2 + 1 < Alen
               ? output.template get<I>() = Qadd<toArgs...>(input.template get<I * 2>(), input.template get<I * 2 + 1>())
               : output.template get<I>() = input.template get<I * 2>()),
          ...);
-
-        // display all
-        ((output.template get<I>().display("output[" + std::to_string(I) + "]"), ...));
     }
 
-    template <typename... inputArgs>
-    static inline void accumulate(const Qu_s<dim<Alen>, inputArgs...> &input)
+    static inline void accumulate(const Qu_s<dim<Alen>, Qu_s<fromArgs...>> &input)
     {
         accumulate_impl(input, std::make_index_sequence<(Alen + 1) / 2>());
     }
+};
+
+// ugly, maybe optimize later
+template <std::size_t Alen, typename... toArgs, typename... fromArgs>
+struct Accumulator<Alen, Qu_s<fromArgs...>, Qu_s<toArgs...>> : Accumulator<Alen, Qu_s<fromArgs...>, TypeList<toArgs...>>
+{
 };
 
 template <typename... Types>
@@ -1411,15 +1411,15 @@ template <typename... Types>
 struct Reducer<TypeList<Types...>>
 {
     template <typename listLeft = TypeList<Types...>, typename... fromArgs, size_t len>
-    static inline auto reduce(const Qu_s<dim<len>, fromArgs...> &input)
+    static inline auto reduce(const Qu_s<dim<len>, Qu_s<fromArgs...>> &input)
     {
         if constexpr (len > 1)
         {
             static_assert(listLeft::size > 0, "The list of types is not enough");
             using head = typename listLeft::head;
             using tail = typename listLeft::tail;
-            Accumulator<len, head>::accumulate(input);
-            return reduce<tail>(Accumulator<len, head>::output);
+            Accumulator<len,Qu_s<fromArgs...>, head>::accumulate(input);
+            return reduce<tail>(Accumulator<len,Qu_s<fromArgs...>, head>::output);
         }
         else
         {
@@ -1432,12 +1432,12 @@ template <typename... Args>
 struct Reducer
 {
     template <typename... fromArgs, size_t len>
-    static inline auto reduce(const Qu_s<dim<len>, fromArgs...> &input)
+    static inline auto reduce(const Qu_s<dim<len>, Qu_s<fromArgs...>> &input)
     {
         if constexpr (len > 1)
         {
-            Accumulator<len, Args...>::accumulate(input);
-            return reduce(Accumulator<len, Args...>::output);
+            Accumulator<len, Qu_s<fromArgs...>, TypeList<Args...>>::accumulate(input);
+            return reduce(Accumulator<len, Qu_s<fromArgs...>, TypeList<Args...>>::output);
         }
         else
         {
@@ -1446,7 +1446,12 @@ struct Reducer
     }
 };
 
-template <typename... toArgs,typename... fromArgs>
+template <typename... Args>
+struct Reducer<Qu_s<Args...>> : Reducer<Args...>
+{
+};
+
+template <typename... toArgs, typename... fromArgs>
 auto inline Qreduce(const Qu_s<fromArgs...> &input)
 {
     return Reducer<toArgs...>::reduce(input);
