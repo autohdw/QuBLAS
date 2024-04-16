@@ -1406,7 +1406,7 @@ inline constexpr auto Qmul(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::mul(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2, typename... resArgs>
 inline constexpr void Qmul(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::mul(res, f1, f2);
@@ -1418,7 +1418,7 @@ inline constexpr auto Qadd(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::add(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2, typename... resArgs>
 inline constexpr void Qadd(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::add(res, f1, f2);
@@ -1430,7 +1430,7 @@ inline constexpr auto Qsub(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2, typename... resArgs>
 inline constexpr void Qsub(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::sub(res, f1, f2);
@@ -1442,7 +1442,7 @@ inline constexpr auto Qdiv(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::div(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2, typename... resArgs>
 inline constexpr void Qdiv(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::div(res, f1, f2);
@@ -1584,6 +1584,7 @@ auto inline Qreduce(const Qu_s<fromArgs...> &input)
 }
 
 // ----------- Qgemul -----------
+// C = op(A) * op(B)
 
 template <bool Value>
 struct QgemulTransposedA;
@@ -1591,9 +1592,11 @@ struct QgemulTransposedA;
 template <bool Value>
 struct QgemulTransposedB;
 
+// the arguments for the tree-based reduction
 template <typename... Args>
 struct QgemulAddArgs;
 
+// the arguments for the dot product
 template <typename... Args>
 struct QgemulMulArgs;
 
@@ -1656,4 +1659,66 @@ inline void Qgemul(Qu_s<dim<rowC, colC>, Qu_s<ArgsC...>> &C, const Qu_s<dim<rowA
     using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
 
     Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, addArgs, mulArgs, Qu_s<dim<rowC, colC>, Qu_s<ArgsC...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<rowB, colB>, Qu_s<ArgsB...>>>::execute(C, A, B);
+};
+
+// ------------------- Qgemx -------------------
+// y = A * x
+// not a standard BLAS operation, maybe extended to support y = y + alpha * A * x in the future
+
+template <bool isTransposedA>
+struct QgemxTransposedA;
+
+template <typename... Args>
+struct QgemxAddArgs;
+
+template <typename... Args>
+struct QgemxMulArgs;
+
+template <typename... Args>
+struct Qgemx_s;
+
+template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA>
+struct Qgemx_s<QgemxTransposedA<isTransposedA>, QgemxAddArgs<addArgs...>, QgemxMulArgs<mulArgs...>, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>>
+{
+    static_assert(
+        (!isTransposedA && (colA == sizeX && rowA == sizeY)) ||
+            (isTransposedA && (rowA == sizeX && colA == sizeY)),
+        "Size mismatch when calling Qgemx");
+
+
+    // the intermediate vector loaded from A for dot product
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, Qu_s<ArgsA...>> vecA;
+
+    // the intermediate vector for the dot product
+    using mulMerger = Merger<Qu_s<ArgsA...>, Qu_s<ArgsX...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecC;
+
+    static inline void execute(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>> &A, const Qu_s<dim<sizeX>, Qu_s<ArgsX...>> &X)
+    {
+        return execute_outer(Y, A, X, std::make_index_sequence < isTransposedA ? colA : rowA > ());
+    }
+
+    template <size_t... I>
+    static inline void execute_outer(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>> &A, const Qu_s<dim<sizeX>, Qu_s<ArgsX...>> &X, std::index_sequence<I...>)
+    {
+        ((execute_inner<I>(Y, A, X)), ...);
+    }
+
+    template <size_t I>
+    static inline void execute_inner(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>> &A, const Qu_s<dim<sizeX>, Qu_s<ArgsX...>> &X)
+    {
+        elementWise::vecExtract<I, !isTransposedA>(A, vecA);
+        Qmul<mulArgs...>(vecC, vecA, X);
+        Y.template get<I>() = Qreduce<addArgs...>(vecC);
+    }
+};
+
+template <typename... interiorArgs, size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX>
+inline void Qgemx(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>> &A, const Qu_s<dim<sizeX>, Qu_s<ArgsX...>> &X)
+{
+    static constexpr bool isTransposedA = tagExtractor<QgemxTransposedA<false>, interiorArgs...>::value;
+    using addArgs = tagExtractor<QgemxAddArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgemxMulArgs<>, interiorArgs...>::type;
+
+    Qgemx_s<QgemxTransposedA<isTransposedA>, addArgs, mulArgs, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>>::execute(Y, A, X);
 };
