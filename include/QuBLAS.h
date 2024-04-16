@@ -1406,8 +1406,8 @@ inline constexpr auto Qmul(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::mul(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr void Qmul(Qu_s<toArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+inline constexpr void Qmul(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::mul(res, f1, f2);
 }
@@ -1418,8 +1418,8 @@ inline constexpr auto Qadd(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::add(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr void Qadd(Qu_s<toArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+inline constexpr void Qadd(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::add(res, f1, f2);
 }
@@ -1430,12 +1430,11 @@ inline constexpr auto Qsub(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr void Qsub(Qu_s<toArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+inline constexpr void Qsub(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::sub(res, f1, f2);
 }
-
 
 template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto Qdiv(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
@@ -1443,8 +1442,8 @@ inline constexpr auto Qdiv(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::div(f1, f2);
 }
 
-template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
-inline constexpr void Qdiv(Qu_s<toArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2,typename...resArgs>
+inline constexpr void Qdiv(Qu_s<resArgs...> &res, const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>::div(res, f1, f2);
 }

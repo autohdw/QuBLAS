@@ -16,10 +16,11 @@ int main()
 
     using list = TypeList<type1, type2>;
 
-    Qgemul<QgemulAddArgs<list>>(q3, q1, q2);
+    Qgemul<QgemulAddArgs<list>,
+    QgemulMulArgs<intBits<1>>>(q3, q1, q2);
+
 
     q3.display();
-
 
     
     return 0;
