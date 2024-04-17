@@ -1,6 +1,6 @@
 # QuBLAS
 
-`QuBLAS` pronounced as  [tɕʰy.blɑ:s]
+`QuBLAS` pronounces as  [tɕʰy.blɑ:s]
 
 This library provides simulation capabilities for fixed-point arithmetic operations in C++, tailored for behavioral modeling and accuracy testing of algorithms in a hardware context.
 
