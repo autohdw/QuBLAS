@@ -102,6 +102,27 @@ inline constexpr bool isA = isA_s<Args...>::value;
 template <typename Tag, typename... Args>
 struct tagExtractor;
 
+// 值未能匹配，最终返回默认值
+template <typename T, template <T> class Tag, T Value>
+struct tagExtractor<Tag<Value>>
+{
+    static constexpr T value = Value;
+};
+
+// 值匹配成功
+template <typename T, template <T> class Tag, T Value, T Value2, typename... Args>
+struct tagExtractor<Tag<Value>, Tag<Value2>, Args...>
+{
+    static constexpr T value = Value2;
+};
+
+// 值匹配成功，复合类型版本,应该只会出现在BLAS函数里传入alpha和beta的部分
+template <template <typename...> class valType, typename... valArgs1, typename... valArgs2, valType<valArgs1...> val1, valType<valArgs2...> val2, template <valType> class Tag, typename... Args>
+struct tagExtractor<Tag<val1>, Tag<val2>, Args...>
+{
+    static constexpr auto value = val2;
+};
+
 // 类型未能匹配，最终返回默认值
 template <template <typename> class Tag, typename T>
 struct tagExtractor<Tag<T>>
@@ -115,20 +136,6 @@ template <template <typename...> class Tag, typename... Args>
 struct tagExtractor<Tag<Args...>>
 {
     using type = Tag<Args...>;
-};
-
-// 值未能匹配，最终返回默认值
-template <typename T, template <T> class Tag, T Value>
-struct tagExtractor<Tag<Value>>
-{
-    static constexpr T value = Value;
-};
-
-// 值匹配成功
-template <typename T, template <T> class Tag, T Value, T Value2, typename... Args>
-struct tagExtractor<Tag<Value>, Tag<Value2>, Args...>
-{
-    static constexpr T value = Value2;
 };
 
 // 类型匹配成功，单个参数版本
@@ -634,7 +641,7 @@ public:
         }
     }
 
-    void display(std::string name = "")
+    void display(std::string name = "") const
     {
         if (name != "")
         {
@@ -852,7 +859,7 @@ public:
         }
     }
 
-    void display(std::string name = "")
+    void display(std::string name = "") const
     {
         if constexpr (isElementQu)
         {
@@ -1660,30 +1667,35 @@ inline void Qgemul(Qu_s<dim<rowC, colC>, Qu_s<ArgsC...>> &C, const Qu_s<dim<rowA
     Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, addArgs, mulArgs, Qu_s<dim<rowC, colC>, Qu_s<ArgsC...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<rowB, colB>, Qu_s<ArgsB...>>>::execute(C, A, B);
 };
 
-// ------------------- Qgemx -------------------
+// ------------------- Qgemv -------------------
 // y = A * x
 // not a standard BLAS operation, maybe extended to support y = y + alpha * A * x in the future
 
 template <bool isTransposedA>
-struct QgemxTransposedA;
+struct QgemvTransposedA;
 
 template <typename... Args>
-struct QgemxAddArgs;
+struct QgemvAddArgs;
 
 template <typename... Args>
-struct QgemxMulArgs;
+struct QgemvMulArgs;
+
+template <Qu_s alpha>
+struct QgemvAlpha;
+
+template <Qu_s beta>
+struct QgemvBeta;
 
 template <typename... Args>
-struct Qgemx_s;
+struct Qgemv_s;
 
-template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA>
-struct Qgemx_s<QgemxTransposedA<isTransposedA>, QgemxAddArgs<addArgs...>, QgemxMulArgs<mulArgs...>, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>>
+template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA, Qu_s alpha, Qu_s beta>
+struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvMulArgs<mulArgs...>, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>, QgemvAlpha<alpha>, QgemvBeta<beta>>
 {
     static_assert(
         (!isTransposedA && (colA == sizeX && rowA == sizeY)) ||
             (isTransposedA && (rowA == sizeX && colA == sizeY)),
-        "Size mismatch when calling Qgemx");
-
+        "Size mismatch when calling Qgemv");
 
     // the intermediate vector loaded from A for dot product
     static inline Qu_s<dim<isTransposedA ? rowA : colA>, Qu_s<ArgsA...>> vecA;
@@ -1708,16 +1720,46 @@ struct Qgemx_s<QgemxTransposedA<isTransposedA>, QgemxAddArgs<addArgs...>, QgemxM
     {
         elementWise::vecExtract<I, !isTransposedA>(A, vecA);
         Qmul<mulArgs...>(vecC, vecA, X);
-        Y.template get<I>() = Qreduce<addArgs...>(vecC);
+
+        if constexpr (beta.data == 0)
+        {
+            if constexpr ((alpha - Qu_s<ArgsY...>(1)).data != 0)
+            {
+                Y.template get<I>() = Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(vecC));
+            }
+            else
+            {
+                Y.template get<I>() = Qreduce<addArgs...>(vecC);
+            }
+        }
+        else
+        {
+                if constexpr ((alpha - Qu_s<ArgsY...>(1)).data != 0)
+                {
+                    Y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(Y.template get<I>() ,beta),Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(vecC)));
+                }
+                else 
+                {
+                    Y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(Y.template get<I>() ,beta),Qreduce<addArgs...>(vecC));
+                }
+
+        }
     }
 };
 
 template <typename... interiorArgs, size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX>
-inline void Qgemx(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>> &A, const Qu_s<dim<sizeX>, Qu_s<ArgsX...>> &X)
+inline void Qgemv(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>> &A, const Qu_s<dim<sizeX>, Qu_s<ArgsX...>> &X)
 {
-    static constexpr bool isTransposedA = tagExtractor<QgemxTransposedA<false>, interiorArgs...>::value;
-    using addArgs = tagExtractor<QgemxAddArgs<>, interiorArgs...>::type;
-    using mulArgs = tagExtractor<QgemxMulArgs<>, interiorArgs...>::type;
+    static constexpr bool isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
+    using addArgs = tagExtractor<QgemvAddArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
 
-    Qgemx_s<QgemxTransposedA<isTransposedA>, addArgs, mulArgs, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>>::execute(Y, A, X);
+    static constexpr Qu<ArgsY...> defaultAlpha = 1;
+    static constexpr Qu<ArgsY...> defaultBeta = 0;
+
+    static constexpr auto alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
+    static constexpr auto beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
+
+
+    Qgemv_s<QgemvTransposedA<isTransposedA>, addArgs, mulArgs, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>, QgemvAlpha<alpha>, QgemvBeta<beta>>::execute(Y, A, X);
 };
