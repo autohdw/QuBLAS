@@ -1668,8 +1668,7 @@ inline void Qgemul(Qu_s<dim<rowC, colC>, Qu_s<ArgsC...>> &C, const Qu_s<dim<rowA
 };
 
 // ------------------- Qgemv -------------------
-// y = A * x
-// not a standard BLAS operation, maybe extended to support y = y + alpha * A * x in the future
+// y = beta * y + alpha * op(A) * x
 
 template <bool isTransposedA>
 struct QgemvTransposedA;
