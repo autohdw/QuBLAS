@@ -23,5 +23,10 @@ int main()
 
     Qpotrs(A, B);
 
-    B.display();
+    auto res  = B.toDouble();
+
+    for (auto i : res)
+    {
+        std::cout << i << std::endl;
+    }
 }

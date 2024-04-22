@@ -858,6 +858,16 @@ public:
         }
     }
 
+    inline std::array<double, dim<dims...>::elemSize> toDouble() const
+    {
+        std::array<double, dim<dims...>::elemSize> outputArray;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            outputArray[i] = data[i].toDouble();
+        }
+        return outputArray;
+    }
+
     void display(std::string name = "") const
     {
         if constexpr (isElementQu)
