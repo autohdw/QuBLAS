@@ -5,6 +5,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <numeric>
@@ -209,22 +210,22 @@ struct shifter
     }
 
     template <typename T>
-    inline static constexpr int input(T val)
+    inline static constexpr long long int input(T val)
     {
         if constexpr (shift >= 0)
         {
-            return static_cast<int>(static_cast<double>(val) * (1 << shift));
+            return static_cast<long long int>(static_cast<double>(val) * (1 << shift));
         }
         else
         {
 
             if (val < (1 << (-shift)))
             {
-                return (static_cast<int>((static_cast<double>(val) * (1 << (-shift))) / (1 << (-shift)))) >> (-shift);
+                return (static_cast<long long int>((static_cast<double>(val) * (1 << (-shift))) / (1 << (-shift)))) >> (-shift);
             }
             else
             {
-                return static_cast<int>(static_cast<double>(val) / (1 << (-shift)));
+                return static_cast<long long int>(static_cast<double>(val) / (1 << (-shift)));
             }
         }
     }
@@ -258,11 +259,11 @@ struct fracConvert;
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<long long int>(val) << (toFrac - fromFrac);
+            return val << (toFrac - fromFrac);
         }
         else
         {
@@ -278,11 +279,11 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::NEG_INF>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<long long int>(val) << (toFrac - fromFrac);
+            return val << (toFrac - fromFrac);
         }
         else
         {
@@ -298,11 +299,11 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::NEG_INF>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::ZERO>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<long long int>(val) << (toFrac - fromFrac);
+            return val << (toFrac - fromFrac);
         }
         else
         {
@@ -318,12 +319,11 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::ZERO>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::INF>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
-        using returnType = long long int;
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<returnType>(val) << (toFrac - fromFrac);
+            return val << (toFrac - fromFrac);
         }
         else
         {
@@ -339,12 +339,11 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::INF>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
-        using returnType = long long int;
         if constexpr (fromFrac <= toFrac)
         {
-            return static_cast<returnType>(val) << (toFrac - fromFrac);
+            return val << (toFrac - fromFrac);
         }
         else
         {
@@ -373,7 +372,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
         return shifter<fromFrac - toFrac>::shiftRight(static_cast<long long int>(val));
     }
@@ -382,22 +381,22 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 {
-    inline static constexpr auto convert(int val)
+    inline static constexpr auto convert(long long int val)
     {
 
         if constexpr (fromFrac < toFrac)
         {
-            return static_cast<long long int>(val) << (toFrac - fromFrac);
+            return val << (toFrac - fromFrac);
         }
         else
         {
             if (val >= 0)
             {
-                return static_cast<long long int>(val) >> (fromFrac - toFrac);
+                return val >> (fromFrac - toFrac);
             }
             else
             {
-                return -((-static_cast<long long int>(val)) >> (fromFrac - toFrac));
+                return -((-val) >> (fromFrac - toFrac));
             }
         }
     }
@@ -430,7 +429,7 @@ struct intConvert;
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
 {
-    inline static constexpr auto convert(long long int val)
+    inline static constexpr int convert(long long int val)
     {
         static constexpr auto maxVal = static_cast<long long int>((1ULL << (toInt + toFrac)) - 1);
         static constexpr auto minVal = static_cast<long long int>(toIsSigned ? -maxVal - 1 : 0);
@@ -444,7 +443,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
 {
-    inline static constexpr auto convert(long long int val)
+    inline static constexpr int convert(long long int val)
     {
         static constexpr auto maxVal = static_cast<long long int>((1ULL << (toInt + toFrac)) - 1);
         static constexpr auto minVal = static_cast<long long int>(toIsSigned ? -maxVal - 1 : 0);
@@ -460,7 +459,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
 {
-    inline static constexpr auto convert(long long int val)
+    inline static constexpr int convert(long long int val)
     {
         static constexpr auto maxVal = static_cast<long long int>((1ULL << (toInt + toFrac)) - 1);
         static constexpr auto minVal = static_cast<long long int>(toIsSigned ? -maxVal - 1 : 0);
@@ -475,7 +474,7 @@ template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 {
 
-    inline static constexpr auto convert(long long int val)
+    inline static constexpr int convert(long long int val)
     {
 
         if constexpr (toIsSigned)
@@ -505,7 +504,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 template <int toInt, int toFrac, bool toIsSigned, auto N>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
 {
-    inline static constexpr auto convert(long long int val)
+    inline static constexpr int convert(long long int val)
     {
         throw std::runtime_error("Very cool, coming soon");
         // if constexpr (N == 1)
@@ -522,6 +521,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
 
         // }
         // return 0;
+        return 0;
     }
 };
 
@@ -571,10 +571,10 @@ public:
         requires std::is_arithmetic_v<T>
     constexpr Qu_s(T val)
     {
-        data = shifter<fracB>::template input<T>(val);
+        long long int longVal= shifter<fracB>::template input<T>(val);
 
-        data = fracConvert<fracBitsInput, fracB, QuMode<QuM>>::convert(data);
-        data = intConvert<intBitsInput, fracBitsInput, isSignedInput, OfMode<OfM>>::convert(data);
+        longVal = fracConvert<fracBitsInput, fracB, QuMode<QuM>>::convert(longVal);
+        data = intConvert<intBitsInput, fracBitsInput, isSignedInput, OfMode<OfM>>::convert(longVal);
     }
 
     inline constexpr Qu_s() : data(0) {}
@@ -650,10 +650,11 @@ public:
         std::cout << std::endl;
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << " ";
         std::cout << std::endl;
-        std::cout << "Binary: " << std::bitset<32>(data) << std::endl;
+        std::cout << "Binary: " << std::bitset<intB + fracB + (isS ? 1 : 0)>(data) << std::endl;
         std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
 
         std::cout << "Decimal: " << shifter<fracB>::toDouble(data) << std::endl;
+        std::cout << std::endl;
     }
 
     template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
@@ -770,8 +771,6 @@ public:
 
     template <typename... Types>
     constexpr Qu_s(Types... values) : data{values...} {}
-
-    // constexpr Qu_s(Qu_s<dim<dims...>, Arg> &val) : data(val.data) {}
 
     constexpr Qu_s() {}
 
@@ -1274,7 +1273,7 @@ struct Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>,
 
     inline static constexpr auto mul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
-        auto fullProduct = static_cast<std::conditional_t<merger::toIsSigned, long long, unsigned long long>>(f1.data) * f2.data;
+        auto fullProduct = static_cast<long long int>(f1.data) * static_cast<long long int>(f2.data);
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
 
@@ -1589,6 +1588,65 @@ auto inline Qreduce(const Qu_s<fromArgs...> &input)
     return Reducer<toArgs...>::reduce(input);
 }
 
+// ------------------- Advanced Nonlinear Universal Subprograms -------------------
+// the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
+// note that the operations are not standard BLAS operations, use ANUS:: to get access to them
+
+namespace ANUS {
+// polynomial fitting
+template <auto... Coeffs>
+struct Polyner;
+
+//    co0 * (x + co1) * (x + co2) * ... * (x + coN)
+//  currently does not support element-wise quantization like Qpoly<list>(x)
+template <size_t len, typename... args, Qu_s<dim<len>, args...> Coeffs>
+struct Polyner<Coeffs>
+{
+    template <size_t... I, typename... xArgs>
+    static inline auto execute_impl(const Qu_s<xArgs...> x, std::index_sequence<I...>)
+    {
+        return Coeffs.template get<0>() * (... * (x + Coeffs.template get<I + 1>()));
+    }
+
+    template <typename... xArgs>
+    static inline auto execute(const Qu_s<xArgs...> x)
+    {
+        return execute_impl(x, std::make_index_sequence<len - 1>());
+    }
+};
+
+template <Qu_s Coeffs, typename... args>
+inline auto constexpr Qpoly(const Qu_s<args...> x)
+{
+    return Polyner<Coeffs>::execute(x);
+}
+
+// lookup tables
+
+// some pre-defined functions, stored as std::function
+
+// sprt
+inline static constexpr auto sqrtFunc = [](double x) { return std::sqrt(x); };
+
+// reciprocal
+inline static constexpr auto reciprocalFunc = [](double x) { return 1.0 / x; };
+
+// reciprocal square root
+inline static constexpr auto rsqrtFunc = [](double x) { return 1.0 / std::sqrt(x); };
+
+// note that essentially the lookup table is implemented via runtime calculation. This is theoretically identical to implementing a real pre-calculated lookup table in asic.
+template <double (*func)(double), int intB, int fracB, bool isS, typename QuM, typename OfM>
+inline constexpr auto Qtable(const Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> x)
+{
+    using interiorType = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<RND::ZERO>, OfMode<OfM>>;
+
+    interiorType val = func(x.toDouble());
+
+    return Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>(val.data, DirectAssignTag());
+}
+
+} // namespace ANUS
+
 // ----------- Qgemul -----------
 // C = op(A) * op(B)
 
@@ -1733,15 +1791,14 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
         }
         else
         {
-                if constexpr ((alpha - Qu_s<ArgsY...>(1)).data != 0)
-                {
-                    Y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(Y.template get<I>() ,beta),Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(vecC)));
-                }
-                else 
-                {
-                    Y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(Y.template get<I>() ,beta),Qreduce<addArgs...>(vecC));
-                }
-
+            if constexpr ((alpha - Qu_s<ArgsY...>(1)).data != 0)
+            {
+                Y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(Y.template get<I>(), beta), Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(vecC)));
+            }
+            else
+            {
+                Y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(Y.template get<I>(), beta), Qreduce<addArgs...>(vecC));
+            }
         }
     }
 };
@@ -1759,6 +1816,127 @@ inline void Qgemv(Qu_s<dim<sizeY>, Qu_s<ArgsY...>> &Y, const Qu_s<dim<rowA, colA
     static constexpr auto alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
     static constexpr auto beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
 
-
     Qgemv_s<QgemvTransposedA<isTransposedA>, addArgs, mulArgs, Qu_s<dim<sizeY>, Qu_s<ArgsY...>>, Qu_s<dim<rowA, colA>, Qu_s<ArgsA...>>, Qu_s<dim<sizeX>, Qu_s<ArgsX...>>, QgemvAlpha<alpha>, QgemvBeta<beta>>::execute(Y, A, X);
 };
+
+template <typename... Args>
+struct QpotrfMulArgs;
+
+template <typename... Args>
+struct QpotrfDivArgs;
+
+template <typename... Args>
+struct QpotrfSubArgs;
+
+template <typename... Args>
+struct Qpotrf_s;
+
+// Niurx failed to implement the potrf and potrs function via pure template metaprogramming. Someone can try to implement it in the future.
+// and this current implementation needs tons of fix to make is reasonable.
+template <size_t row, size_t col, typename... Args, typename... mulArgs, typename... subArgs, typename... divArgs>
+struct Qpotrf_s<QpotrfMulArgs<mulArgs...>, QpotrfSubArgs<subArgs...>, QpotrfDivArgs<divArgs...>, Qu_s<dim<row, col>, Qu_s<Args...>>>
+{
+    static_assert(row == col, "The matrix for potrf must be square");
+
+    static inline void execute(Qu_s<dim<row, col>, Qu_s<Args...>> &A)
+    {
+        for (size_t j = 0; j < col; ++j)
+        {
+            for (size_t k = 0; k < j; ++k)
+            {
+                for (size_t i = j; i < col; ++i)
+                {
+                    // maybe use tree-based reduction here, but unable to implement it in dynamic programming
+                    A[i, j] = Qsub<subArgs...>(A[i, j],  Qmul<mulArgs...>(A[i, k], A[j, k]));
+                    auto c = A[i, j];
+                }
+            }
+            if (A[j,j].data <= 0)
+            {
+                // not a positive definite matrix
+                // or maybe it is caused by insufficient integer bits
+                return;
+            }
+
+            // the most unreasonalbe part. Need to add configuration for the LUT.
+            auto temp = ANUS::Qtable<ANUS::rsqrtFunc>(A[j,j]);
+            for (size_t i = j; i < col; ++i)
+            {
+                A[i,j] = Qmul<divArgs...>(A[i,j],temp);
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, typename... Args>
+inline void Qpotrf(Qu_s<dim<row, col>, Qu_s<Args...>> &A)
+{
+    using mulArgs = tagExtractor<QpotrfMulArgs<>, interiorArgs...>::type;
+    using subArgs = tagExtractor<QpotrfSubArgs<>, interiorArgs...>::type;
+    using divArgs = tagExtractor<QpotrfDivArgs<>, interiorArgs...>::type;
+
+    Qpotrf_s<mulArgs, subArgs, divArgs, Qu_s<dim<row, col>, Qu_s<Args...>>>::execute(A);
+}
+
+template <typename... Args>
+struct QpotrsForwardMulArgs;
+
+template <typename... Args>
+struct QpotrsForwardSubArgs;
+
+template <typename... Args>
+struct QpotrsForwardDivArgs;
+
+template <typename... Args>
+struct QpotrsBackwardMulArgs;
+
+template <typename... Args>
+struct QpotrsBackwardSubArgs;
+
+template <typename... Args>
+struct QpotrsBackwardDivArgs;
+
+template <typename... Args>
+struct Qpotrs_s;
+
+template <size_t row, size_t col, typename... LArgs, typename... bArgs, typename... forwardMulArgs, typename... forwardSubArgs, typename... forwardDivArgs, typename... backwardMulArgs, typename... backwardSubArgs, typename... backwardDivArgs>
+struct Qpotrs_s<QpotrsForwardMulArgs<forwardMulArgs...>, QpotrsForwardSubArgs<forwardSubArgs...>, QpotrsForwardDivArgs<forwardDivArgs...>, QpotrsBackwardMulArgs<backwardMulArgs...>, QpotrsBackwardSubArgs<backwardSubArgs...>, QpotrsBackwardDivArgs<backwardDivArgs...>, Qu_s<dim<row, col>, Qu_s<LArgs...>>, Qu_s<dim<row>, Qu_s<bArgs...>>>
+{
+    static_assert(row == col, "The matrix for potrs must be square");
+
+    static inline void execute(Qu_s<dim<row, col>, Qu_s<LArgs...>> &L, Qu_s<dim<row>, Qu_s<bArgs...>> &b)
+    {
+        // forward substitution
+        for (size_t i = 0; i < col; ++i)
+        {
+            for (size_t j = 0; j < i; ++j)
+            {
+                b[i] = Qsub<forwardSubArgs...>(b[i], Qmul<forwardMulArgs...>(L[i, j], b[j]));
+            }
+            b[i] = Qmul<forwardDivArgs...>(b[i], ANUS::Qtable<ANUS::reciprocalFunc>(L[i, i]));
+        }
+
+        // backward substitution
+        for (int i = col - 1; i >= 0; --i)
+        {
+            for (int j = i + 1; j < col; ++j)
+            {
+                b[i] = Qsub<backwardSubArgs...>(b[i], Qmul<backwardMulArgs...>(L[j, i], b[j]));
+            }
+            b[i] = Qmul<backwardDivArgs...>(b[i], ANUS::Qtable<ANUS::reciprocalFunc>(L[i, i]));
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, typename... LArgs, typename... bArgs>
+inline void Qpotrs(Qu_s<dim<row, col>, Qu_s<LArgs...>> &L, Qu_s<dim<row>, Qu_s<bArgs...>> &b)
+{
+    using forwardMulArgs = tagExtractor<QpotrsForwardMulArgs<>, interiorArgs...>::type;
+    using forwardSubArgs = tagExtractor<QpotrsForwardSubArgs<>, interiorArgs...>::type;
+    using forwardDivArgs = tagExtractor<QpotrsForwardDivArgs<>, interiorArgs...>::type;
+    using backwardMulArgs = tagExtractor<QpotrsBackwardMulArgs<>, interiorArgs...>::type;
+    using backwardSubArgs = tagExtractor<QpotrsBackwardSubArgs<>, interiorArgs...>::type;
+    using backwardDivArgs = tagExtractor<QpotrsBackwardDivArgs<>, interiorArgs...>::type;
+
+    Qpotrs_s<forwardMulArgs, forwardSubArgs, forwardDivArgs, backwardMulArgs, backwardSubArgs, backwardDivArgs, Qu_s<dim<row, col>, Qu_s<LArgs...>>, Qu_s<dim<row>, Qu_s<bArgs...>>>::execute(L, b);
+}
