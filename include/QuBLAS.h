@@ -1745,10 +1745,10 @@ inline void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA
 
 // Gram matrix type generator
 template <size_t N, typename... Args>
-struct GramType_s;
+struct GramMatrix_s;
 
 template <size_t N, typename... diagArgs, typename... offDiagArgs>
-struct GramType_s<N, Qu_s<diagArgs...>, Qu_s<offDiagArgs...>>
+struct GramMatrix_s<N, Qu_s<diagArgs...>, Qu_s<offDiagArgs...>>
 {
     template <typename T>
     struct helper;
@@ -1763,7 +1763,7 @@ struct GramType_s<N, Qu_s<diagArgs...>, Qu_s<offDiagArgs...>>
 };
 
 template <size_t N, typename... Args>
-using GramType = typename GramType_s<N, Args...>::type;
+using GramMatrix = typename GramMatrix_s<N, Args...>::type;
 
 template <bool Value>
 struct QgramulTransposed;
