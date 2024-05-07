@@ -5,28 +5,34 @@
 
 int main()
 {
-    using type = Qu<intBits<9>, fracBits<8>>;
 
-    using matType = Qu<dim<3, 3>, type>;
 
-    matType A = {
-        4, 12, -16,
-        12, 37, -43,
-        -16, -43, 98};
-    //  A.display();
-    Qpotrf(A);
+    using type1 = Qu<intBits<4>, fracBits<9>>;
+    using type2 = Qu<intBits<5>, fracBits<10>>;
+    using type3 = Qu<intBits<6>, fracBits<6>>;
+    using type4 = Qu<intBits<8>, fracBits<7>>;
 
-    A.display();
+    using mat_t_1 = Qu<dim<2,3>, type1>;
+    using mat_t_2 = Qu<dim<3,4>, type2>;
+    using mat_t_3 = Qu<dim<2,4>, type3>;
 
-    Qu<dim<3>, type> B = {
-        -20, -43, 192};
+    using list = TypeList<type1, type2, type1, type2>;
 
-    Qpotrs(A, B);
+    using gram_t = GramType<2, type1, type2>;
 
-    auto res  = B.toDouble();
+    gram_t m1;
 
-    for (auto i : res)
-    {
-        std::cout << i << std::endl;
-    }
+    using mat_t = Qu<dim<3,2>, type1>;
+
+    mat_t m2 = {1.1, 1.2, 1.3, 1.4, 1.5, 1.6};
+
+    Qgemul<QgemulTransposedA<true>>
+    (m1, m2, m2);
+
+    m1.display();
+
+
+
+
+
 }
