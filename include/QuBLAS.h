@@ -682,18 +682,6 @@ public:
         std::cout << "Decimal: " << shifter<fracB>::toDouble(data) << std::endl;
         std::cout << std::endl;
     }
-
-    template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
-    inline constexpr bool operator!=(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> &val)
-    {
-        return (this->output()) != val.output();
-    }
-
-    template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
-    inline constexpr bool operator==(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> &val)
-    {
-        return (this->output()) == val.output();
-    }
 };
 
 template <typename... Args>
@@ -1330,6 +1318,11 @@ struct Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>,
     {
         return (f1.data << shiftA) <=> (f2.data << shiftB);
     }
+
+    inline static constexpr auto eq(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        return (f1.data << shiftA) == (f2.data << shiftB);
+    }
 };
 
 template <typename... fromArgs1, typename... fromArgs2, typename... toArgs>
@@ -1503,6 +1496,18 @@ template <typename... fromArgs1, typename... fromArgs2>
 inline constexpr auto operator<=>(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
 {
     return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>::cmp(f1, f2);
+}
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr bool operator==(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
+{
+    return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>::eq(f1, f2);
+}
+
+template <typename... fromArgs1, typename... fromArgs2>
+inline constexpr bool operator!=(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
+{
+    return ~(Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>::eq(f1, f2));
 }
 
 // ------------------- Advanced Nonlinear Universal Subprograms -------------------
@@ -1890,7 +1895,7 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
     {
         if constexpr (beta.data == 0)
         {
-            if constexpr ((alpha - Qu_s<ArgsY...>(1)).data != 0)
+            if constexpr (alpha == Qu<ArgsY...>(1))
             {
                 if constexpr (isTransposedA)
                 {
@@ -1915,7 +1920,7 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
         }
         else
         {
-            if constexpr ((alpha - Qu_s<ArgsY...>(1)).data != 0)
+            if constexpr (alpha == Qu<ArgsY...>(1))
             {
                 if constexpr (isTransposedA)
                 {
