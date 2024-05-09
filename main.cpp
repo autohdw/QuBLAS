@@ -6,42 +6,28 @@
 int main()
 {
 
-
-    using type1 = Qu<intBits<4>, fracBits<9>>;
+    using type1 = Qu<intBits<8>, fracBits<16>>;
     using type2 = Qu<intBits<5>, fracBits<10>>;
- 
 
- 
-
-    using list = TypeList<type1, type2, type1, type2>;
-
-    using gram_t = GramMatrix<3, type1, type2>;
-
-    gram_t m1 = {1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9};
-
-    // m1.display();
-
+    using mat_t = Qu<dim<3, 3>, type1>;
     using vec_t = Qu<dim<3>, type1>;
 
-    vec_t x = {1.1,1.2,1.3};
+    mat_t mat1 = {
+        4, 12, -16,
+        12, 37, -43,
+        -16, -43, 98};
 
-    vec_t y ;
-
-    Qgemv(y, m1, x);
-
-    y.display();
-
-
-
-
- 
-
- 
-
- 
+    // // mat1.display();
+    Qpotrf_s<mat_t>::execute(mat1);
 
 
 
+    vec_t vec1 = {-20, -43, 192};
 
+    Qpotrs_s<mat_t, vec_t>::execute(mat1, vec1);
 
+    mat1.display();
+    vec1.display();
+
+ ;
 }

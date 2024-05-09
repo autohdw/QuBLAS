@@ -1961,3 +1961,128 @@ inline void Qgemv(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, Arg
 
     Qgemv_s<QgemvTransposedA<isTransposedA>, addArgs, mulArgs, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>::execute(y, A, x);
 }
+
+// normal version for reference
+// int potrf(double* A, int n) {
+//     for (int j = 0; j < n; ++j) {
+//         for (int k = 0; k < j; ++k) {
+//             for (int i = j; i < n; ++i) {
+//                 A[i * n + j] -= A[i * n + k] * A[j * n + k];
+//             }
+//         }
+//         if (A[n * j + j] <= 0) {
+//             return -1; // 不是正定矩阵
+//         }
+//         double temp = 1.0/sqrt(A[n * j + j]);
+//         for (int i = j; i < n; ++i) {
+//             A[i * n + j] *= temp;
+//         }
+//     }
+//     return 0;
+// }
+
+// ------------------- Qpotrf -------------------
+// the diagonal elements of the input matrix will be treated with special quantization rules.
+
+template <typename... Args>
+struct Qpotrf_s;
+
+template <typename... Args, size_t row, size_t col>
+struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
+{
+    static_assert(row == col, "The input matrix of Qpotrf must be square");
+
+    static inline void execute(Qu_s<dim<row, col>, Args...> &A)
+    {
+        return loop(A, std::make_index_sequence<col>());
+    }
+
+    template <size_t... J>
+    static inline void loop(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<J...>)
+    {
+        ((loop_inner<J>(A), ...));
+    }
+
+    template <size_t J>
+    static inline void loop_inner(Qu_s<dim<row, col>, Args...> &A)
+    {
+        loop_sec1_outer<J>(A, std::make_index_sequence<J>());
+        // skip the check for positive definite matrix currently, will be added in the future
+        loop_sec2<J>(A, std::make_index_sequence<row - J>());
+    }
+
+    template <size_t J, size_t... K>
+    static inline void loop_sec1_outer(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<K...>)
+    {
+        ((loop_sec1_inner<J, K>(A, std::make_index_sequence<row - J>()), ...));
+    }
+
+    template <size_t J, size_t K, size_t... I>
+    static inline void loop_sec1_inner(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<I...>)
+    {
+        ((A.template get<I + J, J>() = A.template get<I + J, J>() - A.template get<I + J, K>() * A.template get<J, K>()), ...);
+    }
+
+    template <size_t J, size_t... I>
+    static inline void loop_sec2(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<I...>)
+    {
+        auto temp = ANUS::Qtable<ANUS::rsqrtFunc>(A.template get<J, J>());
+        ((A.template get<I + J, J>() = A.template get<I + J, J>() * temp), ...);
+    }
+};
+
+// normal version for reference
+// void potrs(double* L, double* b, int n) {
+//     // 前向替代
+//     for (int i = 0; i < n; ++i) {
+//         for (int j = 0; j < i; ++j) {
+//             b[i] -= L[i * n + j] * b[j];
+//         }
+//         b[i] /= L[i * n + i];
+//     }
+
+//     // 后向替代
+//     for (int i = n - 1; i >= 0; --i) {
+//         for (int j = i + 1; j < n; ++j) {
+//             b[i] -= L[j * n + i] * b[j];
+//         }
+//         b[i] /= L[i * n + i];
+//     }
+// }
+
+// ------------------- Qpotrs -------------------
+
+template <typename... Args>
+struct Qpotrs_s;
+
+template <typename... LArgs, typename... bArgs, size_t row, size_t col, size_t bRow>
+struct Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>
+{
+    static_assert(row == col, "The input matrix of Qpotrs must be square");
+
+    static inline void execute(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b)
+    {
+        return execute_loop(L, b, std::make_index_sequence<row>());
+    }
+
+    template <size_t... I>
+    static inline void execute_loop(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<I...>)
+    {
+        ((execute_forward<I>(L, b, std::make_index_sequence<I>()), ...));
+        ((execute_backward<row - 1 - I>(L, b, std::make_index_sequence<I>()), ...));
+    }
+
+    template <size_t I, size_t... J>
+    static inline void execute_forward(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<J...>)
+    {
+        ((b.template get<I>() = b.template get<I>() - L.template get<I, J>() * b.template get<J>()), ...);
+        b.template get<I>() = b.template get<I>() / L.template get<I, I>();
+    }
+
+    template <size_t I, size_t... J>
+    static inline void execute_backward(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<J...>)
+    {
+        ((b.template get<I>() = b.template get<I>() - L.template get<J + I + 1, I>() * b.template get<J + I + 1>()), ...);
+        b.template get<I>() = b.template get<I>() / L.template get<I, I>();
+    }
+};
