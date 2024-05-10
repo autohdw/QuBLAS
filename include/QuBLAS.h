@@ -2008,7 +2008,10 @@ struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
     static inline void loop_inner(Qu_s<dim<row, col>, Args...> &A)
     {
         loop_sec1_outer<J>(A, std::make_index_sequence<J>());
-        // skip the check for positive definite matrix currently, will be added in the future
+        if (A.template get<J, J>().data <= 0)
+        {
+            return;
+        }
         loop_sec2<J>(A, std::make_index_sequence<row - J>());
     }
 
