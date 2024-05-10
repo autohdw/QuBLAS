@@ -6,7 +6,7 @@
 int main()
 {
 
-    using type1 = Qu<intBits<8>, fracBits<16>>;
+    using type1 = Qu<intBits<8>, fracBits<10>>;
     using type2 = Qu<intBits<5>, fracBits<10>>;
 
     using mat_t = Qu<dim<3, 3>, type1>;

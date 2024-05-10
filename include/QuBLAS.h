@@ -1983,6 +1983,7 @@ inline void Qgemv(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, Arg
 
 // ------------------- Qpotrf -------------------
 // the diagonal elements of the input matrix will be treated with special quantization rules.
+// IMPORTANT: the diagonal elements of the output matrix will be stored as the reciprocal form
 
 template <typename... Args>
 struct Qpotrf_s;
@@ -2028,6 +2029,7 @@ struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
     {
         auto temp = ANUS::Qtable<ANUS::rsqrtFunc>(A.template get<J, J>());
         ((A.template get<I + J, J>() = A.template get<I + J, J>() * temp), ...);
+        A.template get<J, J>() = temp;
     }
 };
 
@@ -2051,6 +2053,7 @@ struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
 // }
 
 // ------------------- Qpotrs -------------------
+// IMPORTANT: the diagonal elements of the input matrix must be stored as the reciprocal form
 
 template <typename... Args>
 struct Qpotrs_s;
@@ -2076,13 +2079,13 @@ struct Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>
     static inline void execute_forward(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<J...>)
     {
         ((b.template get<I>() = b.template get<I>() - L.template get<I, J>() * b.template get<J>()), ...);
-        b.template get<I>() = b.template get<I>() / L.template get<I, I>();
+        b.template get<I>() = b.template get<I>() * L.template get<I, I>();
     }
 
     template <size_t I, size_t... J>
     static inline void execute_backward(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<J...>)
     {
         ((b.template get<I>() = b.template get<I>() - L.template get<J + I + 1, I>() * b.template get<J + I + 1>()), ...);
-        b.template get<I>() = b.template get<I>() / L.template get<I, I>();
+        b.template get<I>() = b.template get<I>() * L.template get<I, I>();
     }
 };
