@@ -5,28 +5,29 @@
 
 int main()
 {
-    using type = Qu<intBits<9>, fracBits<8>>;
 
-    using matType = Qu<dim<3, 3>, type>;
+    using type1 = Qu<intBits<8>, fracBits<10>>;
+    using type2 = Qu<intBits<5>, fracBits<10>>;
 
-    matType A = {
+    using mat_t = Qu<dim<3, 3>, type1>;
+    using vec_t = Qu<dim<3>, type1>;
+
+    mat_t mat1 = {
         4, 12, -16,
         12, 37, -43,
         -16, -43, 98};
-    //  A.display();
-    Qpotrf(A);
 
-    A.display();
+    // // mat1.display();
+    Qpotrf_s<mat_t>::execute(mat1);
 
-    Qu<dim<3>, type> B = {
-        -20, -43, 192};
 
-    Qpotrs(A, B);
 
-    auto res  = B.toDouble();
+    vec_t vec1 = {-20, -43, 192};
 
-    for (auto i : res)
-    {
-        std::cout << i << std::endl;
-    }
+    Qpotrs_s<mat_t, vec_t>::execute(mat1, vec1);
+
+    mat1.display();
+    vec1.display();
+
+ ;
 }
