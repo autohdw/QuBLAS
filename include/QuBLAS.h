@@ -2036,6 +2036,12 @@ struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
     }
 };
 
+template <typename... interiorArgs, size_t row, size_t col, typename... Args>
+inline void Qpotrf(Qu_s<dim<row, col>, Args...> &A)
+{
+    Qpotrf_s<Qu_s<dim<row, col>, Args...>>::execute(A);
+}
+
 // normal version for reference
 // void potrs(double* L, double* b, int n) {
 //     // 前向替代
@@ -2092,3 +2098,9 @@ struct Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>
         b.template get<I>() = b.template get<I>() * L.template get<I, I>();
     }
 };
+
+template <typename... interiorArgs, size_t row, size_t col, size_t bRow, typename... LArgs, typename... bArgs>
+inline void Qpotrs(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b)
+{
+    Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>::execute(L, b);
+}

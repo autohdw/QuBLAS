@@ -18,13 +18,13 @@ int main()
         -16, -43, 98};
 
     // // mat1.display();
-    Qpotrf_s<mat_t>::execute(mat1);
+    Qpotrf(mat1);
 
 
 
     vec_t vec1 = {-20, -43, 192};
 
-    Qpotrs_s<mat_t, vec_t>::execute(mat1, vec1);
+    Qpotrs(mat1, vec1);
 
     mat1.display();
     vec1.display();
