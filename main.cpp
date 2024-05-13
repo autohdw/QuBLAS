@@ -71,17 +71,17 @@ int main()
         std::cout << std::endl;
     }
 
-    for (int i = 0; i < 32; i++)
-    {
-        vec2[i] = 1 + randomGaussian();
-    }
+    // for (int i = 0; i < 32; i++)
+    // {
+    //     vec2[i] = 1 + randomGaussian();
+    // }
 
 
 
-    for (int i = 0; i < 32; i++)
-    {
-        vec1[i] = 1 + randomGaussian_divSqrt2();
-    }
+    // for (int i = 0; i < 32; i++)
+    // {
+    //     vec1[i] = 1 + randomGaussian_divSqrt2();
+    // }
 
     auto start = std::chrono::high_resolution_clock::now();
     Qgramul(mat2, mat1);
@@ -90,17 +90,19 @@ int main()
 
     // Qgemv(vec2, mat1, vec1);
 
-    // vec2.display();
+    // // vec2.display();
 
     // Qpotrf(mat2);
 
-    // mat2.display();
+    // // mat2.display();
 
     // Qpotrs(mat2, vec2);
 
-    // vec2.display();
+    // // vec2.display();
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     std::cout << "Execution time: " << duration << " microseconds" << std::endl;
+
+
 }
