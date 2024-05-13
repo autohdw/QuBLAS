@@ -71,26 +71,26 @@ int main()
         std::cout << std::endl;
     }
 
-    // for (int i = 0; i < 32; i++)
-    // {
-    //     vec2[i] = 1 + randomGaussian();
-    // }
+    for (int i = 0; i < 32; i++)
+    {
+        vec2[i] = 1 + randomGaussian();
+    }
 
 
 
-    // for (int i = 0; i < 32; i++)
-    // {
-    //     vec1[i] = 1 + randomGaussian_divSqrt2();
-    // }
+    for (int i = 0; i < 32; i++)
+    {
+        vec1[i] = 1 + randomGaussian_divSqrt2();
+    }
 
     auto start = std::chrono::high_resolution_clock::now();
-    Qgramul(mat2, mat1);
+    Qgemul(mat1, mat2, mat2);
 
     // mat2.display();
 
-    // Qgemv(vec2, mat1, vec1);
+    Qgemv(vec2, mat1, vec1);
 
-    // // vec2.display();
+    vec2.display();
 
     // Qpotrf(mat2);
 

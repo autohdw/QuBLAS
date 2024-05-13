@@ -1736,6 +1736,7 @@ template <typename... Args>
 struct Qgemul_s;
 
 template <bool isTransposedA, bool isTransposedB, typename... addArgs, typename... mulArgs, size_t colA, size_t rowA, size_t colB, size_t rowB, size_t colC, size_t rowC, typename... ArgsC, typename... ArgsA, typename... ArgsB>
+requires (Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) || (Qu_s<dim<rowB, colB>, ArgsB...>::isElementQu) || (Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
 struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, QgemulAddArgs<addArgs...>, QgemulMulArgs<mulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<rowB, colB>, ArgsB...>>
 {
     static_assert(
@@ -1783,6 +1784,39 @@ struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposed
         }
     }
 };
+
+template <bool isTransposedA, bool isTransposedB, typename... addArgs, typename... mulArgs, size_t colA, size_t rowA, size_t colB, size_t rowB, size_t colC, size_t rowC, typename... ArgsC, typename... ArgsA, typename... ArgsB>
+requires (!Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) && (!Qu_s<dim<rowB, colB>, ArgsB...>::isElementQu) && (!Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
+struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, QgemulAddArgs<addArgs...>, QgemulMulArgs<mulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<rowB, colB>, ArgsB...>>
+{
+    static_assert(
+        (!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) ||
+            (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) ||
+            (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) ||
+            (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)),
+        "Size mismatch when calling Qgemul");
+
+
+    // the intermediate vector for the dot product
+    using mulMerger = Merger<Qu<ArgsA...>, Qu<ArgsB...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecC;
+
+    static inline void execute(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
+    {
+        for (size_t i = 0; i < (isTransposedA ? rowA : colA); i++)
+        {
+            for (size_t j = 0; j < (isTransposedB ? colB : rowB); j++)
+            {
+                for (size_t k = 0; k < (isTransposedA ? colA : rowA); k++)
+                {
+                    vecC[k] = Qmul<mulArgs...>(A[i, k], B[k, j]);
+                }
+                C[i, j] = Qreduce<addArgs...>(vecC);
+            }
+        }
+    }
+};
+
 
 template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB, typename... ArgsC, typename... ArgsA, typename... ArgsB>
 inline void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
@@ -1842,7 +1876,7 @@ template <typename... Args>
 struct Qgramul_s;
 
 template <bool isTransposed, typename... diagAddArgs, typename... diagMulArgs, typename... offDiagAddArgs, typename... offDiagMulArgs, size_t rowA, size_t colA, size_t rowC, size_t colC, typename... ArgsC, typename... ArgsA>
-requires (Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu)// only used when the input matrix needs element-wise quantization
+requires (Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) && (Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
 struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs...>, QgramulDiagMulArgs<diagMulArgs...>, QgramulOffDiagAddArgs<offDiagAddArgs...>, QgramulOffDiagMulArgs<offDiagMulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>>
 {
     static_assert(rowC == colC, "The output matrix of Qgramul must be square");
@@ -1898,7 +1932,7 @@ struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs
 };
 
 template <bool isTransposed, typename... diagAddArgs, typename... diagMulArgs, typename... offDiagAddArgs, typename... offDiagMulArgs, size_t rowA, size_t colA, size_t rowC, size_t colC, typename... ArgsC, typename... ArgsA>
-requires (!Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu)
+requires (!Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) && (Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
 struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs...>, QgramulDiagMulArgs<diagMulArgs...>, QgramulOffDiagAddArgs<offDiagAddArgs...>, QgramulOffDiagMulArgs<offDiagMulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>>
 {
     // the intermediate vector loaded from A for dot product
@@ -1906,7 +1940,6 @@ struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs
 
     // the intermediate vector loaded from B for dot product
     static inline Qu_s<dim<isTransposed ? colA : rowA>, Qu<ArgsA...>> vecB;
-
  
     static inline Qu_s<dim<isTransposed ? rowA : colA>,  std::conditional_t<sizeof...(diagMulArgs) == 0, Qu<ArgsA...>, Qu<diagMulArgs...>>> diagMulRes;
     static inline Qu_s<dim<isTransposed ? rowA : colA>,  std::conditional_t<sizeof...(offDiagMulArgs) == 0, Qu<ArgsA...>, Qu<offDiagMulArgs...>>> offDiagMulRes;
@@ -1988,6 +2021,7 @@ template <typename... Args>
 struct Qgemv_s;
 
 template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA, Qu_s alpha, Qu_s beta>
+requires (Qu_s<dim<sizeY>, ArgsY...>::isElementQu || Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu || Qu_s<dim<sizeX>, ArgsX...>::isElementQu)
 struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvMulArgs<mulArgs...>, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>
 {
     static_assert(
@@ -2060,6 +2094,56 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
             }
         }
     }
+};
+
+template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA, Qu_s alpha, Qu_s beta>
+requires (!Qu_s<dim<sizeY>, ArgsY...>::isElementQu && !Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu && !Qu_s<dim<sizeX>, ArgsX...>::isElementQu)
+struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvMulArgs<mulArgs...>, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>
+{
+    static_assert(
+        (!isTransposedA && (colA == sizeX && rowA == sizeY)) ||
+            (isTransposedA && (rowA == sizeX && colA == sizeY)),
+        "Size mismatch when calling Qgemv");
+
+    using mulMerger = Merger<Qu<ArgsA...>, Qu<ArgsX...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecA;
+
+    static inline void execute(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
+    {
+        for (size_t i = 0; i < sizeY; i++)
+        {
+            for (size_t j = 0; j < (isTransposedA ? colA : rowA); j++)
+            {
+                vecA[j] = Qmul<mulArgs...>(A[i, j], x[j]);
+            }
+            auto addRes = Qreduce<addArgs...>(vecA);
+
+            if constexpr (beta.data == 0)
+            {
+                if constexpr (alpha == Qu<ArgsY...>(1))
+                {
+                    y[i] = addRes;
+                }
+                else
+                {
+                    y[i] = Qmul<ArgsY...>(alpha, addRes);
+                }
+            }
+            else
+            {
+                if constexpr (alpha == Qu<ArgsY...>(1))
+                {
+                    y[i] = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y[i]), addRes);
+                }
+                else
+                {
+                    y[i] = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y[i]), Qmul<ArgsY...>(alpha, addRes));
+                }
+            }
+        
+        }
+    }
+
 };
 
 template <typename... interiorArgs, size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX>
