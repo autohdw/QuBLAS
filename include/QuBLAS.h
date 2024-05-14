@@ -846,32 +846,6 @@ public:
         }
     }
 
-    inline constexpr auto &operator[](size_t index)
-    {
-        if constexpr (isElementQu)
-        {
-            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
-            return std::get<0>(data);
-        }
-        else
-        {
-            return data[index];
-        }
-    }
-
-    inline constexpr const auto &operator[](size_t index) const
-    {
-        if constexpr (isElementQu)
-        {
-            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
-            return std::get<0>(data);
-        }
-        else
-        {
-            return data[index];
-        }
-    }
-
     inline std::array<double, dim<dims...>::elemSize> toDouble() const
     {
         std::array<double, dim<dims...>::elemSize> outputArray;
@@ -911,6 +885,134 @@ struct QuInputHelper<dim<dims...>, TypeList<Args...>>
 {
     using type = Qu_s<dim<dims...>, TypeList<Args...>>;
 };
+
+
+// special case for gram matrix
+// 面包会有的，牛奶也会有的
+template<typename... Args>
+struct Gram;
+
+template<typename diagType, typename offDiagType>
+requires(isA<diagType, Qu_s<>> && isA<offDiagType, Qu_s<>>)
+struct Gram<diagType, offDiagType>
+{};
+
+ 
+template<size_t row, size_t col, typename diagType, typename offDiagType>
+class Qu_s<dim<row,col>, Gram<diagType, offDiagType>>
+{
+public:
+    static inline constexpr bool isElementQu = true;
+
+    std::array<offDiagType, row * col> offDiagData;
+    std::array<diagType, row> diagData;
+
+    constexpr Qu_s() {}
+
+    template<size_t i, size_t j>
+    inline constexpr auto &get()
+    {
+        if constexpr (i == j)
+        {
+            return diagData[i];
+        }
+        else
+        {
+            return offDiagData[i * col + j];
+        }
+    }
+
+    template<size_t i, size_t j>
+    inline constexpr const auto &get() const
+    {
+        if constexpr (i == j)
+        {
+            return diagData[i];
+        }
+        else
+        {
+            return offDiagData[i * col + j];
+        }
+    }
+
+    inline constexpr auto &operator[](size_t i, size_t j)
+    {
+        if (i == j)
+        {
+            return diagData[i];
+        }
+        else
+        {
+            return offDiagData[i * col + j];
+        }
+    }
+
+    inline constexpr const auto &operator[](size_t i, size_t j) const
+    {
+        if (i == j)
+        {
+            return diagData[i];
+        }
+        else
+        {
+            return offDiagData[i * col + j];
+        }
+    }
+
+    inline std::array<double, row * col> toDouble() const
+    {
+        std::array<double, row * col> outputArray;
+
+
+        for (size_t i = 0; i < row; i++)
+        {
+            for (size_t j = 0; j < col; j++)
+            {
+                if (i != j)
+                {
+                    outputArray[i * col + j] = offDiagData[i * col + j].toDouble();
+                }
+                else
+                {
+                    outputArray[i * col + j] = diagData[i].toDouble();
+                }
+            }
+        }
+        return outputArray;
+    }
+
+    void display(std::string name = "") const
+    {
+        if (name != "")
+        {
+            std::cout << name << " :";
+        }
+        std::cout << std::endl;
+
+        for (size_t i = 0; i < row; i++)
+        {
+            for (size_t j = 0; j < col; j++)
+            {
+                if (i != j)
+                {
+                    offDiagData[i * col + j].display();
+                }
+                else
+                {
+                    diagData[i].display();
+                }
+            }
+        }
+    }
+};
+
+template<size_t row, size_t col, typename diagType, typename offDiagType>
+struct QuInputHelper<dim<row,col>, Gram<diagType, offDiagType>>
+{
+    using type = Qu_s<dim<row,col>, Gram<diagType, offDiagType>>;
+};
+
+
 
 // ------------------- element wise operations -------------------
 
@@ -1843,27 +1945,6 @@ inline void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA
 // The diagonal elements of C will be treated with special quantization rules.
 // It is not a standard BLAS routine.
 
-// Gram matrix type generator
-template <size_t N, typename... Args>
-struct GramMatrix_s;
-
-template <size_t N, typename... diagArgs, typename... offDiagArgs>
-struct GramMatrix_s<N, Qu_s<diagArgs...>, Qu_s<offDiagArgs...>>
-{
-    template <typename T>
-    struct helper;
-
-    template <size_t... I>
-    struct helper<std::index_sequence<I...>>
-    {
-        using type = TypeList<std::conditional_t<(I % (N + 1) == 0), Qu_s<diagArgs...>, Qu_s<offDiagArgs...>>...>;
-    };
-
-    using type = Qu<dim<N, N>, typename helper<std::make_index_sequence<N * N>>::type>;
-};
-
-template <size_t N, typename... Args>
-using GramMatrix = typename GramMatrix_s<N, Args...>::type;
 
 template <bool Value>
 struct QgramulTransposed;

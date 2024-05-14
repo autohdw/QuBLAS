@@ -43,28 +43,28 @@ int main()
     using type1 = Qu<intBits<8>, fracBits<10>>;
     using type2 = Qu<intBits<5>, fracBits<10>>;
 
-    using mat_t_1 = Qu<dim<4, 3>, type1>;
+    using mat_t_1 = Qu<dim<64,32>, type1>;
+
+    mat_t_1 A;
+
+    for (int i = 0; i < 64; i++)
+    {
+        for (int j = 0; j < 32; j++)
+        {
+            A[i, j] = randomGaussian();
+        }
+    }
+
+    using mat_t_2 = Qu<dim<32, 32>, Gram<type1, type2>>;
+
+    mat_t_2 B;
+
+    Qgramul(B,A);
+
+    B.display();
 
 
-    mat_t_1 mat1 = {
-        0.1, 0.2, 0.3, 0.4,
-        0.5, 0.6, 0.7, 0.8,
-        0.9, 1.0, 1.1, 1.2
-    };
 
-    using vec_t_1 = Qu<dim<4>, type1>;
-    using vec_t_2 = Qu<dim<3>, type2>;
-
-    vec_t_1 vec1 = {
-        0.1, 0.2, 0.3, 0.4
-    };
-
-    vec_t_2 vec2;
-
-
-    Qgemv<QgemvTransposedA<true>>(vec2, mat1, vec1);
-
-    vec2.display();
-
+ 
 
 }
