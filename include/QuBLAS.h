@@ -1228,6 +1228,36 @@ struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
     using input2IndexList = indexModifierParallel<outputIndexList, dim<dims2...>>::res;
 };
 
+template <size_t index, bool horOrVer>
+struct vecExtractor
+{
+
+    template <typename... fromArgs, typename... toArgs, size_t col, size_t row>
+    static inline void extract(const Qu_s<dim<row, col>, Qu_s<fromArgs...>> &input, Qu_s<dim<horOrVer ? col : row>, Qu_s<toArgs...>> &output)
+    {
+        extract_impl(input, output, std::make_index_sequence < horOrVer ? col : row > ());
+    }
+
+    template <typename... fromArgs, typename... toArgs, size_t... I, size_t col, size_t row>
+    static inline void extract_impl(const Qu_s<dim<row, col>, Qu_s<fromArgs...>> &input, Qu_s<dim<horOrVer ? col : row>, Qu_s<toArgs...>> &output, std::index_sequence<I...>)
+    {
+        if constexpr (horOrVer)
+        {
+            ((output.template get<I>() = input.template get<index, I>()), ...);
+        }
+        else
+        {
+            ((output.template get<I>() = input.template get<I, index>()), ...);
+        }
+    }
+};
+
+template <size_t index, bool horOrVer, typename... fromArgs, typename... toArgs, size_t col, size_t row>
+inline void vecExtract(const Qu_s<dim<row, col>, Qu_s<fromArgs...>> &input, Qu_s<dim<horOrVer ? col : row>, Qu_s<toArgs...>> &output)
+{
+    vecExtractor<index, horOrVer>::extract(input, output);
+}
+
 } // namespace elementWise
 
 // ------------------- Basic Operations -------------------
@@ -1593,6 +1623,8 @@ struct Reducer
         using type = std::nullptr_t;
     };
 
+
+    // version for arbitrary input, please avoid using this version for efficiency consideration
     template <size_t layer, typename... Ts, size_t... I>
     static inline auto reduce_impl(std::index_sequence<I...>,
                                    const Ts... quants)
@@ -1627,6 +1659,42 @@ struct Reducer
     {
         return reduce_impl<0>(std::make_index_sequence<sizeof...(Ts) / 2>{}, quants...);
     }
+
+
+    // version for a vec
+    template <size_t layer,size_t len, typename ...fromArgs>
+    static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+
+        static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
+        if constexpr (len == 1)
+        {
+            return quants.template get<0>();
+        }
+        else
+        {
+            [&res=res, &quants=quants]<size_t... I>(std::index_sequence<I...>)
+            {
+                ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
+            }(std::make_index_sequence<(len + 1) / 2>());
+            
+            if constexpr (len %2 !=0)
+            {
+                res.template get<(len + 1) / 2>() = quants.template get<len - 1>();
+            }
+
+            return reduce_impl<layer + 1>(res);
+        }
+    }
+
+    template <size_t len, typename ...fromArgs>
+    static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        return reduce_impl<0>(quants);
+    }
+    
+
 };
 
 template <typename... Args>
@@ -1645,17 +1713,7 @@ inline auto constexpr Qreduce(const Ts... quants)
     return ReducerInputHelper<Args...>::reduce(quants...);
 }
 
-template <typename... Args, size_t... ds, typename... QuArgs, size_t... I>
-inline auto constexpr QreduceInputHelper(const Qu_s<dim<ds...>, QuArgs...> quants, std::index_sequence<I...>)
-{
-    return Qreduce<Args...>(std::get<I>(quants.data)...);
-}
 
-template <typename... Args, typename... Ts, size_t... ds, typename... QuArgs>
-inline auto constexpr Qreduce(const Qu_s<dim<ds...>, QuArgs...> quants)
-{
-    return QreduceInputHelper<Args...>(quants, std::make_index_sequence<dim<ds...>::elemSize>());
-}
 
 // ----------- Qgemul -----------
 // C = op(A) * op(B)
@@ -1678,6 +1736,7 @@ template <typename... Args>
 struct Qgemul_s;
 
 template <bool isTransposedA, bool isTransposedB, typename... addArgs, typename... mulArgs, size_t colA, size_t rowA, size_t colB, size_t rowB, size_t colC, size_t rowC, typename... ArgsC, typename... ArgsA, typename... ArgsB>
+requires (Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) || (Qu_s<dim<rowB, colB>, ArgsB...>::isElementQu) || (Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
 struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, QgemulAddArgs<addArgs...>, QgemulMulArgs<mulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<rowB, colB>, ArgsB...>>
 {
     static_assert(
@@ -1725,6 +1784,47 @@ struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposed
         }
     }
 };
+
+template <bool isTransposedA, bool isTransposedB, typename... addArgs, typename... mulArgs, size_t colA, size_t rowA, size_t colB, size_t rowB, size_t colC, size_t rowC, typename... ArgsC, typename... ArgsA, typename... ArgsB>
+requires (!Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) && (!Qu_s<dim<rowB, colB>, ArgsB...>::isElementQu) && (!Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
+struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, QgemulAddArgs<addArgs...>, QgemulMulArgs<mulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<rowB, colB>, ArgsB...>>
+{
+    static_assert(
+        (!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) ||
+            (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) ||
+            (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) ||
+            (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)),
+        "Size mismatch when calling Qgemul");
+
+
+    // the intermediate vector for the dot product
+    using mulMerger = Merger<Qu<ArgsA...>, Qu<ArgsB...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecC;
+
+    static inline void execute(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
+    {
+        for (size_t i = 0; i < (isTransposedA ? colA : rowA); i++)
+        {
+            for (size_t j = 0; j < (isTransposedB ? rowB : colB); j++)
+            {
+                for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
+                {
+                    // vecC[k] = Qmul<mulArgs...>(A[i, k], B[k, j]);
+
+                    size_t rA = isTransposedA ? k : i;
+                    size_t cA = isTransposedA ? i : k;
+                    size_t rB = isTransposedB ? j : k;
+                    size_t cB = isTransposedB ? k : j;
+
+                    vecC[k] = Qmul<mulArgs...>(A[rA, cA], B[rB, cB]);
+
+                }
+                C[i, j] = Qreduce<addArgs...>(vecC);
+            }
+        }
+    }
+};
+
 
 template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB, typename... ArgsC, typename... ArgsA, typename... ArgsB>
 inline void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
@@ -1784,6 +1884,7 @@ template <typename... Args>
 struct Qgramul_s;
 
 template <bool isTransposed, typename... diagAddArgs, typename... diagMulArgs, typename... offDiagAddArgs, typename... offDiagMulArgs, size_t rowA, size_t colA, size_t rowC, size_t colC, typename... ArgsC, typename... ArgsA>
+requires (Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) && (Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
 struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs...>, QgramulDiagMulArgs<diagMulArgs...>, QgramulOffDiagAddArgs<offDiagAddArgs...>, QgramulOffDiagMulArgs<offDiagMulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>>
 {
     static_assert(rowC == colC, "The output matrix of Qgramul must be square");
@@ -1838,6 +1939,62 @@ struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs
     }
 };
 
+template <bool isTransposed, typename... diagAddArgs, typename... diagMulArgs, typename... offDiagAddArgs, typename... offDiagMulArgs, size_t rowA, size_t colA, size_t rowC, size_t colC, typename... ArgsC, typename... ArgsA>
+// requires (!Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu) && (Qu_s<dim<rowC, colC>, ArgsC...>::isElementQu)
+struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs...>, QgramulDiagMulArgs<diagMulArgs...>, QgramulOffDiagAddArgs<offDiagAddArgs...>, QgramulOffDiagMulArgs<offDiagMulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>>
+{
+    // the intermediate vector loaded from A for dot product
+    static inline Qu_s<dim<isTransposed ? colA : rowA>, Qu<ArgsA...>> vecA;
+
+    // the intermediate vector loaded from B for dot product
+    static inline Qu_s<dim<isTransposed ? colA : rowA>, Qu<ArgsA...>> vecB;
+ 
+    static inline Qu_s<dim<isTransposed ? colA : rowA>,  std::conditional_t<sizeof...(diagMulArgs) == 0, Qu<ArgsA...>, Qu<diagMulArgs...>>> diagMulRes;
+    static inline Qu_s<dim<isTransposed ? colA : rowA>,  std::conditional_t<sizeof...(offDiagMulArgs) == 0, Qu<ArgsA...>, Qu<offDiagMulArgs...>>> offDiagMulRes;
+
+    static_assert(rowC == colC, "The output matrix of Qgramul must be square");
+
+    static_assert(
+        (!isTransposed && (rowC == colA)) ||
+            (isTransposed && (rowC == rowA)),
+        "Size mismatch when calling Qgramul");
+
+    static inline void execute(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A)
+    {
+        return execute_outer(C, A, std::make_index_sequence<rowC>());
+    }
+
+    template <size_t... I>
+    static inline void execute_outer(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, std::index_sequence<I...>)
+    {
+        ((execute_inner<I>(C, A, std::make_index_sequence<rowC>()), ...));
+    }
+
+    template <size_t I, size_t... J>
+    static inline void execute_inner(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, std::index_sequence<J...>)
+    {
+        ((execute_ele<I, J>(C, A, std::make_index_sequence < isTransposed ? colA : rowA > ()), ...));
+    }
+
+    template <size_t I, size_t J, size_t... K>
+    static inline void execute_ele(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, std::index_sequence<K...>)
+    {
+        elementWise::vecExtract<I, isTransposed>(A, vecA);
+        elementWise::vecExtract<J, isTransposed>(A, vecB);
+
+        if constexpr (I == J)
+        {
+            Qmul<diagMulArgs...>(diagMulRes, vecA, vecB);
+            C.template get<I, J>() = Qreduce<diagAddArgs...>(diagMulRes);
+        }
+        else
+        {
+            Qmul<offDiagMulArgs...>(offDiagMulRes, vecA, vecB);
+            C.template get<I, J>() = Qreduce<offDiagAddArgs...>(offDiagMulRes);
+        }
+    }
+};
+
 template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, typename... ArgsC, typename... ArgsA>
 inline void Qgramul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A)
 {
@@ -1872,6 +2029,7 @@ template <typename... Args>
 struct Qgemv_s;
 
 template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA, Qu_s alpha, Qu_s beta>
+requires (Qu_s<dim<sizeY>, ArgsY...>::isElementQu || Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu || Qu_s<dim<sizeX>, ArgsX...>::isElementQu)
 struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvMulArgs<mulArgs...>, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>
 {
     static_assert(
@@ -1887,63 +2045,88 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
     template <size_t... I>
     static inline void execute_outer(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x, std::index_sequence<I...>)
     {
-        ((execute_inner<I>(y, A, x, std::make_index_sequence < isTransposedA ? colA : rowA > ()), ...));
+        ((execute_inner<I>(y, A, x, std::make_index_sequence < sizeX > ()), ...));
     }
 
     template <size_t I, size_t... J>
     static inline void execute_inner(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x, std::index_sequence<J...>)
     {
+        auto addRes = Qreduce<addArgs...>(Qmul<mulArgs...>(A.template get<isTransposedA ? J : I, isTransposedA ? I : J>(), x.template get<J>())...);
+
         if constexpr (beta.data == 0)
         {
             if constexpr (alpha == Qu<ArgsY...>(1))
             {
-                if constexpr (isTransposedA)
-                {
-                    y.template get<I>() = Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(Qmul<addArgs...>(A.template get<J, I>(), x.template get<J>())...));
-                }
-                else
-                {
-                    y.template get<I>() = Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(Qmul<addArgs...>(A.template get<I, J>(), x.template get<J>())...));
-                }
+                y.template get<I>() = addRes;
             }
             else
             {
-                if constexpr (isTransposedA)
-                {
-                    y.template get<I>() = Qreduce<addArgs...>(Qmul<mulArgs...>(A.template get<J, I>(), x.template get<J>())...);
-                }
-                else
-                {
-                    y.template get<I>() = Qreduce<addArgs...>(Qmul<mulArgs...>(A.template get<I, J>(), x.template get<J>())...);
-                }
+                y.template get<I>() = Qmul<ArgsY...>(alpha, addRes);
             }
         }
         else
         {
             if constexpr (alpha == Qu<ArgsY...>(1))
             {
-                if constexpr (isTransposedA)
+                y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y.template get<I>()), addRes);
+            }
+            else
+            {
+                y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y.template get<I>()), Qmul<ArgsY...>(alpha, addRes));
+            }
+        }
+
+    }
+};
+
+template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA, Qu_s alpha, Qu_s beta>
+requires (!Qu_s<dim<sizeY>, ArgsY...>::isElementQu && !Qu_s<dim<rowA, colA>, ArgsA...>::isElementQu && !Qu_s<dim<sizeX>, ArgsX...>::isElementQu)
+struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvMulArgs<mulArgs...>, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>
+{
+    static_assert(
+        (!isTransposedA && (colA == sizeX && rowA == sizeY)) ||
+            (isTransposedA && (rowA == sizeX && colA == sizeY)),
+        "Size mismatch when calling Qgemv");
+
+    using mulMerger = Merger<Qu<ArgsA...>, Qu<ArgsX...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecA;
+
+    static inline void execute(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
+    {
+        for (size_t i = 0; i < sizeY; i++)
+        {
+            for (size_t j = 0; j < sizeX; j++)
+            {
+                vecA[j] = Qmul<mulArgs...>(A[isTransposedA ? j : i, isTransposedA ? i : j], x[j]);
+            }
+            auto addRes = Qreduce<addArgs...>(vecA);
+
+            if constexpr (beta.data == 0)
+            {
+                if constexpr (alpha == Qu<ArgsY...>(1))
                 {
-                    y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y.template get<I>()), Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(Qmul<addArgs...>(A.template get<J, I>(), x.template get<J>())...)));
+                    y[i] = addRes;
                 }
                 else
                 {
-                    y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y.template get<I>()), Qmul<ArgsY...>(alpha, Qreduce<addArgs...>(Qmul<addArgs...>(A.template get<I, J>(), x.template get<J>())...)));
+                    y[i] = Qmul<ArgsY...>(alpha, addRes);
                 }
             }
             else
             {
-                if constexpr (isTransposedA)
+                if constexpr (alpha == Qu<ArgsY...>(1))
                 {
-                    y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y.template get<I>()), Qreduce<addArgs...>(Qmul<mulArgs...>(A.template get<J, I>(), x.template get<J>())...));
+                    y[i] = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y[i]), addRes);
                 }
                 else
                 {
-                    y.template get<I>() = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y.template get<I>()), Qreduce<addArgs...>(Qmul<mulArgs...>(A.template get<I, J>(), x.template get<J>())...));
+                    y[i] = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y[i]), Qmul<ArgsY...>(alpha, addRes));
                 }
             }
+        
         }
     }
+
 };
 
 template <typename... interiorArgs, size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX>

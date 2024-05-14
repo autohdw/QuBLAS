@@ -11,6 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Set optimization flags based on project type
 if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
+    # -ftime-report
+    # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftime-report")
 else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 endif()
