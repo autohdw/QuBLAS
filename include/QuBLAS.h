@@ -815,7 +815,7 @@ public:
     }
 
     template <typename... Ints>
-        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
+        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...))
     inline constexpr auto &operator[](Ints... indices)
     {
         if constexpr (isElementQu)
@@ -831,7 +831,7 @@ public:
     }
 
     template <typename... Ints>
-        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
+        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...))
     inline constexpr const auto &operator[](Ints... indices) const
     {
         if constexpr (isElementQu)
@@ -926,30 +926,6 @@ public:
     inline constexpr const auto &get() const
     {
         if constexpr (i == j)
-        {
-            return diagData[i];
-        }
-        else
-        {
-            return offDiagData[i * col + j];
-        }
-    }
-
-    inline constexpr auto &operator[](size_t i, size_t j)
-    {
-        if (i == j)
-        {
-            return diagData[i];
-        }
-        else
-        {
-            return offDiagData[i * col + j];
-        }
-    }
-
-    inline constexpr const auto &operator[](size_t i, size_t j) const
-    {
-        if (i == j)
         {
             return diagData[i];
         }
