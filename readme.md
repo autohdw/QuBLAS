@@ -58,6 +58,9 @@ int main()
     matType m2;
     Qadd<intBits<2>>(m2, v1, m2);
 
+    // index a tensor with [] operator
+    auto elem = m1[1, 2];
+
     // Tree-based reduction operations
     auto red1 = Qreduce<type2>(v1);
 
