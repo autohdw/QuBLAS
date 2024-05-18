@@ -815,7 +815,7 @@ public:
     }
 
     template <typename... Ints>
-        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...))
+        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
     inline constexpr auto &operator[](Ints... indices)
     {
         if constexpr (isElementQu)
@@ -831,7 +831,7 @@ public:
     }
 
     template <typename... Ints>
-        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...))
+        requires(sizeof...(Ints) == dim<dims...>::dimSize && (std::is_integral_v<Ints> && ...) && sizeof...(Ints) > 1)
     inline constexpr const auto &operator[](Ints... indices) const
     {
         if constexpr (isElementQu)
@@ -842,6 +842,33 @@ public:
         else
         {
             size_t index = calculateIndex(0, indices...);
+            return data[index];
+        }
+    }
+
+
+    inline constexpr auto &operator[](size_t index)
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
+            return data[index];
+        }
+    }
+
+    inline constexpr const auto &operator[](size_t index) const
+    {
+        if constexpr (isElementQu)
+        {
+            static_assert(!isElementQu, "Element-wise quantization does not support dynamic indexing");
+            return std::get<0>(data);
+        }
+        else
+        {
             return data[index];
         }
     }
