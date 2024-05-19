@@ -769,6 +769,8 @@ public:
 
     arrayType data;
 
+    inline static constexpr size_t size = dim<dims...>::elemSize;
+
     template <typename First, typename... Rest>
     inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
     {
