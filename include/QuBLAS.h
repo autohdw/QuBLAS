@@ -769,6 +769,8 @@ public:
 
     arrayType data;
 
+    using innerType = Arg;
+
     inline static constexpr size_t size = dim<dims...>::elemSize;
 
     template <typename First, typename... Rest>
