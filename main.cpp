@@ -3,6 +3,7 @@
 #include <iostream>
 #include <utility>
 #include <chrono>
+#include <vector>
 
 struct GaussianGenerator
 {
@@ -43,25 +44,20 @@ int main()
     using type1 = Qu<intBits<8>, fracBits<10>>;
     using type2 = Qu<intBits<5>, fracBits<10>>;
 
-    using mat_t_1 = Qu<dim<64,32>, type1>;
+    using mat_t_1 = Qu<dim<3,3>, type1>;
 
     mat_t_1 A;
+    mat_t_1 B;
+    mat_t_1 C;
 
-    for (int i = 0; i < 64; i++)
-    {
-        for (int j = 0; j < 32; j++)
-        {
-            A[i, j] = randomGaussian();
-        }
-    }
+    type1 a = 0.5;
+    type1 b = 0.5;
 
-    using mat_t_2 = Qu<dim<32, 32>, Gram<type1, type2>>;
+    auto res = Qmul(a, b);
 
-    mat_t_2 B;
+    auto res2 = Qmul(a, B);
 
-    Qgramul(B,A);
 
-    B.display();
 
 
 
