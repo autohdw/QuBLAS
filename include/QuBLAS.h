@@ -1943,6 +1943,7 @@ struct Reducer
     static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
     {
         using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+        quants.display("layer " + std::to_string(layer));
 
         static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
         if constexpr (len == 1)
@@ -1953,11 +1954,11 @@ struct Reducer
         {
             [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
                 ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
-            }(std::make_index_sequence<(len + 1) / 2>());
+            }(std::make_index_sequence<len / 2>());
 
             if constexpr (len % 2 != 0)
             {
-                res.template get<(len + 1) / 2>() = quants.template get<len - 1>();
+                res.template get<(len + 1) / 2 - 1>() = quants.template get<len - 1>();
             }
 
             return reduce_impl<layer + 1>(res);
@@ -1968,6 +1969,17 @@ struct Reducer
     static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
     {
         return reduce_impl<0>(quants);
+    }
+
+    template <size_t... dims, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<dims...>, fromArgs...> &quants)
+    {
+        static Qu_s<dim<dim<dims...>::elemSize>, fromArgs...> vec;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            vec[i] = quants[i];
+        }
+        return reduce(vec);
     }
 };
 

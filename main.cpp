@@ -44,15 +44,13 @@ int main()
     using type1 = Qu<intBits<8>, fracBits<10>>;
     using type2 = Qu<intBits<5>, fracBits<10>>;
 
-    using vec_t = Qu<dim<5>, type1>;
+    using mat_t = Qu<dim<3, 3>, type1>;
 
-    vec_t a = {0.1, 0.2, 0.3, 0.4, 0.5};
-    vec_t b = {0.1, 0.2, 0.3, 0.4, 0.5};
-    vec_t c;
+    mat_t a = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
 
-    Qmul<type2>(c, a, b);
+    auto res = Qreduce(a);
 
-    c.display();
+    res.display();
 
 
 
