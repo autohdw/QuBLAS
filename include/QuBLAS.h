@@ -1368,7 +1368,7 @@ inline void vecExtract(const Qu_s<dim<row, col>, Qu_s<fromArgs...>> &input, Qu_s
 template <typename... Args>
 struct Merger;
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 struct Merger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
 {
     using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
@@ -1386,7 +1386,7 @@ struct Merger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 template <typename... Args>
 struct Qop;
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
     requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
 struct Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
 {
@@ -1534,227 +1534,226 @@ struct Qop<Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSi
     }
 };
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qmul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::mul(f1, f2);
 }
 
-template<int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qmul(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::mul(res, f1, f2);
 }
 
-template<size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
 inline constexpr auto Qmul(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::mul(f1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
 inline constexpr void Qmul(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::mul(res, f1, f2);
 }
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dim2, typename QuType2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
 inline constexpr auto Qmul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
     temp[0] = f1;
-    return   Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::mul(temp, f2);
+    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::mul(temp, f2);
 }
 
-template<size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qmul(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
     temp[0] = f2;
-    return   Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::mul(f1, temp);
+    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::mul(f1, temp);
 }
 
-template<size_t...dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
 inline constexpr void Qmul(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
     temp1[0] = f1;
     Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::mul(res, temp1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qmul(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>> > temp2;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
     temp2[0] = f2;
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::mul(res, f1, temp2);
 }
 
-
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qadd(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::add(f1, f2);
 }
 
-template<int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qadd(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::add(res, f1, f2);
 }
 
-template<size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
 inline constexpr auto Qadd(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::add(f1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2, typename... toArgs>
 inline constexpr void Qadd(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::add(res, f1, f2);
 }
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dim2, typename QuType2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
 inline constexpr auto Qadd(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
     temp[0] = f1;
-    return   Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::add(temp, f2);
+    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::add(temp, f2);
 }
 
-template<size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qadd(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
     temp[0] = f2;
-    return   Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::add(f1, temp);
+    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::add(f1, temp);
 }
 
-template<size_t...dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
 inline constexpr void Qadd(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
     temp1[0] = f1;
     Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::add(res, temp1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qadd(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>> > temp2;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
     temp2[0] = f2;
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::add(res, f1, temp2);
 }
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qsub(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::sub(f1, f2);
 }
 
-template<int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qsub(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::sub(res, f1, f2);
 }
 
-template<size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
 inline constexpr auto Qsub(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::sub(f1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2, typename... toArgs>
 inline constexpr void Qsub(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::sub(res, f1, f2);
 }
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dim2, typename QuType2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
 inline constexpr auto Qsub(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
     temp[0] = f1;
-    return   Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::sub(temp, f2);
+    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::sub(temp, f2);
 }
 
-template<size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qsub(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
     temp[0] = f2;
-    return   Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::sub(f1, temp);
+    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::sub(f1, temp);
 }
 
-template<size_t...dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
 inline constexpr void Qsub(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
     temp1[0] = f1;
     Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::sub(res, temp1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qsub(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>> > temp2;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
     temp2[0] = f2;
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::sub(res, f1, temp2);
 }
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qdiv(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::div(f1, f2);
 }
 
-template<int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
+template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qdiv(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
     Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::div(res, f1, f2);
 }
 
-template<size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
 inline constexpr auto Qdiv(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::div(f1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, size_t...dims2, typename QuType2, typename...toArgs>
+template <size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2, typename... toArgs>
 inline constexpr void Qdiv(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::div(res, f1, f2);
 }
 
-template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dim2, typename QuType2, typename... toArgs>
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
 inline constexpr auto Qdiv(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
     temp[0] = f1;
-    return   Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::div(temp, f2);
+    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::div(temp, f2);
 }
 
-template<size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr auto Qdiv(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
     temp[0] = f2;
-    return   Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::div(f1, temp);
+    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::div(f1, temp);
 }
 
-template<size_t...dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t...dims2, typename QuType2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
 inline constexpr void Qdiv(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
+    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
     temp1[0] = f1;
     Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::div(res, temp1, f2);
 }
 
-template<size_t...dims3, typename QuType3, size_t...dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename...toArgs>
+template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
 inline constexpr void Qdiv(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
 {
-    Qu<dim<1>,Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>> > temp2;
+    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
     temp2[0] = f2;
     Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::div(res, f1, temp2);
 }

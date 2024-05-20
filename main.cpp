@@ -44,18 +44,15 @@ int main()
     using type1 = Qu<intBits<8>, fracBits<10>>;
     using type2 = Qu<intBits<5>, fracBits<10>>;
 
-    using mat_t_1 = Qu<dim<3,3>, type1>;
+    using vec_t = Qu<dim<5>, type1>;
 
-    mat_t_1 A;
-    mat_t_1 B;
-    mat_t_1 C;
+    vec_t a = {0.1, 0.2, 0.3, 0.4, 0.5};
+    vec_t b = {0.1, 0.2, 0.3, 0.4, 0.5};
+    vec_t c;
 
-    type1 a = 0.5;
-    type1 b = 0.5;
+    Qmul<type2>(c, a, b);
 
-    auto res = Qmul(a, b);
-
-    auto res2 = Qmul(a, B);
+    c.display();
 
 
 
