@@ -790,6 +790,24 @@ public:
     template <typename... Types>
     constexpr Qu_s(Types... values) : data{values...} {}
 
+    template<typename QuType>
+    constexpr Qu_s(const Qu_s<dim<dims...>, QuType> &val)
+    {
+        if constexpr (!isElementQu)
+        {
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                data[i] = val.data[i];
+            }
+        }
+        else 
+        {
+            throw std::runtime_error("Element-wise quantization not supported yet");
+        }
+ 
+    }
+
+
     constexpr Qu_s() {}
 
     template <size_t... index>
