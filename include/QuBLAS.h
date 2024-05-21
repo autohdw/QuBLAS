@@ -1943,7 +1943,7 @@ struct Reducer
     static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
     {
         using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
-        quants.display("layer " + std::to_string(layer));
+        // quants.display("layer " + std::to_string(layer));
 
         static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
         if constexpr (len == 1)
