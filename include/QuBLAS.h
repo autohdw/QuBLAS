@@ -790,7 +790,7 @@ public:
     template <typename... Types>
     constexpr Qu_s(Types... values) : data{values...} {}
 
-    template<typename QuType>
+    template <typename QuType>
     constexpr Qu_s(const Qu_s<dim<dims...>, QuType> &val)
     {
         if constexpr (!isElementQu)
@@ -800,13 +800,11 @@ public:
                 data[i] = val.data[i];
             }
         }
-        else 
+        else
         {
             throw std::runtime_error("Element-wise quantization not supported yet");
         }
- 
     }
-
 
     constexpr Qu_s() {}
 
@@ -1456,7 +1454,7 @@ struct Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>,
     inline static constexpr auto abs(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1)
     {
         int absVal = std::abs(f1.data);
-        return Qu_s<intBits<fromInt1+1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>(absVal, DirectAssignTag());
+        return Qu_s<intBits<fromInt1 + 1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>(absVal, DirectAssignTag());
     }
 
     inline static constexpr auto neg(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1)
@@ -1842,32 +1840,33 @@ inline constexpr bool operator!=(const Qu_s<fromArgs1...> &f1, const Qu_s<fromAr
 // note that the operations are not standard BLAS operations, use ANUS:: to get access to them
 
 namespace ANUS {
+
 // polynomial fitting
-template <auto... Coeffs>
-struct Polyner;
+template <auto... an>
+struct Poly;
 
-//    co0 * (x + co1) * (x + co2) * ... * (x + coN)
-//  currently does not support element-wise quantization like Qpoly<list>(x)
-template <size_t len, typename... args, Qu_s<dim<len>, args...> Coeffs>
-struct Polyner<Coeffs>
+template <typename anT, anT an>
+struct Poly<an>
 {
-    template <size_t... I, typename... xArgs>
-    static inline auto execute_impl(const Qu_s<xArgs...> x, std::index_sequence<I...>)
+    static inline constexpr auto execute(const auto prev, const auto x)
     {
-        return Coeffs.template get<0>() * (... * (x + Coeffs.template get<I + 1>()));
-    }
-
-    template <typename... xArgs>
-    static inline auto execute(const Qu_s<xArgs...> x)
-    {
-        return execute_impl(x, std::make_index_sequence<len - 1>());
+        return Qadd<anT>(Qmul<anT>(prev, x), an);
     }
 };
 
-template <Qu_s Coeffs, typename... args>
-inline auto constexpr Qpoly(const Qu_s<args...> x)
+template<typename a1T, a1T a1, typename...anT, anT...an>
+struct Poly<a1, an...>
 {
-    return Polyner<Coeffs>::execute(x);
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return Poly<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x); 
+    }
+};
+
+template <auto a0, auto... an>
+inline static constexpr auto poly(const auto x)
+{
+    return Poly<an...>::execute(a0, x);
 }
 
 // lookup tables
