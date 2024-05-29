@@ -1843,10 +1843,10 @@ namespace ANUS {
 
 // polynomial fitting
 template <auto... an>
-struct Poly;
+struct PolyImpl;
 
 template <typename anT, anT an>
-struct Poly<an>
+struct PolyImpl<an>
 {
     static inline constexpr auto execute(const auto prev, const auto x)
     {
@@ -1854,20 +1854,65 @@ struct Poly<an>
     }
 };
 
-template<typename a1T, a1T a1, typename...anT, anT...an>
-struct Poly<a1, an...>
+template <typename a1T, a1T a1, typename... anT, anT... an>
+struct PolyImpl<a1, an...>
 {
     static inline constexpr auto execute(const auto prev, const auto x)
     {
-        return Poly<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x); 
+        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
     }
 };
 
 template <auto a0, auto... an>
-inline static constexpr auto poly(const auto x)
+requires (sizeof...(an) > 0)
+struct Poly
 {
-    return Poly<an...>::execute(a0, x);
-}
+    static inline constexpr auto execute(const auto x)
+    {
+        return PolyImpl<an...>::execute(a0, x);
+    }
+};
+
+
+// Approx
+
+template <auto... points>
+    requires(std::is_arithmetic_v<decltype(points)> && ...)
+struct segments;
+
+template <typename... polynomials>
+struct polys;
+
+template <typename... Args>
+struct Approx;
+
+template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
+struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
+{
+    template<typename T>
+    static inline constexpr T execute(const T x)
+    {
+        if (x.toDouble() < firstPoint)
+        {
+            return T(firstPoly::execute(x));
+        }
+        else
+        {
+            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
+        }
+    }
+};
+
+
+template<typename polynominal>
+struct Approx<segments<>, polys<polynominal>>
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return polynominal::execute(x);
+    }
+};
+
 
 // lookup tables
 

@@ -37,11 +37,38 @@ int main() {
 
   typeX x = 0.5;
 
-  auto res = ANUS::poly<a,b,c,d,e,f,g,h,i,j>(x);
+  // get the function
 
-
+  auto res = ANUS::Poly<a,b,c,d,e,f,g,h,i,j>::execute(x);
 
   res.display();
+
+  using seg = ANUS::segments<0.1,0.5,0.7>;
+
+  using poly1= ANUS::Poly<a,b,c>;
+  using poly2= ANUS::Poly<d,e,f>;
+  using poly3= ANUS::Poly<g,h,i>;
+  using poly4= ANUS::Poly<a,j>;
+
+  using polys = ANUS::polys<poly1,poly2,poly3,poly4>;
+
+  using approx = ANUS::Approx<seg,polys>;
+
+
+  auto res2 = approx::execute(x);
+
+  res2.display();
+  
+
+
+ 
+
+
+
+ 
+
+ 
+ 
 
 
 
