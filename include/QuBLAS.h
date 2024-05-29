@@ -3,17 +3,14 @@
 #include <array>
 #include <bitset>
 #include <cmath>
-#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <iostream>
-#include <memory>
 #include <numeric>
 #include <random>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 // ------------------- Random -------------------
 
@@ -1864,7 +1861,7 @@ struct PolyImpl<a1, an...>
 };
 
 template <auto a0, auto... an>
-requires (sizeof...(an) > 0)
+    requires(sizeof...(an) > 0)
 struct Poly
 {
     static inline constexpr auto execute(const auto x)
@@ -1872,7 +1869,6 @@ struct Poly
         return PolyImpl<an...>::execute(a0, x);
     }
 };
-
 
 // Approx
 
@@ -1889,7 +1885,7 @@ struct Approx;
 template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
 struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
 {
-    template<typename T>
+    template <typename T>
     static inline constexpr T execute(const T x)
     {
         if (x.toDouble() < firstPoint)
@@ -1903,8 +1899,7 @@ struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
     }
 };
 
-
-template<typename polynominal>
+template <typename polynominal>
 struct Approx<segments<>, polys<polynominal>>
 {
     static inline constexpr auto execute(const auto x)
@@ -1912,7 +1907,6 @@ struct Approx<segments<>, polys<polynominal>>
         return polynominal::execute(x);
     }
 };
-
 
 // lookup tables
 
