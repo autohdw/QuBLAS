@@ -58,6 +58,17 @@ int main() {
   auto res2 = approx::execute(x);
 
   res2.display();
+
+  auto min = type1::minVal;
+  auto max = type1::maxVal;
+
+  std::cout << "min: " << min << std::endl;
+  std::cout << "max: " << max << std::endl;
+
+  // print the binary representation of the min and max values
+  std::cout << "min: " << std::bitset<32>(min) << std::endl;
+  std::cout << "max: " << std::bitset<32>(max) << std::endl;
+
   
 
 

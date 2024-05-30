@@ -588,6 +588,9 @@ public:
     using QuM = QuModeInput;
     using OfM = OfModeInput;
 
+    inline static constexpr int minVal = isS ? -((1 << (intBitsInput + fracBitsInput))) : 0;
+    inline static constexpr int maxVal = (1 << (intBitsInput + fracBitsInput)) - 1;
+
     int data;
 
     template <typename T>
@@ -1888,7 +1891,7 @@ struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
     template <typename T>
     static inline constexpr T execute(const T x)
     {
-        if (x.toDouble() < firstPoint)
+        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
         {
             return T(firstPoly::execute(x));
         }
