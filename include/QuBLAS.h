@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <bitset>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <functional>
 #include <iostream>
@@ -16,7 +18,8 @@
 
 static std::random_device rd;
 static std::mt19937 gen(rd());
-static std::uniform_int_distribution<int> dis(std::numeric_limits<int>::min(), std::numeric_limits<int>::max()); // 整数的全范围分布
+static std::uniform_int_distribution<int> UniRand(std::numeric_limits<int>::min(), std::numeric_limits<int>::max()); // 整数的全范围分布
+static std::normal_distribution<double> NormRand(0, 1);                                                              // 正态分布
 
 // ------------------- TypeList -------------------
 
@@ -95,6 +98,13 @@ struct isA_s<T1<Args1...>, T2<Args2...>>
 
 template <typename... Args>
 inline constexpr bool isA = isA_s<Args...>::value;
+
+// 能否方括号索引
+// ------------------- isSquareBracketIndexable -------------------
+template <typename T>
+concept isSquareBracketIndexable = requires(T a) {
+    a[0];
+};
 
 // ------------------- tagExtractor -------------------
 
@@ -645,10 +655,26 @@ public:
 
     inline auto fill()
     {
+        return fill(UniRand);
+    }
+
+    inline auto fill(std::uniform_int_distribution<int> dis)
+    {
         int fillVal = dis(gen);
 
         static constexpr auto mask = ~((1u << 31u) - 1u - ((1u << (intBitsInput + fracBitsInput)) - 1u));
         this->data = fillVal > 0 ? fillVal & mask : fillVal | ~mask;
+        return *this;
+    }
+
+    inline auto fill(std::normal_distribution<double> dis)
+    {
+        double fillVal = dis(gen);
+        long long int longVal = shifter<fracB>::template input<double>(fillVal);
+
+        longVal = fracConvert<fracBitsInput, fracB, QuMode<QuM>>::convert(longVal);
+        data = intConvert<intBitsInput, fracBitsInput, isSignedInput, OfMode<OfM>>::convert(longVal);
+        return *this;
     }
 
     // fill with a specific binary value
@@ -665,22 +691,28 @@ public:
         {
             this->data = fillVal & mask;
         }
+        return *this;
     }
 
     void display(std::string name = "") const
     {
         if (name != "")
         {
-            std::cout << name << " :";
+            std::cout << name << " :" << std::endl;
         }
-        std::cout << std::endl;
-        std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << " ";
-        std::cout << std::endl;
+        std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << " " << std::endl;
         std::cout << "Binary: " << std::bitset<intB + fracB + (isS ? 1 : 0)>(data) << std::endl;
         std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
 
         std::cout << "Decimal: " << shifter<fracB>::toDouble(data) << std::endl;
         std::cout << std::endl;
+    }
+
+    // overload for std::cout
+    friend std::ostream &operator<<(std::ostream &os, const Qu_s &val)
+    {
+        os << val.toDouble();
+        return os;
     }
 };
 
@@ -703,6 +735,94 @@ struct QuInputHelper<Qu_s<Args...>> : QuInputHelper<Args...>
 
 template <typename... Args>
 using Qu = typename QuInputHelper<Args...>::type;
+
+// ------------------- Complex -------------------
+
+template <int realIntBitsInput, int realFracBitsInput, bool realIsSignedInput, typename realQuModeInput, typename realOfModeInput, int imagIntBitsInput, int imagFracBitsInput, bool imagIsSignedInput, typename imagQuModeInput, typename imagOfModeInput>
+class Qu_s<Qu_s<intBits<realIntBitsInput>, fracBits<realFracBitsInput>, isSigned<realIsSignedInput>, QuMode<realQuModeInput>, OfMode<realOfModeInput>>, Qu_s<intBits<imagIntBitsInput>, fracBits<imagFracBitsInput>, isSigned<imagIsSignedInput>, QuMode<imagQuModeInput>, OfMode<imagOfModeInput>>>
+{
+public:
+    using realType = Qu_s<intBits<realIntBitsInput>, fracBits<realFracBitsInput>, isSigned<realIsSignedInput>, QuMode<realQuModeInput>, OfMode<realOfModeInput>>;
+    using imagType = Qu_s<intBits<imagIntBitsInput>, fracBits<imagFracBitsInput>, isSigned<imagIsSignedInput>, QuMode<imagQuModeInput>, OfMode<imagOfModeInput>>;
+    realType real;
+    imagType imag;
+
+    // basic constructor
+    Qu_s() {}
+
+    // use = {a, b} to initialize
+    template <typename T1, typename T2>
+    Qu_s(T1 a, T2 b) : real(a), imag(b) {}
+
+    // use = a to initialize
+    template <typename T>
+    Qu_s(T a) : real(a), imag(0)
+    {}
+
+    // use = Qu_s<realType, imagType> to initialize
+    template <typename... realArgs, typename... imagArgs>
+    Qu_s(const Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>> val) : real(val.real), imag(val.imag) {}
+
+    template <typename T>
+    Qu_s(const std::complex<T> &val) : real(val.real()), imag(val.imag()) {}
+
+    void display(std::string name = "") const
+    {
+        if (name != "")
+        {
+            std::cout << name << " :";
+        }
+        std::cout << std::endl;
+        std::cout << "Real part: " << std::endl;
+        real.display();
+        std::cout << "Imaginary part: " << std::endl;
+        imag.display();
+    }
+
+    inline constexpr std::complex<double> toDouble() const
+    {
+        return std::complex<double>(real.toDouble(), imag.toDouble());
+    }
+
+    inline constexpr auto toString()
+    {
+        return "(" + real.toString() + ", " + imag.toString() + ")";
+    }
+
+    inline auto fill(auto... dis)
+        requires(sizeof...(dis) <= 1)
+    {
+        real.fill(dis...);
+        imag.fill(dis...);
+        return *this;
+    }
+
+    inline auto fill(auto realInput, auto imagInput)
+    {
+        real.fill(realInput);
+        imag.fill(imagInput);
+        return *this;
+    }
+
+    // overload for std::cout
+    friend std::ostream &operator<<(std::ostream &os, const Qu_s &val)
+    {
+        os << val.toDouble();
+        return os;
+    }
+};
+
+template <typename... realArgs, typename... imagArgs>
+struct QuInputHelper<Qu_s<realArgs...>, Qu_s<imagArgs...>>
+{
+    using realType = Qu_s<realArgs...>;
+    using imagType = Qu_s<imagArgs...>;
+
+    using type = Qu_s<realType, imagType>;
+};
+
+template <typename realType, typename imagType>
+using Qcomplex = typename QuInputHelper<realType, imagType>::type;
 
 // ------------------- Vector and Matrix -------------------
 
@@ -787,26 +907,93 @@ public:
         }
     }
 
-    template <typename... Types>
-    constexpr Qu_s(Types... values) : data{values...} {}
+    // 构造函数
+    constexpr Qu_s() {}
+    constexpr Qu_s(auto... values) : data{values...} {}
 
-    template <typename QuType>
-    constexpr Qu_s(const Qu_s<dim<dims...>, QuType> &val)
+    template <typename SquareBracketIndexableType>
+        requires isSquareBracketIndexable<SquareBracketIndexableType>
+    constexpr Qu_s(const SquareBracketIndexableType &val)
     {
         if constexpr (!isElementQu)
         {
             for (size_t i = 0; i < dim<dims...>::elemSize; i++)
             {
-                data[i] = val.data[i];
+                data[i] = val[i];
             }
         }
         else
         {
-            throw std::runtime_error("Element-wise quantization not supported yet");
+            [this, &val]<size_t... index>(std::index_sequence<index...>) {
+                ((std::get<index>(data) = val[index]), ...);
+            }(std::make_index_sequence<dim<dims...>::elemSize>());
         }
     }
 
-    constexpr Qu_s() {}
+    // 拷贝构造函数
+    constexpr Qu_s(const Qu_s<dim<dims...>, Arg> &val) : data(val.data) {}
+
+    // 移动构造函数，来自同样模版参数的另一个Qu_s
+    constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val) noexcept : data(std::move(val.data)) {}
+
+    // 拷贝赋值运算符
+    template <typename SquareBracketIndexableType>
+        requires isSquareBracketIndexable<SquareBracketIndexableType>
+    constexpr Qu_s &operator=(const SquareBracketIndexableType &val)
+    {
+        if constexpr (!isElementQu)
+        {
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                data[i] = val[i];
+            }
+        }
+        else
+        {
+            [this, &val]<size_t... index>(std::index_sequence<index...>) {
+                ((std::get<index>(data) = val[index]), ...);
+            }(std::make_index_sequence<dim<dims...>::elemSize>());
+        }
+        return *this;
+    }
+
+    // 移动赋值运算符
+    constexpr Qu_s &operator=(Qu_s<dim<dims...>, Arg> &&val)
+    {
+        data = std::move(val.data);
+        return *this;
+    }
+
+    inline auto fill(auto... dis)
+    {
+        if constexpr (!isElementQu)
+        {
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                data[i].fill(dis...);
+            }
+        }
+        else
+        {
+            [this, &dis...]<size_t... index>(std::index_sequence<index...>) {
+                ((std::get<index>(data).fill(dis...)), ...);
+            }(std::make_index_sequence<dim<dims...>::elemSize>());
+        }
+        return *this;
+    }
+
+    inline auto shuffle()
+    {
+        if constexpr (!isElementQu)
+        {
+            std::shuffle(data.begin(), data.end(), gen);
+        }
+        else
+        {
+            throw std::runtime_error("Not implemented");
+        }
+        return *this;
+    }
 
     template <size_t... index>
     inline constexpr auto &get()
@@ -932,6 +1119,30 @@ struct QuInputHelper<dim<dims...>, TypeList<Args...>>
     using type = Qu_s<dim<dims...>, TypeList<Args...>>;
 };
 
+template <typename T>
+struct isScalar_s;
+
+template <int intBitsInput, int fracBitsInput, bool isSignedInput, typename QuModeInput, typename OfModeInput>
+struct isScalar_s<Qu_s<intBits<intBitsInput>, fracBits<fracBitsInput>, isSigned<isSignedInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>>
+{
+    static inline constexpr bool value = true;
+};
+
+template <typename... realArgs, typename... imagArgs>
+struct isScalar_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>>
+{
+    static inline constexpr bool value = true;
+};
+
+template <size_t... dims, typename Arg>
+struct isScalar_s<Qu_s<dim<dims...>, Arg>>
+{
+    static inline constexpr bool value = false;
+};
+
+template <typename T>
+inline constexpr bool isScalar = isScalar_s<T>::value;
+
 // special case for gram matrix
 // 面包会有的，牛奶也会有的
 template <typename... Args>
@@ -1031,322 +1242,253 @@ struct QuInputHelper<dim<row, col>, Gram<diagType, offDiagType>>
     using type = Qu_s<dim<row, col>, Gram<diagType, offDiagType>>;
 };
 
+// ------------------- Basic tensor operations -------------------
+
+// BitStream converter
+struct l2r{};
+
+template<size_t... in>
+requires(sizeof...(in) <=1)
+struct r2l;
+
+template<size_t in>
+struct r2l<in>
+{
+    static inline constexpr size_t index = in;
+};
+
+template<>
+struct r2l<>:r2l<1>
+{};
+
+// handle string to string
+template<typename...Args>
+struct SingleString_s;
+
+template<>
+struct SingleString_s<l2r>
+{
+    inline static constexpr auto convert(std::string_view str)
+    {
+        return std::string(str);
+    }
+
+    // from function, currently indentical to convert
+    inline static constexpr auto from(std::string_view str)
+    {
+        return convert(str);
+    }
+
+    // to function, currently indentical to convert
+    inline static constexpr auto to(std::string_view str)
+    {
+        return convert(str);
+    }
+};
+
+template<size_t... in>
+struct SingleString_s<r2l<in...>>
+{
+    inline static constexpr auto index = r2l<in...>::index;
+
+    inline static constexpr auto convert(std::string_view str)
+    {
+        if (str.size() % index != 0) {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(index));
+        }
+
+        std::string res;
+        res.reserve(str.size());
+
+        // Reverse chunks of size Index directly
+        for (size_t i = str.size(); i >= index; i -= index) {
+            res.append(str.data() + i - index, index);
+        }
+
+        return res;
+    }
+
+    // from function, currently indentical to convert
+    inline static constexpr auto from(std::string_view str)
+    {
+        return convert(str);
+    }
+
+    // to function, currently indentical to convert
+    inline static constexpr auto to(std::string_view str)
+    {
+        return convert(str);
+    }
+};
+
+template<typename...Args>
+struct TensorString_s;
+
+template<typename elemProcessT>
+struct TensorString_s<l2r, elemProcessT>
+{
+    // convert to std::array<std::string, size> with element string stored in l2r
+    // the input string is expected to be a single string containing all elements, each element has length of elemLength
+    template<typename QuTensorT>
+    inline static constexpr auto fromString(std::string_view str)
+    {   using QuT = typename QuTensorT::innerType;
+        static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
+        static constexpr auto size = QuTensorT::size;
+        if (str.size() % elemLen != 0) {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+        }
+
+        std::array<std::string,size> res;
+        for (size_t i = 0; i < res.size(); i++) {
+            res[i] = SingleString_s<elemProcessT>::convert(str.substr(i * elemLen, elemLen));
+        }
+
+        return res;
+    }
+
+    template<size_t arrSize>
+    inline static constexpr auto toString(std::array<std::string,arrSize> arr)
+    {
+        std::string res;
+        res.reserve(arr.size() * arr[0].size());
+
+        for (size_t i = 0; i < arr.size(); i++) {
+            res.append(SingleString_s<elemProcessT>::to(arr[i]));
+        }
+
+        return res;
+    }
+
+    // from QuBLAS type to std::array<std::string, size>
+    template<size_t...dims, typename QuT>
+    inline static constexpr auto fromQu(const Qu_s<dim<dims...>,QuT>& tensor)
+    {
+        std::array<std::string, Qu_s<dim<dims...>,QuT>::size> res;
+
+        for (size_t i = 0; i < Qu_s<dim<dims...>,QuT>::size; i++) {
+            res[i] = SingleString_s<elemProcessT>::to(tensor[i].toString());
+        }
+        return res;
+    }
+
+    // from std::array<std::string, size> to QuBLAS type
+    template<typename QuTensorT>
+    inline static constexpr auto toQu(const std::array<std::string, QuTensorT::size>& arr)
+    {
+        QuTensorT res;
+
+        for (size_t i = 0; i < QuTensorT::size; i++) {
+            auto str = SingleString_s<elemProcessT>::from(arr[i]);
+            // convert  binary stored in str to integer
+            int decimal = std::stoi(str, 0, 2);
+            res[i].fill(decimal);
+        }
+        return res;
+    }
+};
+
+template<typename elemProcessT,size_t index>
+struct TensorString_s<r2l<index>, elemProcessT>
+{
+    template<typename QuTensorT>
+    inline static constexpr auto fromString(std::string_view str)
+    {   using QuT = typename QuTensorT::innerType;
+        static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
+        static constexpr auto size = QuTensorT::size;
+        if (str.size() % elemLen != 0) {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+        }
+
+        std::array<std::string,size> res;
+
+        // Reverse chunks of size Index directly
+        size_t in = 0;
+        for (size_t i = size; i > 0; i = i - index){
+            for (size_t j = 0; j < index; j++) {
+                res[in] = SingleString_s<elemProcessT>::convert(str.substr((i + j - index) * elemLen, elemLen));
+                in++;
+            }
+        }
+
+        return res;
+    }
+
+    template<size_t arrSize>
+    inline static constexpr auto toString(std::array<std::string,arrSize> arr)
+    {
+        std::string res;
+        res.reserve(arr.size() * arr[0].size());
+
+        // reverse the order of elements, with every Index elements as a chunk
+        for (size_t i = arr.size(); i > 0; i = i - index) {
+            for (size_t j = 0; j < index; j++) {
+                res.append(SingleString_s<elemProcessT>::to(arr[i + j - index]));
+            }
+        }
+        return res;
+    }
+};
+
+// scalar
+template<typename...Args>
+struct BitStream_s;
+
+template<typename... QuArgs, typename processT>
+struct BitStream_s<Qu_s<QuArgs...>,processT>
+{
+    inline static auto convert(std::string_view str)
+    {
+        auto toStr = processT::from(str);
+        int decimal = std::stoi(toStr.data(), 0, 2);
+        Qu_s<QuArgs...> res;
+        res.fill(decimal);
+        return res;
+    }
+};
+
+template< typename processT>
+struct BitStream_s<processT>
+{
+    inline static auto convert(auto Qu)
+    {
+        return SingleString_s<processT>::to(Qu.toString());
+    }
+};
+
+// tensor
+template<typename QuT,size_t...dims,typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<Qu_s<dim<dims...>,QuT>,tensorProcessT,elemProcessT>
+{
+    inline static auto convert(std::string_view str)
+    {
+        // use TensorString_s
+        auto arr = TensorString_s<tensorProcessT,elemProcessT>::template fromString<Qu_s<dim<dims...>,QuT>>(str);
+        return TensorString_s<l2r,l2r>::template toQu<Qu_s<dim<dims...>,QuT>>(arr);
+    }
+};
+
+template<typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<tensorProcessT,elemProcessT>
+{
+    template<typename...QuArgs>
+    inline static auto convert(Qu_s<QuArgs...> Qu)
+    {
+        auto arr = TensorString_s<l2r,l2r>::template fromQu(Qu);
+        return TensorString_s<tensorProcessT,elemProcessT>::template toString(arr);
+    }
+};
+
+template<typename...Args>
+inline auto BitStream(auto input)
+{
+    return BitStream_s<Args...>::convert(input);
+}
+
+
 // ------------------- element wise operations -------------------
 
 // contain all the trash that is not supposed to be used
 namespace elementWise {
-// completed empty struct just to convey the dims
-template <size_t... dims>
-struct indice;
-
-template <typename A, typename B, typename accumulated = indice<>>
-struct BroadcastHelper;
-
-template <size_t... Dims1, size_t... accumulatedDims>
-struct BroadcastHelper<dim<Dims1...>, dim<>, indice<accumulatedDims...>> : BroadcastHelper<dim<Dims1...>, dim<1>, indice<accumulatedDims...>>
-{
-};
-
-template <size_t... Dims2, size_t... accumulatedDims>
-struct BroadcastHelper<dim<>, dim<Dims2...>, indice<accumulatedDims...>> : BroadcastHelper<dim<1>, dim<Dims2...>, indice<accumulatedDims...>>
-{
-};
-
-template <size_t... accumulatedDims>
-struct BroadcastHelper<dim<>, dim<>, indice<accumulatedDims...>>
-{
-    inline constexpr static bool canBroadcast = true;
-    using resultDim = dim<accumulatedDims...>;
-};
-
-template <size_t sameDim, size_t... Dims1, size_t... Dims2, size_t... accumulatedDims>
-struct BroadcastHelper<dim<sameDim, Dims1...>, dim<sameDim, Dims2...>, indice<accumulatedDims...>>
-{
-    using next = BroadcastHelper<dim<Dims1...>, dim<Dims2...>, indice<accumulatedDims..., sameDim>>;
-    inline constexpr static bool canBroadcast = next::canBroadcast;
-    using resultDim = typename next::resultDim;
-};
-
-template <size_t firstDim1, size_t firstDim2, size_t... Dims1, size_t... Dims2, size_t... accumulatedDims>
-    requires(firstDim1 != firstDim2)
-struct BroadcastHelper<dim<firstDim1, Dims1...>, dim<firstDim2, Dims2...>, indice<accumulatedDims...>>
-{
-    inline constexpr static bool oneExists = (firstDim1 == 1 || firstDim2 == 1);
-
-    using next = BroadcastHelper<dim<Dims1...>, dim<Dims2...>, indice<accumulatedDims..., oneExists ? std::max(firstDim1, firstDim2) : firstDim1>>;
-
-    inline constexpr static bool canBroadcast = oneExists ? next::canBroadcast : false;
-    using resultDim = std::conditional_t<oneExists, typename next::resultDim, std::nullptr_t>;
-};
-
-template <typename T>
-struct dimGet_s;
-
-template <size_t... dims>
-struct dimGet_s<indice<dims...>>
-{
-    template <size_t... dims2, typename... Args>
-    static inline constexpr auto &get(Qu_s<dim<dims2...>, Args...> &f)
-    {
-        return f.template get<dims...>();
-    }
-
-    template <size_t... dims2, typename... Args>
-    static inline constexpr const auto &get(const Qu_s<dim<dims2...>, Args...> &f)
-    {
-        return f.template get<dims...>();
-    }
-};
-
-template <typename T, typename dim, size_t... dims, typename... Args>
-inline constexpr auto &dimGet(Qu_s<dim, Args...> &f)
-{
-    return dimGet_s<T>::get(f);
-}
-
-template <typename T, typename dim, size_t... dims, typename... Args>
-inline constexpr const auto &dimGet(const Qu_s<dim, Args...> &f)
-{
-    return dimGet_s<T>::get(f);
-}
-
-template <typename... indices>
-struct numList;
-
-template <typename... Type>
-struct parallel;
-
-template <typename... nums1, typename... nums2, typename... nums3, typename... toArgs>
-struct parallel<numList<nums1...>, numList<nums2...>, numList<nums3...>, toArgs...>
-{
-    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
-    static void executeMulition(const Qu_s<dim<dims1...>, Args1...> &f1, const Qu_s<dim<dims2...>, Args2...> &f2, Qu_s<dim<dims3...>, Args3...> &f3)
-    {
-        ((dimGet<nums3>(f3) = Qmul<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
-    }
-
-    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
-    static void executeAddition(const Qu_s<dim<dims1...>, Args1...> &f1, const Qu_s<dim<dims2...>, Args2...> &f2, Qu_s<dim<dims3...>, Args3...> &f3)
-    {
-        ((dimGet<nums3>(f3) = Qadd<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
-    }
-
-    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
-    static void executeSubtraction(const Qu_s<dim<dims1...>, Args1...> &f1, const Qu_s<dim<dims2...>, Args2...> &f2, Qu_s<dim<dims3...>, Args3...> &f3)
-    {
-        ((dimGet<nums3>(f3) = Qsub<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
-    }
-
-    template <size_t... dims1, size_t... dims2, size_t... dims3, typename... Args1, typename... Args2, typename... Args3>
-    static void executeDivision(const Qu_s<dim<dims1...>, Args1...> &f1, const Qu_s<dim<dims2...>, Args2...> &f2, Qu_s<dim<dims3...>, Args3...> &f3)
-    {
-        ((dimGet<nums3>(f3) = Qdiv<toArgs...>(dimGet<nums1>(f1), dimGet<nums2>(f2))), ...);
-    }
-};
-
-// ----------------- numsExtenderParallel -----------------
-
-template <size_t N, typename T>
-struct numsExtender;
-
-template <size_t... num, size_t N>
-struct numsExtender<N, indice<num...>>
-{
-    using result = indice<num..., N>;
-};
-
-template <typename... Args>
-struct numsListExtender;
-
-template <typename... num, size_t... N>
-struct numsListExtender<numList<num...>, std::index_sequence<N...>>
-{
-    using result = numList<typename numsExtender<N, num>::result...>;
-};
-
-//-------------------- numListDuplicator --------------------
-
-// 基本模板，不做任何事，只定义类型
-template <typename List1, typename List2>
-struct Concatenate;
-
-// 特化版本，用于实际连接两个numList
-template <typename... Nums1, typename... Nums2>
-struct Concatenate<numList<Nums1...>, numList<Nums2...>>
-{
-    using type = numList<Nums1..., Nums2...>;
-};
-
-// 前向声明
-template <typename List, size_t N, typename... Accumulated>
-struct Duplicate;
-
-// 终止条件特化版本，当N为0时终止递归
-template <typename List, typename... Accumulated>
-struct Duplicate<List, 0, Accumulated...>
-{
-    using type = numList<>;
-};
-
-// N > 0 的情况，递归展开
-template <typename List, size_t N, typename... Accumulated>
-struct Duplicate
-{
-    using type = typename Concatenate<
-        typename Duplicate<List, 1>::type,
-        typename Duplicate<List, N - 1, Accumulated...>::type>::type;
-};
-
-// 特化N = 1的情况，直接返回List
-template <typename List, typename... Accumulated>
-struct Duplicate<List, 1, Accumulated...>
-{
-    using type = List;
-};
-
-template <typename List, size_t N>
-struct numListDuplicator
-{
-    using type = typename Duplicate<List, N>::type;
-};
-
-// ----------------- numsDuplicator -----------------
-
-// 重复每个元素loop次的辅助模板
-template <typename Seq, typename Loop>
-struct repeat_seq_impl;
-
-template <size_t... Loop, size_t... I>
-struct repeat_seq_impl<std::index_sequence<I...>, std::index_sequence<Loop...>>
-{
-
-    template <size_t N>
-    using repeat = std::index_sequence<((void)Loop, N)...>;
-
-    // 连接多个index_sequence
-    template <typename... Sequences>
-    struct concat;
-
-    template <size_t... I1, size_t... I2, typename... Rest>
-    struct concat<std::index_sequence<I1...>, std::index_sequence<I2...>, Rest...>
-    {
-        using type = typename concat<std::index_sequence<I1..., I2...>, Rest...>::type;
-    };
-
-    template <size_t... I2>
-    struct concat<std::index_sequence<I2...>>
-    {
-        using type = std::index_sequence<I2...>;
-    };
-
-    using type = typename concat<repeat<I>...>::type;
-};
-
-// 用户接口
-template <int N, size_t Loop>
-struct makeExtIdxSeq
-{
-    using type = typename repeat_seq_impl<std::make_index_sequence<N>, std::make_index_sequence<Loop>>::type;
-};
-
-// ----------------- begin -----------------
-
-template <typename T>
-struct indexSeqToNumList;
-
-template <size_t... index>
-struct indexSeqToNumList<std::index_sequence<index...>>
-{
-    using type = numList<indice<index>...>;
-};
-
-template <typename T>
-struct guillotine;
-
-template <template <auto...> typename list, auto first, auto... indice>
-struct guillotine<list<first, indice...>>
-{
-    using type = list<indice...>;
-};
-
-template <typename... Args>
-struct indexModifier;
-
-template <size_t... num, size_t... dims, size_t firstNum, size_t firstDim, size_t... accuNum>
-struct indexModifier<indice<firstNum, num...>, dim<firstDim, dims...>, indice<accuNum...>>
-{
-    static constexpr size_t newNum = firstDim == 1 ? 0 : firstNum;
-    using res = indexModifier<indice<num...>, dim<dims...>, indice<accuNum..., newNum>>::res;
-};
-
-// 终止
-template <size_t... accuNum, size_t firstNum, size_t... num>
-struct indexModifier<indice<firstNum, num...>, dim<>, indice<accuNum...>>
-{
-    using res = indice<accuNum...>;
-};
-
-template <size_t... accuNum>
-struct indexModifier<indice<>, dim<>, indice<accuNum...>>
-{
-    using res = indice<accuNum...>;
-};
-
-template <typename... Args>
-struct indexModifierParallel;
-
-template <typename... indices, size_t... dims>
-struct indexModifierParallel<numList<indices...>, dim<dims...>>
-{
-    using res = numList<typename indexModifier<indices, dim<dims...>, indice<>>::res...>;
-};
-
-template <typename... Args>
-struct elemwiseIndexCalculator;
-
-template <size_t... dims1, size_t... dims2>
-struct elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>
-{
-
-    using Cdim = typename BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
-
-    template <typename... Args>
-    struct begin;
-
-    template <size_t... dims>
-    struct begin<numList<>, dim<dims...>>
-    {
-        static constexpr size_t initDim = dim<dims...>::dimArray[0];
-
-        using initList = indexSeqToNumList<std::make_index_sequence<initDim>>::type;
-
-        using res = begin<initList, typename guillotine<dim<dims...>>::type>::res;
-    };
-
-    template <typename... accuNums, size_t... dims>
-    struct begin<numList<accuNums...>, dim<dims...>>
-
-    {
-        static constexpr size_t initDim = dim<dims...>::dimArray[0];
-        using duplicatedList = numListDuplicator<numList<accuNums...>, initDim>::type;
-        using numToAdd = makeExtIdxSeq<initDim, sizeof...(accuNums)>::type;
-
-        using newList = numsListExtender<duplicatedList, numToAdd>::result;
-
-        using res = begin<newList, typename guillotine<dim<dims...>>::type>::res;
-    };
-
-    template <typename... accuNums>
-    struct begin<numList<accuNums...>, dim<>>
-    {
-        using res = numList<accuNums...>;
-    };
-
-    using outputIndexList = begin<numList<>, Cdim>::res;
-    using input1IndexList = indexModifierParallel<outputIndexList, dim<dims1...>>::res;
-    using input2IndexList = indexModifierParallel<outputIndexList, dim<dims2...>>::res;
-};
-
 template <size_t index, bool horOrVer>
 struct vecExtractor
 {
@@ -1381,16 +1523,55 @@ inline void vecExtract(const Qu_s<dim<row, col>, Qu_s<fromArgs...>> &input, Qu_s
 
 // ------------------- Basic Operations -------------------
 
+struct FullPrec;
+
 template <typename... Args>
-struct Merger;
+struct MulMerger;
 
 template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-struct Merger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+struct MulMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
 {
+    static inline constexpr bool fullPrecision = (isA<FullPrec, toArgs> || ...);
+
     using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
     using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
 
-    static inline constexpr auto toInt = tagExtractor<intBits<std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static inline constexpr auto toInt = tagExtractor<intBits<fullPrecision ? fromInt1 + fromInt2 : std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static inline constexpr auto toFrac = tagExtractor<fracBits<fullPrecision ? fromFrac1 + fromFrac2 : std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
+    static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
+// ugly, maybe optimize later
+template <typename... Args>
+struct MulMergerWraper;
+
+template <typename QuT1, typename QuT2, template <typename...> typename wraper, typename... Args>
+struct MulMergerWraper<QuT1, QuT2, wraper<Args...>>
+{
+    using type = MulMerger<QuT1, QuT2, Args...>;
+};
+
+template <typename QuT1, typename QuT2, template <typename...> typename wraper, typename... Args>
+struct MulMergerWraper<QuT1, QuT2, wraper<Qu_s<Args...>>>
+{
+    using type = MulMerger<QuT1, QuT2, Args...>;
+};
+
+template <typename... Args>
+struct AddMerger;
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+{
+    static inline constexpr bool fullPrecision = (isA<FullPrec, toArgs> || ...);
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toInt = tagExtractor<intBits<fullPrecision ? std::max(fromInt1, fromInt2) + 1 : std::max(fromInt1, fromInt2)>, toArgs...>::value;
     static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
     static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
     using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
@@ -1400,43 +1581,119 @@ struct Merger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 };
 
 template <typename... Args>
-struct Qop;
+struct AddMergerWraper;
+
+template <typename QuT1, typename QuT2, template <typename...> typename wraper, typename... Args>
+struct AddMergerWraper<QuT1, QuT2, wraper<Args...>>
+{
+    using type = AddMerger<QuT1, QuT2, Args...>;
+};
+
+template <typename QuT1, typename QuT2, template <typename...> typename wraper, typename... Args>
+struct AddMergerWraper<QuT1, QuT2, wraper<Qu_s<Args...>>>
+{
+    using type = AddMerger<QuT1, QuT2, Args...>;
+};
+
+template <typename... Args>
+struct Qmul_s;
 
 template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
     requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
-struct Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
 {
-    using merger = Merger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>;
 
-    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+    using merger = MulMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>;
 
     inline static constexpr auto mul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
+        // print the requesting Quantization parameters for debugging
+        std::cout << "mul: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+
         auto fullProduct = static_cast<long long int>(f1.data) * static_cast<long long int>(f2.data);
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
 
         return Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>(intProduct, DirectAssignTag());
     }
+};
+
+template <typename... fromArgs1, typename... fromArgs2, typename... toArgs>
+struct Qmul_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, Qu_s<toArgs...>> : Qmul_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>
+{
+};
+
+template <typename... Args>
+struct Qadd_s;
+
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+    requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
+struct Qadd_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+{
+    using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>;
+
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
     inline static constexpr auto add(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
+        // print the requesting Quantization parameters for debugging
+        std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+
         auto fullSum = static_cast<long long int>(f1.data << shiftA) + static_cast<long long int>(f2.data << shiftB);
         auto fracSum = fracConvert<std::max(fromFrac1, fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
         auto intSum = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracSum);
 
         return Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>(intSum, DirectAssignTag());
     }
+};
+
+template <typename... fromArgs1, typename... fromArgs2, typename... toArgs>
+struct Qadd_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, Qu_s<toArgs...>> : Qadd_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>
+{
+};
+
+template <typename... Args>
+struct Qsub_s;
+
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+    requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
+struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+{
+    using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>;
+
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
     inline static constexpr auto sub(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
+        // print the requesting Quantization parameters for debugging
+        std::cout << "sub: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+
         auto fullDiff = static_cast<long long int>(f1.data << shiftA) - static_cast<long long int>(f2.data << shiftB);
         auto fracDiff = fracConvert<std::max(fromFrac1, fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullDiff);
         auto intDiff = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracDiff);
 
         return Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>(intDiff, DirectAssignTag());
     }
+};
+
+template <typename... fromArgs1, typename... fromArgs2, typename... toArgs>
+struct Qsub_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, Qu_s<toArgs...>> : Qsub_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>
+{
+};
+
+template <typename... Args>
+struct Qdiv_s;
+
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+    requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
+struct Qdiv_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>
+{
+    using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>;
+
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
     inline static constexpr auto div(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
@@ -1450,390 +1707,854 @@ struct Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>,
 
         return Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>(intQuotient, DirectAssignTag());
     }
+};
 
-    inline static constexpr auto abs(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1)
+template <typename... fromArgs1, typename... fromArgs2, typename... toArgs>
+struct Qdiv_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, Qu_s<toArgs...>> : Qdiv_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>
+{
+};
+
+template <typename... Args>
+struct Qabs_s;
+
+// currently toArgs is not used
+template <typename... toArgs, int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode>
+struct Qabs_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...>
+{
+    inline static constexpr auto abs(const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f1)
     {
         int absVal = std::abs(f1.data);
-        return Qu_s<intBits<fromInt1 + 1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>(absVal, DirectAssignTag());
+        return Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>(absVal, DirectAssignTag());
     }
+};
 
-    inline static constexpr auto neg(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1)
+template <typename... Args>
+struct Qneg_s;
+
+// currently toArgs is not used
+template <typename... toArgs, int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode>
+struct Qneg_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...>
+{
+    inline static constexpr auto neg(const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f1)
     {
-        int negVal = -f1.data;
-        return Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<true>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>(negVal, DirectAssignTag());
+        return Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<true>, QuMode<fromQuMode>, OfMode<fromOfMode>>(-f1.data, DirectAssignTag());
     }
+};
+
+template <typename... Args>
+struct Qcmp_s;
+
+template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct Qcmp_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>
+{
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
     inline static constexpr auto cmp(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
         return (f1.data << shiftA) <=> (f2.data << shiftB);
     }
+};
 
-    inline static constexpr auto eq(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+template <typename... Args>
+struct Qeq_s;
+
+template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct Qeq_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>
+{
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+
+    inline static constexpr bool eq(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
         return (f1.data << shiftA) == (f2.data << shiftB);
     }
 };
 
-template <typename... fromArgs1, typename... fromArgs2, typename... toArgs>
-struct Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, Qu_s<toArgs...>> : Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, toArgs...>
+template <typename... Args>
+struct Qneq_s;
+
+template <int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct Qneq_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>
 {
-};
-
-template <size_t... dims1, size_t... dims2, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2, typename... toArgs>
-    requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
-struct Qop<Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>
-{
-    using resDim = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::resultDim;
-    static constexpr bool canBroadcast = elementWise::BroadcastHelper<dim<dims1...>, dim<dims2...>>::canBroadcast;
-
-    static_assert(canBroadcast, "The dimensions of the two matrices are not compatible for element-wise addition");
-
-    using outIndex = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::outputIndexList;
-    using in1Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input1IndexList;
-    using in2Index = elementWise::elemwiseIndexCalculator<dim<dims1...>, dim<dims2...>>::input2IndexList;
-
-    using merger = Merger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>;
-
     static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
     static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
 
-    inline static constexpr auto mul(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
+    inline static constexpr bool neq(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
-        static Qu_s<resDim, Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>> res;
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeMulition(f1, f2, res);
-        return res;
-    }
-
-    template <size_t... dims3, int toIntBits, int toFracBits, bool toIsSigned, typename toQuMode, typename toOfMode>
-    inline static constexpr void mul(Qu_s<dim<dims3...>, Qu_s<intBits<toIntBits>, fracBits<toFracBits>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> &res, const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeMulition(f1, f2, res);
-    }
-
-    inline static constexpr auto add(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        static Qu_s<resDim, Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>> res;
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeAddition(f1, f2, res);
-        return res;
-    }
-
-    template <size_t... dims3, int toIntBits, int toFracBits, bool toIsSigned, typename toQuMode, typename toOfMode>
-    inline static constexpr void add(Qu_s<dim<dims3...>, Qu_s<intBits<toIntBits>, fracBits<toFracBits>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> &res, const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeAddition(f1, f2, res);
-    }
-
-    inline static constexpr auto sub(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        static Qu_s<resDim, Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>> res;
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeSubtraction(f1, f2, res);
-        return res;
-    }
-
-    template <size_t... dims3, int toIntBits, int toFracBits, bool toIsSigned, typename toQuMode, typename toOfMode>
-    inline static constexpr void sub(Qu_s<dim<dims3...>, Qu_s<intBits<toIntBits>, fracBits<toFracBits>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> &res, const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeSubtraction(f1, f2, res);
-    }
-
-    inline static constexpr auto div(const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        static Qu_s<resDim, Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>> res;
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeDivision(f1, f2, res);
-        return res;
-    }
-
-    template <size_t... dims3, int toIntBits, int toFracBits, bool toIsSigned, typename toQuMode, typename toOfMode>
-    inline static constexpr void div(Qu_s<dim<dims3...>, Qu_s<intBits<toIntBits>, fracBits<toFracBits>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>> &res, const Qu_s<dim<dims1...>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>> &f1, const Qu_s<dim<dims2...>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>> &f2)
-    {
-        elementWise::parallel<in1Index, in2Index, outIndex, toArgs...>::executeDivision(f1, f2, res);
+        return (f1.data << shiftA) != (f2.data << shiftB);
     }
 };
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qmul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qmul(const QuT1 f1, const QuT2 f2)
 {
-    return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::mul(f1, f2);
+    return Qmul_s<QuT1, QuT2, toArgs...>::mul(f1, f2);
 }
 
-template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qmul(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qadd(const QuT1 f1, const QuT2 f2)
 {
-    Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::mul(res, f1, f2);
+    return Qadd_s<QuT1, QuT2, toArgs...>::add(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
-inline constexpr auto Qmul(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qsub(const QuT1 f1, const QuT2 f2)
 {
-    return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::mul(f1, f2);
+    return Qsub_s<QuT1, QuT2, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
-inline constexpr void Qmul(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
 {
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::mul(res, f1, f2);
+    return Qdiv_s<QuT1, QuT2, toArgs...>::div(f1, f2);
 }
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
-inline constexpr auto Qmul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
+// ------------------- operator overloading -------------------
+template <typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto operator*(const QuT1 f1, const QuT2 f2)
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
-    temp[0] = f1;
-    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::mul(temp, f2);
+    return Qmul(f1, f2);
 }
 
-template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qmul(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto operator+(const QuT1 f1, const QuT2 f2)
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
-    temp[0] = f2;
-    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::mul(f1, temp);
+    return Qadd(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
-inline constexpr void Qmul(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto operator-(const QuT1 f1, const QuT2 f2)
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
-    temp1[0] = f1;
-    Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::mul(res, temp1, f2);
+    return Qsub(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qmul(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto operator/(const QuT1 f1, const QuT2 f2)
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
-    temp2[0] = f2;
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::mul(res, f1, temp2);
+    return Qdiv(f1, f2);
 }
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qadd(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+// ------------------- Complex Operations -------------------
+
+// Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i
+template <typename... Args>
+struct BasicComplexMul;
+
+template <typename... Args>
+struct acT;
+
+template <typename... Args>
+struct bdT;
+
+template <typename... Args>
+struct adT;
+
+template <typename... Args>
+struct bcT;
+
+template <typename... Args>
+struct acbdT;
+
+template <typename... Args>
+struct adbcT;
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<toArgs...>>
 {
-    return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::add(f1, f2);
+    using mulACType = tagExtractor<acT<>, toArgs...>::type;
+    using mulBDType = tagExtractor<bdT<>, toArgs...>::type;
+    using mulADType = tagExtractor<adT<>, toArgs...>::type;
+    using mulBCType = tagExtractor<bcT<>, toArgs...>::type;
+    using subACBDType = tagExtractor<acbdT<>, toArgs...>::type;
+    using addADBCType = tagExtractor<adbcT<>, toArgs...>::type;
+
+    using ACMerger = MulMergerWraper<Qu_s<realArgs1...>, Qu_s<realArgs2...>, mulACType>::type;
+    using BDMerger = MulMergerWraper<Qu_s<imagArgs1...>, Qu_s<imagArgs2...>, mulBDType>::type;
+    using ADMerger = MulMergerWraper<Qu_s<realArgs1...>, Qu_s<imagArgs2...>, mulADType>::type;
+    using BCMerger = MulMergerWraper<Qu_s<imagArgs1...>, Qu_s<realArgs2...>, mulBCType>::type;
+
+    using RealMerger = AddMergerWraper<typename ACMerger::resType, typename BDMerger::resType, subACBDType>::type;
+    using ImagMerger = AddMergerWraper<typename ADMerger::resType, typename BCMerger::resType, addADBCType>::type;
+
+    using ACType = typename ACMerger::resType;
+    using BDType = typename BDMerger::resType;
+    using ADType = typename ADMerger::resType;
+    using BCType = typename BCMerger::resType;
+
+    using resRealType = typename RealMerger::resType;
+    using resImagType = typename ImagMerger::resType;
+
+    using resType = Qu_s<resRealType, resImagType>;
+};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
+struct MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>>: MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<>>
+{};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<toArgs...>>
+{
+    using merger = MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<toArgs...>>;
+
+    inline static constexpr auto mul(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    {
+        auto realPart = Qsub<typename merger::resRealType>(Qmul<typename merger::ACType>(f1.real, f2.real), Qmul<typename merger::BDType>(f1.imag, f2.imag));
+        auto imagPart = Qadd<typename merger::resImagType>(Qmul<typename merger::ADType>(f1.real, f2.imag), Qmul<typename merger::BCType>(f1.imag, f2.real));
+
+        return Qu_s<typename merger::resRealType, typename merger::resImagType>(realPart, imagPart);
+    }
+};
+
+// default complex multiplication using BasicComplexMul
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
+struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>> : Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<>>
+{};
+
+// Demanding all FullPrec
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
+struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<FullPrec>> : Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<acT<FullPrec>, bdT<FullPrec>, adT<FullPrec>, bcT<FullPrec>, acbdT<FullPrec>, adbcT<FullPrec>>>
+{};
+
+// Complex multiplication realized via 3 multiplications and 5 additions
+// x = a + bi, y = c + di
+// A = (a + b)c, B = (c + d)b, C = (b − a)d
+// xy = (A − B) + (B − C)i
+template <typename... Args>
+struct TFComplexMul;
+
+template <typename... Args>
+struct abT;
+
+template <typename... Args>
+struct cdT;
+
+template <typename... Args>
+struct baT;
+
+template <typename... Args>
+struct abcT;
+
+template <typename... Args>
+struct cdbT;
+
+template <typename... Args>
+struct badT;
+
+template <typename... Args>
+struct ABT;
+
+template <typename... Args>
+struct BCT;
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TFComplexMul<toArgs...>>
+{
+    using addabType = tagExtractor<abT<>, toArgs...>::type;
+    using addcdType = tagExtractor<cdT<>, toArgs...>::type;
+    using subbaType = tagExtractor<baT<>, toArgs...>::type;
+    using mulabcType = tagExtractor<abcT<>, toArgs...>::type;
+    using mulcdbType = tagExtractor<cdbT<>, toArgs...>::type;
+    using mulbadType = tagExtractor<badT<>, toArgs...>::type;
+    using subABType = tagExtractor<ABT<>, toArgs...>::type;
+    using subBCType = tagExtractor<BCT<>, toArgs...>::type;
+
+    using abMerger = AddMergerWraper<Qu_s<realArgs1...>, Qu_s<imagArgs1...>, addabType>::type;
+    using cdMerger = AddMergerWraper<Qu_s<realArgs2...>, Qu_s<imagArgs2...>, addcdType>::type;
+    using baMerger = AddMergerWraper<Qu_s<imagArgs1...>, Qu_s<realArgs1...>, subbaType>::type;
+
+    using abType = typename abMerger::resType;
+    using cdType = typename cdMerger::resType;
+    using baType = typename baMerger::resType;
+
+    using abdMerger = MulMergerWraper<abType, Qu_s<imagArgs2...>, mulabcType>::type;
+    using cdbMerger = MulMergerWraper<cdType, Qu_s<imagArgs1...>, mulcdbType>::type;
+    using badMerger = MulMergerWraper<baType, Qu_s<imagArgs2...>, mulbadType>::type;
+
+    using AType = typename abdMerger::resType;
+    using BType = typename cdbMerger::resType;
+    using CType = typename badMerger::resType;
+
+    using ABMerger = AddMergerWraper<AType, BType, subABType>::type;
+    using BCMerger = AddMergerWraper<BType, CType, subBCType>::type;
+
+    using RealMerger = AddMergerWraper<typename ABMerger::resType, typename BCMerger::resType, subABType>::type;
+    using ImagMerger = AddMergerWraper<typename BCMerger::resType, typename ABMerger::resType, subBCType>::type;
+
+    using resRealType = typename RealMerger::resType;
+    using resImagType = typename ImagMerger::resType;
+
+    using resType = Qu_s<resRealType, resImagType>;
+};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TFComplexMul<toArgs...>>
+{
+    using merger = MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TFComplexMul<toArgs...>>;
+
+    inline static constexpr auto mul(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    {
+        auto ab = Qadd<typename merger::abType>(f1.real, f1.imag);
+        auto cd = Qadd<typename merger::cdType>(f2.real, f2.imag);
+        auto ba = Qsub<typename merger::baType>(f1.imag, f1.real);
+
+        auto A = Qmul<typename merger::AType>(ab, f2.real);
+        auto B = Qmul<typename merger::BType>(cd, f1.imag);
+        auto C = Qmul<typename merger::CType>(ba, f2.imag);
+
+        auto realPart = Qsub<typename merger::resRealType>(A, B);
+        auto imagPart = Qsub<typename merger::resImagType>(B, C);
+
+        return Qu_s<typename merger::resRealType, typename merger::resImagType>(realPart, imagPart);
+    }
+};
+
+// Demanding all FullPrec
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
+struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TFComplexMul<FullPrec>> : Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TFComplexMul<abT<FullPrec>, cdT<FullPrec>, baT<FullPrec>, abcT<FullPrec>, cdbT<FullPrec>, badT<FullPrec>, ABT<FullPrec>, BCT<FullPrec>>>
+{};
+
+template <typename... Args>
+struct realT;
+
+template <typename... Args>
+struct imagT;
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct AddMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>
+{
+    using realType = tagExtractor<realT<>, toArgs...>::type;
+    using imagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = AddMergerWraper<Qu_s<realArgs1...>, Qu_s<realArgs2...>, realType>::type;
+    using imagMerger = AddMergerWraper<Qu_s<imagArgs1...>, Qu_s<imagArgs2...>, imagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    using resType = Qu_s<resRealType, resImagType>;
+};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>
+{
+    using merger = AddMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>;
+
+    inline static constexpr auto add(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    {
+        auto realPart = Qadd<typename merger::resRealType>(f1.real, f2.real);
+        auto imagPart = Qadd<typename merger::resImagType>(f1.imag, f2.imag);
+
+        return Qu_s<typename merger::resRealType, typename merger::resImagType>(realPart, imagPart);
+    }
+};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
+struct Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, FullPrec> : Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, acT<FullPrec>, bdT<FullPrec>>
+{};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>
+{
+    using merger = AddMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>;
+
+    inline static constexpr auto sub(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    {
+        auto realPart = Qsub<typename merger::resRealType>(f1.real, f2.real);
+        auto imagPart = Qsub<typename merger::resImagType>(f1.imag, f2.imag);
+
+        return Qu_s<typename merger::resRealType, typename merger::resImagType>(realPart, imagPart);
+    }
+};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
+struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, FullPrec> : Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, acT<FullPrec>, bdT<FullPrec>>
+{};
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
+struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>
+{
+    inline static constexpr auto div(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    {
+        static_assert(false, "Complex division is not allowed");
+    }
+};
+
+// ------------------- Real-Complex Operations -------------------
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qmul_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{
+    using fromType = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+    using inputRealType = tagExtractor<realT<>, toArgs...>::type;
+    using inputImagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = MulMergerWraper<fromType, Qu_s<fromRealArgs...>, inputRealType>::type;
+    using imagMerger = MulMergerWraper<fromType, Qu_s<fromImagArgs...>, inputImagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    inline static constexpr auto mul(const fromType f1, const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f2)
+    {
+        auto realPart = Qmul<resRealType>(f1, f2.real);
+        auto imagPart = Qmul<resImagType>(f1, f2.imag);
+
+        return Qu_s<resRealType, resImagType>(realPart, imagPart);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs>
+struct Qmul_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, FullPrec> : Qmul_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, realT<FullPrec>, imagT<FullPrec>>
+{};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qmul_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...>
+{
+    inline static constexpr auto mul(const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f1, const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f2)
+    {
+        return Qmul_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>::mul(f2, f1);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qadd_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{
+    using fromType = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+    using inputRealType = tagExtractor<realT<>, toArgs...>::type;
+    using inputImagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = AddMergerWraper<fromType, Qu_s<fromRealArgs...>, inputRealType>::type;
+    using imagMerger = AddMergerWraper<fromType, Qu_s<fromImagArgs...>, inputImagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    inline static constexpr auto add(const fromType f1, const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f2)
+    {
+        auto realPart = Qadd<resRealType>(f1, f2.real);
+        auto imagPart = Qadd<resImagType>(f1, f2.imag);
+
+        return Qu_s<resRealType, resImagType>(realPart, imagPart);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs>
+struct Qadd_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, FullPrec> : Qadd_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, realT<FullPrec>, imagT<FullPrec>>
+{};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qadd_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...>
+{
+    inline static constexpr auto add(const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f1, const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f2)
+    {
+        return Qadd_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>::add(f2, f1);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qsub_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{
+    using fromType = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+    using inputRealType = tagExtractor<realT<>, toArgs...>::type;
+    using inputImagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = AddMergerWraper<fromType, Qu_s<fromRealArgs...>, inputRealType>::type;
+    using imagMerger = AddMergerWraper<fromType, Qu_s<fromImagArgs...>, inputImagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    inline static constexpr auto sub(const fromType f1, const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f2)
+    {
+        auto realPart = Qsub<resRealType>(f1, f2.real);
+        auto imagPart = Qsub<resImagType>(f1, f2.imag);
+
+        return Qu_s<resRealType, resImagType>(realPart, imagPart);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs>
+struct Qsub_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, FullPrec> : Qsub_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, realT<FullPrec>, imagT<FullPrec>>
+{};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qsub_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...>
+{
+    using fromType = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+    using inputRealType = tagExtractor<realT<>, toArgs...>::type;
+    using inputImagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = AddMergerWraper<fromType, Qu_s<fromRealArgs...>, inputRealType>::type;
+    using imagMerger = AddMergerWraper<fromType, Qu_s<fromImagArgs...>, inputImagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    inline static constexpr auto sub(const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f1, const fromType f2)
+    {
+        auto realPart = Qsub<resRealType>(f1.real, f2);
+        auto imagPart = Qsub<resImagType>(f1.imag, f2);
+
+        return Qu_s<resRealType, resImagType>(realPart, imagPart);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs>
+struct Qsub_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, FullPrec> : Qsub_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, realT<FullPrec>, imagT<FullPrec>>
+{};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qdiv_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{
+    inline static constexpr auto div(const auto f1, const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f2)
+    {
+        static_assert(false, "Complex division is not allowed");
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct Qdiv_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...>
+{
+    using fromType = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+    using inputRealType = tagExtractor<realT<>, toArgs...>::type;
+    using inputImagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = AddMergerWraper<fromType, Qu_s<fromRealArgs...>, inputRealType>::type;
+    using imagMerger = AddMergerWraper<fromType, Qu_s<fromImagArgs...>, inputImagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    inline static constexpr auto div(const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f1, const fromType f2)
+    {
+        auto realPart = Qdiv<resRealType>(f1.real, f2);
+        auto imagPart = Qdiv<resImagType>(f1.imag, f2);
+
+        return Qu_s<resRealType, resImagType>(realPart, imagPart);
+    }
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs>
+struct Qdiv_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, FullPrec> : Qdiv_s<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, realT<FullPrec>, imagT<FullPrec>>
+{};
+
+// ------------------- Basic tensor operations -------------------
+
+// mul
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct MulMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{
+    using scalarT = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+
+    using realType = tagExtractor<realT<>, toArgs...>::type;
+    using imagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = MulMergerWraper<scalarT, Qu_s<fromRealArgs...>, realType>::type;
+    using imagMerger = MulMergerWraper<scalarT, Qu_s<fromImagArgs...>, imagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    using resType = Qu_s<resRealType, resImagType>;
+};
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct MulMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>,Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>,  toArgs...>: MulMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>{};
+ 
+
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qmul_s<Qu<dim<dims...>, QuT1>, Qu<dim<dims...>, QuT2>, toArgs...>::mul(f1, f2);
 }
 
-template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qadd(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qmul_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::add(res, f1, f2);
+    using merger = MulMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto mul(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qmul<toArgs...>(f1[i], f2[i]);
+        }
+
+        return res;
+    }
+};
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qmul(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qmul_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::mul(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
-inline constexpr auto Qadd(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
-    return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::add(f1, f2);
+    return Qmul_s<QuT2, Qu<dim<dims...>, QuT1>, toArgs...>::mul(f2, f1);
 }
 
-template <size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2, typename... toArgs>
-inline constexpr void Qadd(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qmul_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::add(res, f1, f2);
+    using merger = MulMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto mul(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qmul<toArgs...>(f1, f2[i]);
+        }
+
+        return res;
+    }
+};
+
+
+// add
+
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct AddMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{
+    using scalarT = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+
+    using realType = tagExtractor<realT<>, toArgs...>::type;
+    using imagType = tagExtractor<imagT<>, toArgs...>::type;
+
+    using realMerger = AddMergerWraper<scalarT, Qu_s<fromRealArgs...>, realType>::type;
+    using imagMerger = AddMergerWraper<scalarT, Qu_s<fromImagArgs...>, imagType>::type;
+
+    using resRealType = typename realMerger::resType;
+    using resImagType = typename imagMerger::resType;
+
+    using resType = Qu_s<resRealType, resImagType>;
+};
+
+
+ template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct AddMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>,Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>,  toArgs...>: AddMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>{};
+ 
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qadd(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qadd_s<Qu<dim<dims...>, QuT1>, Qu<dim<dims...>, QuT2>, toArgs...>::add(f1, f2);
 }
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
-inline constexpr auto Qadd(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qadd_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
-    temp[0] = f1;
-    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::add(temp, f2);
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto add(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qadd<toArgs...>(f1[i], f2[i]);
+        }
+
+        return res;
+    }
+};
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qadd(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qadd_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::add(f1, f2);
 }
 
-template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qadd(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qadd(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
-    temp[0] = f2;
-    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::add(f1, temp);
+    return Qadd_s<QuT2, Qu<dim<dims...>, QuT1>, toArgs...>::add(f2, f1);
 }
 
-template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
-inline constexpr void Qadd(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qadd_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
-    temp1[0] = f1;
-    Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::add(res, temp1, f2);
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto add(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qadd<toArgs...>(f1, f2[i]);
+        }
+
+        return res;
+    }
+};
+
+// sub
+ 
+ 
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qsub(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qsub_s<Qu<dim<dims...>, QuT1>, Qu<dim<dims...>, QuT2>, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qadd(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qsub_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
-    temp2[0] = f2;
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::add(res, f1, temp2);
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto sub(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qsub<toArgs...>(f1[i], f2[i]);
+        }
+
+        return res;
+    }
+};
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qsub(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qsub_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qsub(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qsub(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
-    return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::sub(f1, f2);
+    return Qsub_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qsub(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qsub_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::sub(res, f1, f2);
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto sub(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qsub<toArgs...>(f1, f2[i]);
+        }
+
+        return res;
+    }
+};
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qsub_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>
+{
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto sub(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qsub<toArgs...>(f1[i], f2);
+        }
+
+        return res;
+    }
+};
+
+// div
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qdiv(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qdiv_s<Qu<dim<dims...>, QuT1>, Qu<dim<dims...>, QuT2>, toArgs...>::div(f1, f2);
 }
 
-template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
-inline constexpr auto Qsub(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qdiv_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::sub(f1, f2);
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
+
+    inline static constexpr auto div(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qdiv<toArgs...>(f1[i], f2[i]);
+        }
+
+        return res;
+    }
+};
+
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qdiv(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+{
+    return Qdiv_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::div(f1, f2);
 }
 
-template <size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2, typename... toArgs>
-inline constexpr void Qsub(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+inline constexpr auto Qdiv(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::sub(res, f1, f2);
+    return Qdiv_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>::div(f1, f2);
 }
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
-inline constexpr auto Qsub(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qdiv_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
-    temp[0] = f1;
-    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::sub(temp, f2);
-}
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
 
-template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qsub(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
-{
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
-    temp[0] = f2;
-    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::sub(f1, temp);
-}
+    inline static constexpr auto div(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qdiv<toArgs...>(f1, f2[i]);
+        }
 
-template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
-inline constexpr void Qsub(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
-{
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
-    temp1[0] = f1;
-    Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::sub(res, temp1, f2);
-}
+        return res;
+    }
+};
 
-template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qsub(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
+template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+struct Qdiv_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>
 {
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
-    temp2[0] = f2;
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::sub(res, f1, temp2);
-}
+    using merger = AddMerger<QuT1, QuT2, toArgs...>;
 
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qdiv(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
-{
-    return Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, toArgs...>::div(f1, f2);
-}
+    inline static constexpr auto div(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
+    {
+        Qu<dim<dims...>, typename merger::resType> res;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = Qdiv<toArgs...>(f1[i], f2);
+        }
 
-template <typename... toArgs, int resInt, int resFrac, bool resIsSigned, typename resQuMode, typename resOfMode, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qdiv(Qu_s<intBits<resInt>, fracBits<resFrac>, isSigned<resIsSigned>, QuMode<resQuMode>, OfMode<resOfMode>> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
-{
-    Qop<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, Qu_s<intBits<resInt>, toArgs...>>::div(res, f1, f2);
-}
+        return res;
+    }
+};
 
-template <typename... toArgs, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2>
-inline constexpr auto Qdiv(const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
-{
-    return Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::div(f1, f2);
-}
 
-template <size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, size_t... dims2, typename QuType2, typename... toArgs>
-inline constexpr void Qdiv(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
-{
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::div(res, f1, f2);
-}
-
-template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dim2, typename QuType2>
-inline constexpr auto Qdiv(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dim2...>, QuType2> &f2)
-{
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp;
-    temp[0] = f1;
-    return Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dim2...>, QuType2>, toArgs...>::div(temp, f2);
-}
-
-template <typename... toArgs, size_t... dim1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr auto Qdiv(const Qu_s<dim<dim1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
-{
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp;
-    temp[0] = f2;
-    return Qop<Qu_s<dim<dim1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::div(f1, temp);
-}
-
-template <typename... toArgs, size_t... dims3, typename QuType3, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, size_t... dims2, typename QuType2>
-inline constexpr void Qdiv(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> &f1, const Qu_s<dim<dims2...>, QuType2> &f2)
-{
-    Qu<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>>> temp1;
-    temp1[0] = f1;
-    Qop<Qu_s<dim<1>, Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>>, Qu_s<dim<dims2...>, QuType2>, toArgs...>::div(res, temp1, f2);
-}
-
-template <typename... toArgs, size_t... dims3, typename QuType3, size_t... dims1, typename QuType1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-inline constexpr void Qdiv(Qu_s<dim<dims3...>, QuType3> &res, const Qu_s<dim<dims1...>, QuType1> &f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> &f2)
-{
-    Qu<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>>> temp2;
-    temp2[0] = f2;
-    Qop<Qu_s<dim<dims1...>, QuType1>, Qu_s<dim<1>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>>, toArgs...>::div(res, f1, temp2);
-}
-
-template <typename... toArgs, typename... fromArgs>
-inline constexpr auto Qabs(const Qu_s<fromArgs...> &f1)
-{
-    return Qop<Qu_s<fromArgs...>, Qu_s<fromArgs...>, toArgs...>::abs(f1);
-}
-
-template <typename... toArgs, typename... fromArgs>
-inline constexpr auto Qneg(const Qu_s<fromArgs...> &f1)
-{
-    return Qop<Qu_s<fromArgs...>, Qu_s<fromArgs...>, toArgs...>::neg(f1);
-}
-
-// operator overloading
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator*(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return Qmul<>(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator+(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return Qadd<>(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator-(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return Qsub<>(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator/(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return Qdiv<>(f1, f2);
-}
-
-template <typename... fromArgs>
-inline constexpr auto operator-(const Qu_s<fromArgs...> &f1)
-{
-    return Qneg<>(f1);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr auto operator<=>(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>::cmp(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr bool operator==(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>::eq(f1, f2);
-}
-
-template <typename... fromArgs1, typename... fromArgs2>
-inline constexpr bool operator!=(const Qu_s<fromArgs1...> &f1, const Qu_s<fromArgs2...> &f2)
-{
-    return ~(Qop<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>>::eq(f1, f2));
-}
 
 // ------------------- Advanced Nonlinear Universal Subprograms -------------------
 // the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
@@ -2140,7 +2861,7 @@ struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposed
         "Size mismatch when calling Qgemul");
 
     // the intermediate vector for the dot product
-    using mulMerger = Merger<Qu<ArgsA...>, Qu<ArgsB...>, mulArgs...>;
+    using mulMerger = MulMerger<Qu<ArgsA...>, Qu<ArgsB...>, mulArgs...>;
     static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecC;
 
     static inline void execute(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
@@ -2405,7 +3126,7 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
             (isTransposedA && (rowA == sizeX && colA == sizeY)),
         "Size mismatch when calling Qgemv");
 
-    using mulMerger = Merger<Qu<ArgsA...>, Qu<ArgsX...>, mulArgs...>;
+    using mulMerger = MulMerger<Qu<ArgsA...>, Qu<ArgsX...>, mulArgs...>;
     static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecA;
 
     static inline void execute(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
