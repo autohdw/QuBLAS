@@ -14,6 +14,9 @@
 #include <type_traits>
 #include <utility>
 
+namespace QuBLAS {
+
+
 // ------------------- Random -------------------
 
 static std::random_device rd;
@@ -1608,7 +1611,7 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
     inline static constexpr auto mul(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
         // print the requesting Quantization parameters for debugging
-        std::cout << "mul: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+        // std::cout << "mul: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
 
         auto fullProduct = static_cast<long long int>(f1.data) * static_cast<long long int>(f2.data);
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
@@ -1638,7 +1641,7 @@ struct Qadd_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
     inline static constexpr auto add(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
         // print the requesting Quantization parameters for debugging
-        std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+        // std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
 
         auto fullSum = static_cast<long long int>(f1.data << shiftA) + static_cast<long long int>(f2.data << shiftB);
         auto fracSum = fracConvert<std::max(fromFrac1, fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullSum);
@@ -3323,3 +3326,5 @@ inline void Qpotrs(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs
 {
     Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>::execute(L, b);
 }
+
+};
