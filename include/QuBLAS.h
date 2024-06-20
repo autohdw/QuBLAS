@@ -3401,7 +3401,7 @@ struct Qsytrf_s<QsytrfLDArgs<LDArgs...>, QsytrfSumLDArgs<sumLDArgs...>, Qu_s<dim
 
     inline static auto sum_LD = Qu<sumLDArgs...>();
 
-    inline static void execute(Qu_s<dim<row, col>, AArgs...> &A, Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D)
+    inline static void execute(Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D, Qu_s<dim<row, col>, AArgs...> &A)
     {
         // set L to identity matrix
         L.clear();
@@ -3451,12 +3451,12 @@ struct Qsytrf_s<QsytrfLDArgs<LDArgs...>, QsytrfSumLDArgs<sumLDArgs...>, Qu_s<dim
 };
 
 template <typename... interiorArgs, size_t row, size_t col, typename... AArgs, typename... LArgs, typename... DArgs>
-inline static void Qsytrf(Qu_s<dim<row, col>, AArgs...> &A, Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D)
+inline static void Qsytrf(Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D, Qu_s<dim<row, col>, AArgs...> &A)
 {
     using LDArgs = tagExtractor<QsytrfLDArgs<LArgs...>, interiorArgs...>::type;
     using sumLDArgs = tagExtractor<QsytrfSumLDArgs<LArgs...>, interiorArgs...>::type;
 
-    Qsytrf_s<LDArgs, sumLDArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<row>, DArgs...>>::execute(A, L, D);
+    Qsytrf_s<LDArgs, sumLDArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<row>, DArgs...>>::execute(L, D, A);
 }
 
 // ------------------- Qtrtri -------------------
