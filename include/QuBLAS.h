@@ -16,7 +16,6 @@
 
 namespace QuBLAS {
 
-
 // ------------------- Random -------------------
 
 static std::random_device rd;
@@ -967,6 +966,11 @@ public:
         return *this;
     }
 
+    inline void clear()
+    {
+        std::memset(data.data(), 0, dim<dims...>::elemSize * sizeof(Arg));
+    }
+
     inline auto fill(auto... dis)
     {
         if constexpr (!isElementQu)
@@ -1248,27 +1252,28 @@ struct QuInputHelper<dim<row, col>, Gram<diagType, offDiagType>>
 // ------------------- Basic tensor operations -------------------
 
 // BitStream converter
-struct l2r{};
+struct l2r
+{};
 
-template<size_t... in>
-requires(sizeof...(in) <=1)
+template <size_t... in>
+    requires(sizeof...(in) <= 1)
 struct r2l;
 
-template<size_t in>
+template <size_t in>
 struct r2l<in>
 {
     static inline constexpr size_t index = in;
 };
 
-template<>
-struct r2l<>:r2l<1>
+template <>
+struct r2l<> : r2l<1>
 {};
 
 // handle string to string
-template<typename...Args>
+template <typename... Args>
 struct SingleString_s;
 
-template<>
+template <>
 struct SingleString_s<l2r>
 {
     inline static constexpr auto convert(std::string_view str)
@@ -1289,14 +1294,15 @@ struct SingleString_s<l2r>
     }
 };
 
-template<size_t... in>
+template <size_t... in>
 struct SingleString_s<r2l<in...>>
 {
     inline static constexpr auto index = r2l<in...>::index;
 
     inline static constexpr auto convert(std::string_view str)
     {
-        if (str.size() % index != 0) {
+        if (str.size() % index != 0)
+        {
             throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(index));
         }
 
@@ -1304,7 +1310,8 @@ struct SingleString_s<r2l<in...>>
         res.reserve(str.size());
 
         // Reverse chunks of size Index directly
-        for (size_t i = str.size(); i >= index; i -= index) {
+        for (size_t i = str.size(); i >= index; i -= index)
+        {
             res.append(str.data() + i - index, index);
         }
 
@@ -1324,38 +1331,42 @@ struct SingleString_s<r2l<in...>>
     }
 };
 
-template<typename...Args>
+template <typename... Args>
 struct TensorString_s;
 
-template<typename elemProcessT>
+template <typename elemProcessT>
 struct TensorString_s<l2r, elemProcessT>
 {
     // convert to std::array<std::string, size> with element string stored in l2r
     // the input string is expected to be a single string containing all elements, each element has length of elemLength
-    template<typename QuTensorT>
+    template <typename QuTensorT>
     inline static constexpr auto fromString(std::string_view str)
-    {   using QuT = typename QuTensorT::innerType;
+    {
+        using QuT = typename QuTensorT::innerType;
         static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
         static constexpr auto size = QuTensorT::size;
-        if (str.size() % elemLen != 0) {
+        if (str.size() % elemLen != 0)
+        {
             throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
         }
 
-        std::array<std::string,size> res;
-        for (size_t i = 0; i < res.size(); i++) {
+        std::array<std::string, size> res;
+        for (size_t i = 0; i < res.size(); i++)
+        {
             res[i] = SingleString_s<elemProcessT>::convert(str.substr(i * elemLen, elemLen));
         }
 
         return res;
     }
 
-    template<size_t arrSize>
-    inline static constexpr auto toString(std::array<std::string,arrSize> arr)
+    template <size_t arrSize>
+    inline static constexpr auto toString(std::array<std::string, arrSize> arr)
     {
         std::string res;
         res.reserve(arr.size() * arr[0].size());
 
-        for (size_t i = 0; i < arr.size(); i++) {
+        for (size_t i = 0; i < arr.size(); i++)
+        {
             res.append(SingleString_s<elemProcessT>::to(arr[i]));
         }
 
@@ -1363,24 +1374,26 @@ struct TensorString_s<l2r, elemProcessT>
     }
 
     // from QuBLAS type to std::array<std::string, size>
-    template<size_t...dims, typename QuT>
-    inline static constexpr auto fromQu(const Qu_s<dim<dims...>,QuT>& tensor)
+    template <size_t... dims, typename QuT>
+    inline static constexpr auto fromQu(const Qu_s<dim<dims...>, QuT> &tensor)
     {
-        std::array<std::string, Qu_s<dim<dims...>,QuT>::size> res;
+        std::array<std::string, Qu_s<dim<dims...>, QuT>::size> res;
 
-        for (size_t i = 0; i < Qu_s<dim<dims...>,QuT>::size; i++) {
+        for (size_t i = 0; i < Qu_s<dim<dims...>, QuT>::size; i++)
+        {
             res[i] = SingleString_s<elemProcessT>::to(tensor[i].toString());
         }
         return res;
     }
 
     // from std::array<std::string, size> to QuBLAS type
-    template<typename QuTensorT>
-    inline static constexpr auto toQu(const std::array<std::string, QuTensorT::size>& arr)
+    template <typename QuTensorT>
+    inline static constexpr auto toQu(const std::array<std::string, QuTensorT::size> &arr)
     {
         QuTensorT res;
 
-        for (size_t i = 0; i < QuTensorT::size; i++) {
+        for (size_t i = 0; i < QuTensorT::size; i++)
+        {
             auto str = SingleString_s<elemProcessT>::from(arr[i]);
             // convert  binary stored in str to integer
             int decimal = std::stoi(str, 0, 2);
@@ -1390,24 +1403,28 @@ struct TensorString_s<l2r, elemProcessT>
     }
 };
 
-template<typename elemProcessT,size_t index>
+template <typename elemProcessT, size_t index>
 struct TensorString_s<r2l<index>, elemProcessT>
 {
-    template<typename QuTensorT>
+    template <typename QuTensorT>
     inline static constexpr auto fromString(std::string_view str)
-    {   using QuT = typename QuTensorT::innerType;
+    {
+        using QuT = typename QuTensorT::innerType;
         static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
         static constexpr auto size = QuTensorT::size;
-        if (str.size() % elemLen != 0) {
+        if (str.size() % elemLen != 0)
+        {
             throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
         }
 
-        std::array<std::string,size> res;
+        std::array<std::string, size> res;
 
         // Reverse chunks of size Index directly
         size_t in = 0;
-        for (size_t i = size; i > 0; i = i - index){
-            for (size_t j = 0; j < index; j++) {
+        for (size_t i = size; i > 0; i = i - index)
+        {
+            for (size_t j = 0; j < index; j++)
+            {
                 res[in] = SingleString_s<elemProcessT>::convert(str.substr((i + j - index) * elemLen, elemLen));
                 in++;
             }
@@ -1416,15 +1433,17 @@ struct TensorString_s<r2l<index>, elemProcessT>
         return res;
     }
 
-    template<size_t arrSize>
-    inline static constexpr auto toString(std::array<std::string,arrSize> arr)
+    template <size_t arrSize>
+    inline static constexpr auto toString(std::array<std::string, arrSize> arr)
     {
         std::string res;
         res.reserve(arr.size() * arr[0].size());
 
         // reverse the order of elements, with every Index elements as a chunk
-        for (size_t i = arr.size(); i > 0; i = i - index) {
-            for (size_t j = 0; j < index; j++) {
+        for (size_t i = arr.size(); i > 0; i = i - index)
+        {
+            for (size_t j = 0; j < index; j++)
+            {
                 res.append(SingleString_s<elemProcessT>::to(arr[i + j - index]));
             }
         }
@@ -1433,11 +1452,11 @@ struct TensorString_s<r2l<index>, elemProcessT>
 };
 
 // scalar
-template<typename...Args>
+template <typename... Args>
 struct BitStream_s;
 
-template<typename... QuArgs, typename processT>
-struct BitStream_s<Qu_s<QuArgs...>,processT>
+template <typename... QuArgs, typename processT>
+struct BitStream_s<Qu_s<QuArgs...>, processT>
 {
     inline static auto convert(std::string_view str)
     {
@@ -1449,7 +1468,7 @@ struct BitStream_s<Qu_s<QuArgs...>,processT>
     }
 };
 
-template< typename processT>
+template <typename processT>
 struct BitStream_s<processT>
 {
     inline static auto convert(auto Qu)
@@ -1459,34 +1478,33 @@ struct BitStream_s<processT>
 };
 
 // tensor
-template<typename QuT,size_t...dims,typename tensorProcessT, typename elemProcessT>
-struct BitStream_s<Qu_s<dim<dims...>,QuT>,tensorProcessT,elemProcessT>
+template <typename QuT, size_t... dims, typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<Qu_s<dim<dims...>, QuT>, tensorProcessT, elemProcessT>
 {
     inline static auto convert(std::string_view str)
     {
         // use TensorString_s
-        auto arr = TensorString_s<tensorProcessT,elemProcessT>::template fromString<Qu_s<dim<dims...>,QuT>>(str);
-        return TensorString_s<l2r,l2r>::template toQu<Qu_s<dim<dims...>,QuT>>(arr);
+        auto arr = TensorString_s<tensorProcessT, elemProcessT>::template fromString<Qu_s<dim<dims...>, QuT>>(str);
+        return TensorString_s<l2r, l2r>::template toQu<Qu_s<dim<dims...>, QuT>>(arr);
     }
 };
 
-template<typename tensorProcessT, typename elemProcessT>
-struct BitStream_s<tensorProcessT,elemProcessT>
+template <typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<tensorProcessT, elemProcessT>
 {
-    template<typename...QuArgs>
+    template <typename... QuArgs>
     inline static auto convert(Qu_s<QuArgs...> Qu)
     {
-        auto arr = TensorString_s<l2r,l2r>::template fromQu(Qu);
-        return TensorString_s<tensorProcessT,elemProcessT>::template toString(arr);
+        auto arr = TensorString_s<l2r, l2r>::template fromQu(Qu);
+        return TensorString_s<tensorProcessT, elemProcessT>::template toString(arr);
     }
 };
 
-template<typename...Args>
+template <typename... Args>
 inline auto BitStream(auto input)
 {
     return BitStream_s<Args...>::convert(input);
 }
-
 
 // ------------------- element wise operations -------------------
 
@@ -1670,8 +1688,8 @@ struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 
     inline static constexpr auto sub(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
-        // print the requesting Quantization parameters for debugging
-        std::cout << "sub: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+        // // print the requesting Quantization parameters for debugging
+        // std::cout << "sub: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
 
         auto fullDiff = static_cast<long long int>(f1.data << shiftA) - static_cast<long long int>(f2.data << shiftB);
         auto fracDiff = fracConvert<std::max(fromFrac1, fromFrac2), merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullDiff);
@@ -1810,6 +1828,13 @@ inline constexpr auto Qsub(const QuT1 f1, const QuT2 f2)
     return Qsub_s<QuT1, QuT2, toArgs...>::sub(f1, f2);
 }
 
+template <typename... toArgs, typename QuT>
+    requires(isScalar<QuT>)
+inline constexpr auto Qneg(const QuT f)
+{
+    return Qneg_s<QuT, toArgs...>::neg(f);
+}
+
 template <typename... toArgs, typename QuT1, typename QuT2>
     requires(isScalar<QuT1> && isScalar<QuT2>)
 inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
@@ -1837,6 +1862,13 @@ template <typename QuT1, typename QuT2>
 inline constexpr auto operator-(const QuT1 f1, const QuT2 f2)
 {
     return Qsub(f1, f2);
+}
+
+template <typename QuT>
+    requires(isScalar<QuT>)
+inline constexpr auto operator-(const QuT f)
+{
+    return Qneg(f);
 }
 
 template <typename QuT1, typename QuT2>
@@ -1900,7 +1932,7 @@ struct MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArg
 };
 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
-struct MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>>: MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<>>
+struct MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>> : MulMerger<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<>>
 {};
 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
@@ -2272,9 +2304,8 @@ struct MulMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigne
 };
 
 template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
-struct MulMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>,Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>,  toArgs...>: MulMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>{};
- 
-
+struct MulMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...> : MulMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{};
 
 template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
 inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
@@ -2330,7 +2361,6 @@ struct Qmul_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
     }
 };
 
-
 // add
 
 template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
@@ -2350,10 +2380,10 @@ struct AddMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigne
     using resType = Qu_s<resRealType, resImagType>;
 };
 
+template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
+struct AddMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...> : AddMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
+{};
 
- template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode, typename... fromRealArgs, typename... fromImagArgs, typename... toArgs>
-struct AddMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>,Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>,  toArgs...>: AddMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>{};
- 
 template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
 inline constexpr auto Qadd(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
@@ -2409,8 +2439,7 @@ struct Qadd_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 // sub
- 
- 
+
 template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
 inline constexpr auto Qsub(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
@@ -2556,8 +2585,6 @@ struct Qdiv_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>
         return res;
     }
 };
-
-
 
 // ------------------- Advanced Nonlinear Universal Subprograms -------------------
 // the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
@@ -2891,7 +2918,7 @@ struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposed
 };
 
 template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB, typename... ArgsC, typename... ArgsA, typename... ArgsB>
-inline void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
+inline static void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
 {
     static constexpr bool isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
     static constexpr bool isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
@@ -3038,7 +3065,7 @@ struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs
 };
 
 template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, typename... ArgsC, typename... ArgsA>
-inline void Qgramul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A)
+inline static void Qgramul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A)
 {
     static constexpr bool isTransposed = tagExtractor<QgramulTransposed<false>, interiorArgs...>::value;
     using diagAddArgs = tagExtractor<QgramulDiagAddArgs<>, interiorArgs...>::type;
@@ -3169,7 +3196,7 @@ struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvM
 };
 
 template <typename... interiorArgs, size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX>
-inline void Qgemv(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
+inline static void Qgemv(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
 {
     static constexpr bool isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
     using addArgs = tagExtractor<QgemvAddArgs<>, interiorArgs...>::type;
@@ -3259,7 +3286,7 @@ struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
 };
 
 template <typename... interiorArgs, size_t row, size_t col, typename... Args>
-inline void Qpotrf(Qu_s<dim<row, col>, Args...> &A)
+inline static void Qpotrf(Qu_s<dim<row, col>, Args...> &A)
 {
     Qpotrf_s<Qu_s<dim<row, col>, Args...>>::execute(A);
 }
@@ -3322,9 +3349,220 @@ struct Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>
 };
 
 template <typename... interiorArgs, size_t row, size_t col, size_t bRow, typename... LArgs, typename... bArgs>
-inline void Qpotrs(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b)
+inline static void Qpotrs(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b)
 {
     Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>::execute(L, b);
 }
 
+// ------------------- Qsytrf -------------------
+// LDL^T factorization
+// not identical to the standard LAPACK routine, L and D will be stored separately
+
+// matlab code for reference
+
+// L = eye(n); % 初始化L为单位矩阵
+// D = zeros(n, 1); % 初始化D为零向量
+
+// for j = 1:n
+//     % 计算D(j)
+//     LD_vector = zeros(1, j-1);
+//     for k = 1:(j-1)
+//         LD_vector(k) = L[j, k]^2 * D(k);
+//     end
+//     sum_LD = vector_sum(LD_vector);
+//     D(j) = A[j, j] - sum_LD;
+
+//     % 计算L(i, j) 对于 i > j
+//     for i = (j+1):n
+//         LD_vector = zeros(1, j-1);
+//         for k = 1:(j-1)
+//             LD_vector(k) = L(i, k) * L[j, k] * D(k);
+//         end
+//         sum_LD = vector_sum(LD_vector);
+//         L(i, j) = (A(i, j) - sum_LD) / D(j);
+//     end
+// end
+
+template <typename... Args>
+struct QsytrfLDArgs;
+
+template <typename... Args>
+struct QsytrfSumLDArgs;
+
+template <typename... Args>
+struct Qsytrf_s;
+
+template <typename... AArgs, typename... LArgs, typename... DArgs, typename... LDArgs, typename... sumLDArgs, size_t row, size_t col>
+struct Qsytrf_s<QsytrfLDArgs<LDArgs...>, QsytrfSumLDArgs<sumLDArgs...>, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<row>, DArgs...>>
+{
+    static_assert(row == col, "The input matrix of Qsytrf must be square");
+
+    inline static auto LD_vector = Qu<dim<row - 1>, LDArgs...>();
+
+    inline static auto sum_LD = Qu<sumLDArgs...>();
+
+    inline static void execute(Qu_s<dim<row, col>, AArgs...> &A, Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D)
+    {
+        // set L to identity matrix
+        L.clear();
+        for (size_t i = 0; i < row; ++i)
+        {
+            L[i, i] = 1;
+        }
+
+        for (size_t j = 0; j < row; ++j)
+        {
+            // clear LD_vector
+            LD_vector.clear();
+
+            // 计算D[j]
+            for (size_t k = 0; k < j; ++k)
+            {
+                LD_vector[k] = L[j, k] * L[j, k] * D[k];
+            }
+
+            sum_LD = 0;
+            for (size_t k = 0; k < j; ++k)
+            {
+                sum_LD = sum_LD + LD_vector[k];
+            }
+            D[j] = A[j, j] - sum_LD;
+
+            // 计算L[i, j] 对于 i > j
+            for (size_t i = j + 1; i < row; ++i)
+            {
+                // clear LD_vector
+                LD_vector.clear();
+
+                for (size_t k = 0; k < j; ++k)
+                {
+                    LD_vector[k] = L[i, k] * L[j, k] * D[k];
+                }
+                sum_LD = 0;
+                for (size_t k = 0; k < j; ++k)
+                {
+                    sum_LD = sum_LD + LD_vector[k];
+                }
+
+                L[i, j] = (A[i, j] - sum_LD) / D[j];
+            }
+        }
+    }
 };
+
+template <typename... interiorArgs, size_t row, size_t col, typename... AArgs, typename... LArgs, typename... DArgs>
+inline static void Qsytrf(Qu_s<dim<row, col>, AArgs...> &A, Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D)
+{
+    using LDArgs = tagExtractor<QsytrfLDArgs<LArgs...>, interiorArgs...>::type;
+    using sumLDArgs = tagExtractor<QsytrfSumLDArgs<LArgs...>, interiorArgs...>::type;
+
+    Qsytrf_s<LDArgs, sumLDArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<row>, DArgs...>>::execute(A, L, D);
+}
+
+// ------------------- Qtrtri -------------------
+// inverse of a triangular matrix
+// not identical to the standard LAPACK routine, need a extra matrix to store the result
+
+// matlab code for reference
+// % for lower triangular matrix
+// function Ainv = inverseLowerTriangularMatrix(A)
+//     % 计算下三角矩阵的逆矩阵
+//     n = size(A, 1);
+//     Ainv = zeros(n, n);
+//     for i = 1:n
+//         Ainv(i, i) = 1 / A(i, i);
+//         for j = (i+1):n
+//             sum_Ainv = 0;
+//             for k = i:(j-1)
+//                 sum_Ainv = sum_Ainv + A(j, k) * Ainv(k, i);
+//             end
+//             Ainv(j, i) = -sum_Ainv / A(j, j);
+//         end
+//     end
+// end
+
+// % for upper triangular matrix
+// function Ainv = inverseUpperTriangularMatrix(A)
+//     % 计算上三角矩阵的逆矩阵
+//     n = size(A, 1);
+//     Ainv = zeros(n, n);
+//     for i = n:-1:1
+//         Ainv(i, i) = 1 / A(i, i);
+//         for j = (i-1):-1:1
+//             sum_Ainv = 0;
+//             for k = (j+1):i
+//                 sum_Ainv = sum_Ainv + A(j, k) * Ainv(k, i);
+//             end
+//             Ainv(j, i) = -sum_Ainv / A(j, j);
+//         end
+//     end
+// end
+
+template <bool isLower>
+struct QtrtriLower;
+
+// too lazy to add more configurations, currently only the sum args
+template <typename... Args>
+struct QtrtriSumAinvArgs;
+
+template <typename... Args>
+struct Qtrtri_s;
+
+template <bool isLow, typename... sumAinvArgs, size_t row, size_t col, typename... AArgs, typename... AinvArgs>
+struct Qtrtri_s<QtrtriLower<isLow>, QtrtriSumAinvArgs<sumAinvArgs...>, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, AinvArgs...>>
+{
+    static_assert(row == col, "The input matrix of Qtrtri must be square");
+
+    inline static auto sum_Ainv = Qu<sumAinvArgs...>();
+
+    inline static void execute(Qu_s<dim<row, col>, AinvArgs...> &Ainv, Qu_s<dim<row, col>, AArgs...> &A)
+    {
+        if constexpr (isLow)
+        {
+            Ainv.clear();
+
+            for (size_t i = 0; i < row; ++i)
+            {
+                Ainv[i, i] = ANUS::Qtable<ANUS::reciprocalFunc>(A[i, i]);
+                for (size_t j = i + 1; j < row; ++j)
+                {
+                    sum_Ainv = 0;
+                    for (size_t k = i; k < j; ++k)
+                    {
+                        sum_Ainv = sum_Ainv + A[j, k] * Ainv[k, i];
+                    }
+                    Ainv[j, i] = -sum_Ainv / A[j, j];
+                }
+            }
+        }
+        else
+        {
+            Ainv.clear();
+
+            for (size_t i = row - 1; i < row; --i)
+            {
+                Ainv[i, i] = 1 / A[i, i];
+                for (size_t j = i - 1; j < row; --j)
+                {
+                    sum_Ainv = 0;
+                    for (size_t k = j + 1; k < i; ++k)
+                    {
+                        sum_Ainv = sum_Ainv + A[j, k] * Ainv[k, i];
+                    }
+                    Ainv[j, i] = -sum_Ainv / A[j, j];
+                }
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, typename... AArgs, typename... AinvArgs>
+inline static void Qtrtri(Qu_s<dim<row, col>, AinvArgs...> &Ainv, Qu_s<dim<row, col>, AArgs...> &A)
+{
+    static constexpr bool isLower = tagExtractor<QtrtriLower<true>, interiorArgs...>::value;
+    using sumAinvArgs = tagExtractor<QtrtriSumAinvArgs<>, interiorArgs...>::type;
+
+    Qtrtri_s<QtrtriLower<isLower>, sumAinvArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, AinvArgs...>>::execute(Ainv, A);
+};
+
+}; // namespace QuBLAS
