@@ -3560,7 +3560,7 @@ template <typename... interiorArgs, size_t row, size_t col, typename... AArgs, t
 inline static void Qtrtri(Qu_s<dim<row, col>, AinvArgs...> &Ainv, Qu_s<dim<row, col>, AArgs...> &A)
 {
     static constexpr bool isLower = tagExtractor<QtrtriLower<true>, interiorArgs...>::value;
-    using sumAinvArgs = tagExtractor<QtrtriSumAinvArgs<>, interiorArgs...>::type;
+    using sumAinvArgs = tagExtractor<QtrtriSumAinvArgs<AinvArgs...>, interiorArgs...>::type;
 
     Qtrtri_s<QtrtriLower<isLower>, sumAinvArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, AinvArgs...>>::execute(Ainv, A);
 };
