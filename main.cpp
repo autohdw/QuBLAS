@@ -18,17 +18,12 @@ int main()
     using L_t = Qu<dim<3, 3>, type2>;
     using D_t = Qu<dim<3>, type3>;
 
-    A_t A = {69, 27, 67, 27, 38, 72, 67, 72, 142};
-    L_t L;
-    D_t D;
+    A_t A = {1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-    Qsytrf<QsytrfSumLDArgs<type4>>(L, D, A);
+    type4 a = 0.5;
 
-    using Linv_t = Qu<dim<3, 3>, type2>;
+    auto res = Qmul<FullPrec>(A, a);
 
-    Linv_t Linv;
-
-    Qtrtri(Linv, L);
-
-    Linv.display();
+    res.display();
+ 
 }
