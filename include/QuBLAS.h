@@ -2343,13 +2343,13 @@ template <int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typ
 struct MulMerger<Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, toArgs...> : MulMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>>, toArgs...>
 {};
 
-template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+template <typename... toArgs,typename QuT1, typename QuT2, size_t... dims>
 inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
     return Qmul_s<Qu<dim<dims...>, QuT1>, Qu<dim<dims...>, QuT2>, toArgs...>::mul(f1, f2);
 }
 
-template <typename QuT1, typename QuT2, size_t... dims, typename... toArgs>
+template <typename... toArgs,typename QuT1, typename QuT2, size_t... dims>
     requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
 struct Qmul_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
@@ -2368,12 +2368,14 @@ struct Qmul_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT1>
 inline constexpr auto Qmul(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
     return Qmul_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::mul(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT2>
 inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
     return Qmul_s<QuT2, Qu<dim<dims...>, QuT1>, toArgs...>::mul(f2, f1);
@@ -2445,12 +2447,14 @@ struct Qadd_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT1>
 inline constexpr auto Qadd(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
     return Qadd_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::add(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT2>
 inline constexpr auto Qadd(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
     return Qadd_s<QuT2, Qu<dim<dims...>, QuT1>, toArgs...>::add(f2, f1);
@@ -2501,12 +2505,14 @@ struct Qsub_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT1>
 inline constexpr auto Qsub(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
     return Qsub_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::sub(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT2>
 inline constexpr auto Qsub(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
     return Qsub_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>::sub(f1, f2);
@@ -2575,12 +2581,14 @@ struct Qdiv_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT1>
 inline constexpr auto Qdiv(const QuT1 f1, const Qu_s<dim<dims...>, QuT2> &f2)
 {
     return Qdiv_s<QuT1, Qu<dim<dims...>, QuT2>, toArgs...>::div(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
+requires isScalar<QuT2>
 inline constexpr auto Qdiv(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 {
     return Qdiv_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>::div(f1, f2);

@@ -20,24 +20,11 @@ int main()
 
     A_t A = {1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-    type4 a = 0.5;
+    L_t L = {1, 0, 0, 2, 1, 0, 3, 4, 1};
 
-    type3 b = 0.5;
+    auto res = Qmul<FullPrec>(L, A);
 
-    auto less = a<b;
-    auto lessEqual = a<=b;
-    auto greater = a>b;
-    auto greaterEqual = a>=b;
-    auto equal = a==b;
-    auto notEqual = a!=b;
 
-    // print all the results
-    std::cout << "a < b: " << less << std::endl;
-    std::cout << "a <= b: " << lessEqual << std::endl;
-    std::cout << "a > b: " << greater << std::endl;
-    std::cout << "a >= b: " << greaterEqual << std::endl;
-    std::cout << "a == b: " << equal << std::endl;
-    std::cout << "a != b: " << notEqual << std::endl;
  
  
 }
