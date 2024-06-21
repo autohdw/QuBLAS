@@ -22,7 +22,9 @@ int main()
 
     L_t L = {1, 0, 0, 2, 1, 0, 3, 4, 1};
 
-    auto res = Qmul<FullPrec>(L, A);
+    type4 a = 1.0;
+
+    auto res = Qmul<type2>(a, A);
 
 
  

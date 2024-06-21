@@ -1150,6 +1150,25 @@ struct isScalar_s<Qu_s<dim<dims...>, Arg>>
 template <typename T>
 inline constexpr bool isScalar = isScalar_s<T>::value;
 
+// isQu
+template <typename...Args>
+struct isQu_s
+{
+    inline static constexpr bool value = false;
+};
+
+template <typename...Args>
+struct isQu_s<Qu_s<Args...>>
+{
+    inline static constexpr bool value = true;
+};
+
+template <typename...Args>
+inline constexpr bool isQu = isQu_s<Args...>::value;
+
+ 
+
+
 // special case for gram matrix
 // 面包会有的，牛奶也会有的
 template <typename... Args>
@@ -2350,7 +2369,7 @@ inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<di
 }
 
 template <typename... toArgs,typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qmul_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = MulMerger<QuT1, QuT2, toArgs...>;
@@ -2382,7 +2401,7 @@ inline constexpr auto Qmul(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu && isScalar<QuT1> && !isQu<toArgs...>)
 struct Qmul_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = MulMerger<QuT1, QuT2, toArgs...>;
@@ -2429,7 +2448,7 @@ inline constexpr auto Qadd(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<di
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qadd_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
@@ -2461,7 +2480,7 @@ inline constexpr auto Qadd(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qadd_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
@@ -2487,7 +2506,7 @@ inline constexpr auto Qsub(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<di
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qsub_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
@@ -2537,7 +2556,7 @@ struct Qsub_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qsub_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
@@ -2563,7 +2582,7 @@ inline constexpr auto Qdiv(const Qu_s<dim<dims...>, QuT1> &f1, const Qu_s<dim<di
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT1>::isElementQu && !Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qdiv_s<Qu_s<dim<dims...>, QuT1>, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
@@ -2595,7 +2614,7 @@ inline constexpr auto Qdiv(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qdiv_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
@@ -2613,7 +2632,7 @@ struct Qdiv_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 };
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qdiv_s<Qu_s<dim<dims...>, QuT1>, QuT2, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;
