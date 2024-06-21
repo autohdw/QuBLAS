@@ -1842,6 +1842,29 @@ inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
     return Qdiv_s<QuT1, QuT2, toArgs...>::div(f1, f2);
 }
 
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qcmp(const QuT1 f1, const QuT2 f2)
+{
+    return Qcmp_s<QuT1, QuT2>::cmp(f1, f2);
+}
+
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qeq(const QuT1 f1, const QuT2 f2)
+{
+    return Qeq_s<QuT1, QuT2>::eq(f1, f2);
+}
+
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(isScalar<QuT1> && isScalar<QuT2>)
+inline constexpr auto Qneq(const QuT1 f1, const QuT2 f2)
+{
+    return Qneq_s<QuT1, QuT2>::neq(f1, f2);
+}
+ 
+
+
 // ------------------- operator overloading -------------------
 template <typename QuT1, typename QuT2>
 inline constexpr auto operator*(const QuT1 f1, const QuT2 f2)
@@ -1871,6 +1894,24 @@ template <typename QuT1, typename QuT2>
 inline constexpr auto operator/(const QuT1 f1, const QuT2 f2)
 {
     return Qdiv(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+inline constexpr auto operator==(const QuT1 f1, const QuT2 f2)
+{
+    return Qeq(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+inline constexpr auto operator!=(const QuT1 f1, const QuT2 f2)
+{
+    return Qneq(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+inline constexpr auto operator<=>(const QuT1 f1, const QuT2 f2)
+{
+    return Qcmp(f1, f2);
 }
 
 // ------------------- Complex Operations -------------------
