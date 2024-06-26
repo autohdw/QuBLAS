@@ -178,7 +178,6 @@ constexpr auto packIndex(T &&t, Ts &&...ts)
     static_assert(IDX <= sizeof...(ts), "Index out of bounds");
     if constexpr (IDX > sizeof...(ts))
     {
-        std::unreachable();
         return 0;
     }
     else
