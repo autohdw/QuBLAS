@@ -2738,6 +2738,9 @@ inline static constexpr auto reciprocalFunc = [](double x) { return 1.0 / x; };
 // reciprocal square root
 inline static constexpr auto rsqrtFunc = [](double x) { return 1.0 / std::sqrt(x); };
 
+// exponential
+inline static constexpr auto expFunc = [](double x) { return std::exp(x); };
+
 // note that essentially the lookup table is implemented via runtime calculation. This is theoretically identical to implementing a real pre-calculated lookup table in asic.
 template <double (*func)(double), int intB, int fracB, bool isS, typename QuM, typename OfM>
 inline constexpr auto Qtable(const Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> x)
