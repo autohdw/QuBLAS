@@ -13,6 +13,7 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -1137,7 +1138,9 @@ public:
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
             std::stringstream ss;
-            ss << val.data[i].toDouble();
+            ss << std::fixed << std::setprecision(4) << val.data[i].toDouble();
+
+
             max_width = std::max(max_width, static_cast<int>(ss.str().size()));
         }
         
@@ -1163,7 +1166,7 @@ public:
 
                     if (j != col - 1)
                     {
-                        os << ",";
+                        os << ", ";
                     }
                 }
 
