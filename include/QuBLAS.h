@@ -6,6 +6,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <numeric>
@@ -13,7 +14,6 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
-#include <cstring>
 
 namespace QuBLAS {
 
@@ -1121,6 +1121,52 @@ public:
         {
             displayHelper(std::make_index_sequence<dim<dims...>::elemSize>());
         }
+    }
+
+    // overload for std::cout
+    // output the double value in matrix form if it is a matrix
+    friend std::ostream &operator<<(std::ostream &os, const Qu_s &val)
+    {
+        os << "[";
+        if constexpr (dim<dims...>::dimSize == 2)
+        {
+            size_t row = dim<dims...>::template dimAt<0>;
+            size_t col = dim<dims...>::template dimAt<1>;
+
+            for (size_t i = 0; i < row; i++)
+            {
+                if (i != 0)
+                {
+                    os << ' ';
+                }
+                for (size_t j = 0; j < col; j++)
+                {
+                    os << val[i * col + j];
+                    if (j != col - 1)
+                    {
+                        os << ", ";
+                    }
+                }
+
+                if (i != row - 1)
+                {
+                    os << std::endl;
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                os << val[i];
+                if (i != dim<dims...>::elemSize - 1)
+                {
+                    os << ", ";
+                }
+            }
+        }
+        os << "]";
+        return os;
     }
 };
 
