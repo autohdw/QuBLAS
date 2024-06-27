@@ -1132,6 +1132,15 @@ public:
         std::ios_base::fmtflags original_flags = os.flags();
         std::streamsize original_precision = os.precision();
 
+        // 遍历以找出最大数字，以便设置输出宽度
+        int max_width = 0;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            std::stringstream ss;
+            ss << val.data[i].toDouble();
+            max_width = std::max(max_width, static_cast<int>(ss.str().size()));
+        }
+        
         // 设置固定小数点表示法和小数点后两位
         os << std::fixed << std::setprecision(4);
 
@@ -1150,7 +1159,7 @@ public:
                 for (size_t j = 0; j < col; j++)
                 {
                     // os << val[i * col + j];
-                    os << std::setw(7) << std::right << val[i * col + j];
+                    os << std::setw(max_width) << std::right << val[i * col + j];
 
                     if (j != col - 1)
                     {
