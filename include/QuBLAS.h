@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <numeric>
 #include <random>
@@ -1127,6 +1128,13 @@ public:
     // output the double value in matrix form if it is a matrix
     friend std::ostream &operator<<(std::ostream &os, const Qu_s &val)
     {
+        // 保存原始格式状态
+        std::ios_base::fmtflags original_flags = os.flags();
+        std::streamsize original_precision = os.precision();
+
+        // 设置固定小数点表示法和小数点后两位
+        os << std::fixed << std::setprecision(4);
+
         os << "[";
         if constexpr (dim<dims...>::dimSize == 2)
         {
@@ -1141,10 +1149,12 @@ public:
                 }
                 for (size_t j = 0; j < col; j++)
                 {
-                    os << val[i * col + j];
+                    // os << val[i * col + j];
+                    os << std::setw(7) << std::right << val[i * col + j];
+
                     if (j != col - 1)
                     {
-                        os << ", ";
+                        os << ",";
                     }
                 }
 
@@ -1166,6 +1176,11 @@ public:
             }
         }
         os << "]";
+
+        // 恢复原始格式状态
+        os.flags(original_flags);
+        os.precision(original_precision);
+
         return os;
     }
 };
