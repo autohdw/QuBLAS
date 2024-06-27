@@ -593,7 +593,7 @@ template <int intBitsInput, int fracBitsInput, bool isSignedInput, typename QuMo
 class Qu_s<intBits<intBitsInput>, fracBits<fracBitsInput>, isSigned<isSignedInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
 {
 public:
-    static_assert(0 <= (intBitsInput + fracBitsInput) <= 31, " Illegal bit width");
+    static_assert(0 <= (intBitsInput + fracBitsInput) && (intBitsInput + fracBitsInput) <= 31, "The total bits of a fixed-point number should be between 0 and 31");
 
     inline static constexpr int intB = intBitsInput;
     inline static constexpr int fracB = fracBitsInput;
