@@ -666,12 +666,27 @@ public:
     {
         int fillVal = dis(gen);
 
-        // mask it to get the last intBits + fracBits + isSigned ? 1 : 0 bits
-        auto mask = ~(~(0u) - ((1u << (intBitsInput + fracBitsInput + (isSignedInput ? 1 : 0))) - 1u));
+        // mask to get the last intBits + fracBits + isSigned? 1 : 0 bits
+        static constexpr auto mask = ~(~(0u) - ((1u << (intBitsInput + fracBitsInput + (isSignedInput ? 1 : 0))) - 1u));
 
-        fillVal = fillVal & mask;
+        auto maskedVal = fillVal & mask;
 
-        this->data = fillVal;
+        if constexpr(isSignedInput)
+        {
+            if (fillVal & (1 << (intBitsInput + fracBitsInput)))
+            {
+                this->data = (maskedVal | ~mask);
+            }
+            else
+            {
+                this->data = maskedVal;
+            }
+        }
+        else
+        {
+            this->data = maskedVal;
+        }
+
         return *this;
     }
 
@@ -1379,19 +1394,19 @@ struct SingleString_s;
 template <>
 struct SingleString_s<l2r>
 {
-    inline static constexpr auto convert(std::string_view str)
+    inline static  auto convert(std::string_view str)
     {
         return std::string(str);
     }
 
     // from function, currently indentical to convert
-    inline static constexpr auto from(std::string_view str)
+    inline static auto from(std::string_view str)
     {
         return convert(str);
     }
 
     // to function, currently indentical to convert
-    inline static constexpr auto to(std::string_view str)
+    inline static auto to(std::string_view str)
     {
         return convert(str);
     }
@@ -1402,7 +1417,7 @@ struct SingleString_s<r2l<in...>>
 {
     inline static constexpr auto index = r2l<in...>::index;
 
-    inline static constexpr auto convert(std::string_view str)
+    inline static auto convert(std::string_view str)
     {
         if (str.size() % index != 0)
         {
@@ -1422,13 +1437,13 @@ struct SingleString_s<r2l<in...>>
     }
 
     // from function, currently indentical to convert
-    inline static constexpr auto from(std::string_view str)
+    inline static auto from(std::string_view str)
     {
         return convert(str);
     }
 
     // to function, currently indentical to convert
-    inline static constexpr auto to(std::string_view str)
+    inline static auto to(std::string_view str)
     {
         return convert(str);
     }
@@ -1443,7 +1458,7 @@ struct TensorString_s<l2r, elemProcessT>
     // convert to std::array<std::string, size> with element string stored in l2r
     // the input string is expected to be a single string containing all elements, each element has length of elemLength
     template <typename QuTensorT>
-    inline static constexpr auto fromString(std::string_view str)
+    inline static auto fromString(std::string_view str)
     {
         using QuT = typename QuTensorT::innerType;
         static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
@@ -1463,7 +1478,7 @@ struct TensorString_s<l2r, elemProcessT>
     }
 
     template <size_t arrSize>
-    inline static constexpr auto toString(std::array<std::string, arrSize> arr)
+    inline static auto toString(std::array<std::string, arrSize> arr)
     {
         std::string res;
         res.reserve(arr.size() * arr[0].size());
@@ -1478,7 +1493,7 @@ struct TensorString_s<l2r, elemProcessT>
 
     // from QuBLAS type to std::array<std::string, size>
     template <size_t... dims, typename QuT>
-    inline static constexpr auto fromQu(const Qu_s<dim<dims...>, QuT> &tensor)
+    inline static auto fromQu(const Qu_s<dim<dims...>, QuT> &tensor)
     {
         std::array<std::string, Qu_s<dim<dims...>, QuT>::size> res;
 
@@ -1491,7 +1506,7 @@ struct TensorString_s<l2r, elemProcessT>
 
     // from std::array<std::string, size> to QuBLAS type
     template <typename QuTensorT>
-    inline static constexpr auto toQu(const std::array<std::string, QuTensorT::size> &arr)
+    inline static auto toQu(const std::array<std::string, QuTensorT::size> &arr)
     {
         QuTensorT res;
 
@@ -1510,7 +1525,7 @@ template <typename elemProcessT, size_t index>
 struct TensorString_s<r2l<index>, elemProcessT>
 {
     template <typename QuTensorT>
-    inline static constexpr auto fromString(std::string_view str)
+    inline static auto fromString(std::string_view str)
     {
         using QuT = typename QuTensorT::innerType;
         static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
@@ -1537,7 +1552,7 @@ struct TensorString_s<r2l<index>, elemProcessT>
     }
 
     template <size_t arrSize>
-    inline static constexpr auto toString(std::array<std::string, arrSize> arr)
+    inline static  auto toString(std::array<std::string, arrSize> arr)
     {
         std::string res;
         res.reserve(arr.size() * arr[0].size());
@@ -2263,7 +2278,7 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
 {
     inline static constexpr auto div(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
     {
-        static_assert(false, "Complex division is not allowed");
+        throw std::runtime_error("Complex division is not supported yet.");
     }
 };
 
@@ -2396,7 +2411,7 @@ struct Qdiv_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>,
 {
     inline static constexpr auto div(const auto f1, const Qu_s<Qu_s<fromRealArgs...>, Qu_s<fromImagArgs...>> f2)
     {
-        static_assert(false, "Complex division is not allowed");
+        throw std::runtime_error("Complex division is not supported yet.");
     }
 };
 

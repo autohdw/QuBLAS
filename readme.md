@@ -19,6 +19,8 @@ QuBLAS is designed to mimic the behavior of fixed-point arithmetic as closely as
 
 #include "QuBLAS.h"
 
+using namespace QuBLAS;
+
 int main()
 {
 
