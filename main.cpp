@@ -9,15 +9,18 @@ using namespace QuBLAS;
 
 int main()
 {
-    using type1 = Qu<intBits<19>, fracBits<6>>;
-    using type2 = Qu<intBits<14>, fracBits<6>>;
+    using type1 = Qu<intBits<4>, fracBits<4>, isSigned<false>>;
 
-    type1 a = 0.5;
-    type2 b = 0.5;
+    type1 a;
 
-    auto c = a + b;
+    a.fill();
 
-   
+    std::cout<<a.toDouble()<<std::endl;
+    std::cout<<a.data<<std::endl;
+
+    a.display();
+
+ 
 
 
     return 0;

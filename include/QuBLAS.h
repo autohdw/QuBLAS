@@ -666,8 +666,12 @@ public:
     {
         int fillVal = dis(gen);
 
-        static constexpr auto mask = ~((1u << 31u) - 1u - ((1u << (intBitsInput + fracBitsInput)) - 1u));
-        this->data = fillVal > 0 ? fillVal & mask : fillVal | ~mask;
+        // mask it to get the last intBits + fracBits + isSigned ? 1 : 0 bits
+        auto mask = ~(~(0u) - ((1u << (intBitsInput + fracBitsInput + (isSignedInput ? 1 : 0))) - 1u));
+
+        fillVal = fillVal & mask;
+
+        this->data = fillVal;
         return *this;
     }
 
