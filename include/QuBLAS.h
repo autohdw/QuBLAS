@@ -1962,6 +1962,13 @@ inline constexpr auto Qneq(const QuT1 f1, const QuT2 f2)
     return Qneq_s<QuT1, QuT2>::neq(f1, f2);
 }
 
+template <typename... toArgs, typename QuT>
+    requires(isScalar<QuT>)
+inline constexpr auto Qabs(const QuT f)
+{
+    return Qabs_s<QuT, toArgs...>::abs(f);
+}
+
 // ------------------- operator overloading -------------------
 template <typename QuT1, typename QuT2>
 inline constexpr auto operator*(const QuT1 f1, const QuT2 f2)
