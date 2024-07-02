@@ -104,13 +104,6 @@ struct isA_s<T1<Args1...>, T2<Args2...>>
 template <typename... Args>
 inline constexpr bool isA = isA_s<Args...>::value;
 
-// 能否方括号索引
-// ------------------- isSquareBracketIndexable -------------------
-template <typename T>
-concept isSquareBracketIndexable = requires(T a) {
-    a[0];
-};
-
 // ------------------- tagExtractor -------------------
 
 template <typename Tag, typename... Args>
@@ -935,23 +928,31 @@ public:
     constexpr Qu_s() {}
     constexpr Qu_s(auto... values) : data{values...} {}
 
-    template <typename SquareBracketIndexableType>
-        requires isSquareBracketIndexable<SquareBracketIndexableType>
-    constexpr Qu_s(const SquareBracketIndexableType &val)
+    template <typename fromArg>
+    constexpr Qu_s &operator=(const Qu_s<dim<dims...>, fromArg> &val)
     {
-        if constexpr (!isElementQu)
+        if constexpr (std::is_same_v<Arg, fromArg>)
         {
-            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
-            {
-                data[i] = val[i];
-            }
+            data = val.data;
         }
         else
         {
-            [this, &val]<size_t... index>(std::index_sequence<index...>) {
-                ((std::get<index>(data) = val[index]), ...);
-            }(std::make_index_sequence<dim<dims...>::elemSize>());
+            if constexpr (!isElementQu)
+            {
+                for (size_t i = 0; i < size; i++)
+                {
+                    data[i] = val.data[i];
+                }
+            }
+            else
+            {
+                [this, &val]<size_t... index>(std::index_sequence<index...>) {
+                    ((std::get<index>(data) = std::get<index>(val.data)), ...);
+                }(std::make_index_sequence<size>{});
+            }
         }
+
+        return *this;
     }
 
     // 拷贝构造函数
@@ -959,27 +960,6 @@ public:
 
     // 移动构造函数，来自同样模版参数的另一个Qu_s
     constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val) noexcept : data(std::move(val.data)) {}
-
-    // 拷贝赋值运算符
-    template <typename SquareBracketIndexableType>
-        requires isSquareBracketIndexable<SquareBracketIndexableType>
-    constexpr Qu_s &operator=(const SquareBracketIndexableType &val)
-    {
-        if constexpr (!isElementQu)
-        {
-            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
-            {
-                data[i] = val[i];
-            }
-        }
-        else
-        {
-            [this, &val]<size_t... index>(std::index_sequence<index...>) {
-                ((std::get<index>(data) = val[index]), ...);
-            }(std::make_index_sequence<dim<dims...>::elemSize>());
-        }
-        return *this;
-    }
 
     // 移动赋值运算符
     constexpr Qu_s &operator=(Qu_s<dim<dims...>, Arg> &&val)
