@@ -1247,7 +1247,7 @@ public:
                 }
                 for (size_t j = 0; j < col; j++)
                 {
-                    file << data[i, j].toDouble();
+                    file << this->operator[](i, j).toDouble();
 
                     if (j != col - 1)
                     {
