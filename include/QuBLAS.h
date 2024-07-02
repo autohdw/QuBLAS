@@ -16,6 +16,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <fstream>
 
 namespace QuBLAS {
 
@@ -1219,6 +1220,67 @@ public:
         os.precision(original_precision);
 
         return os;
+    }
+
+    void toMatlab(std::string filename)
+    {
+        // 如果没有带后缀，自动加上.txt
+        if (filename.find('.') == std::string::npos)
+        {
+            filename += ".txt";
+        }
+
+
+        std::ofstream file(filename);
+
+        // output to file in the matlab format
+        file << "[";
+        if constexpr (dim<dims...>::dimSize == 2)
+        {
+            size_t row = dim<dims...>::template dimAt<0>;
+            size_t col = dim<dims...>::template dimAt<1>;
+
+            for (size_t i = 0; i < row; i++)
+            {
+                if (i != 0)
+                {
+                    file << ' ';
+                }
+                for (size_t j = 0; j < col; j++)
+                {
+                    file << data[i * col + j].toDouble();
+
+                    if (j != col - 1)
+                    {
+                        file << ", ";
+                    }
+                    else 
+                    {
+                        file << ";";
+                    }
+                }
+
+                if (i != row - 1)
+                {
+                    file << std::endl;
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+            {
+                file << data[i].toDouble();
+                if (i != dim<dims...>::elemSize - 1)
+                {
+                    file << ", ";
+                }
+            }
+        
+        }
+        file << "]";
+        file.close();
+        
     }
 };
 
