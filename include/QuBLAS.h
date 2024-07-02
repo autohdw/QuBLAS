@@ -1187,8 +1187,7 @@ public:
                 }
                 for (size_t j = 0; j < col; j++)
                 {
-                    // os << val[i * col + j];
-                    os << std::setw(max_width) << std::right << val[i * col + j];
+                    os << std::setw(max_width) << std::right << val[i, j].toDouble();
 
                     if (j != col - 1)
                     {
@@ -1248,7 +1247,7 @@ public:
                 }
                 for (size_t j = 0; j < col; j++)
                 {
-                    file << data[i * col + j].toDouble();
+                    file << data[i, j].toDouble();
 
                     if (j != col - 1)
                     {
