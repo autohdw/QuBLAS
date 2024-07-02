@@ -2716,7 +2716,7 @@ inline constexpr auto Qsub(const Qu_s<dim<dims...>, QuT1> &f1, const QuT2 f2)
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2, size_t... dims>
-    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu)
+    requires(!Qu_s<dim<dims...>, QuT2>::isElementQu && !isQu<toArgs...>)
 struct Qsub_s<QuT1, Qu_s<dim<dims...>, QuT2>, toArgs...>
 {
     using merger = AddMerger<QuT1, QuT2, toArgs...>;

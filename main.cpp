@@ -9,19 +9,14 @@ using namespace QuBLAS;
 
 int main()
 {
-    using type1 = Qu<>;
-    Qu<dim<3, 2>, type1> q1 = {1, 2, 3, 4, 5, 6};
+    using type1 = Qu<intBits<3>, fracBits<3>>;
+    using type2 = Qu<intBits<2>, fracBits<3>>;
+    using type3 = Qu<intBits<3>, fracBits<4>>;
 
-    std::cout << q1 << std::endl;
+    Qu<dim<3>, type1> a = {1, 2, 3};
+    Qu<dim<3>, type2> b = {4, 5, 6};
 
-    Qu<dim<2>, type1> q2 = {1, 2};
+    auto c = Qsub<type3>(a, b);
 
-    std::cout << q2 << std::endl;
-
-    Qu<dim<3>, type1> q3 ;
-
-
-    Qgemv(q3, q1, q2);
-
-    std::cout << q3 << std::endl;
+    c.display();
 }
