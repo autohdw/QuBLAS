@@ -671,7 +671,7 @@ public:
 
         auto maskedVal = fillVal & mask;
 
-        if constexpr(isSignedInput)
+        if constexpr (isSignedInput)
         {
             if (fillVal & (1 << (intBitsInput + fracBitsInput)))
             {
@@ -725,6 +725,7 @@ public:
         }
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << " " << std::endl;
         std::cout << "Binary: " << std::bitset<intB + fracB + (isS ? 1 : 0)>(data) << std::endl;
+        std::cout << "Binary 32: " << std::bitset<32>(data) << std::endl;
         std::cout << "Hex: " << std::hex << data << std::dec << std::endl;
 
         std::cout << "Decimal: " << shifter<fracB>::toDouble(data) << std::endl;
@@ -1159,10 +1160,9 @@ public:
             std::stringstream ss;
             ss << std::fixed << std::setprecision(4) << val.data[i].toDouble();
 
-
             max_width = std::max(max_width, static_cast<int>(ss.str().size()));
         }
-        
+
         // 设置固定小数点表示法和小数点后两位
         os << std::fixed << std::setprecision(4);
 
@@ -1394,7 +1394,7 @@ struct SingleString_s;
 template <>
 struct SingleString_s<l2r>
 {
-    inline static  auto convert(std::string_view str)
+    inline static auto convert(std::string_view str)
     {
         return std::string(str);
     }
@@ -1552,7 +1552,7 @@ struct TensorString_s<r2l<index>, elemProcessT>
     }
 
     template <size_t arrSize>
-    inline static  auto toString(std::array<std::string, arrSize> arr)
+    inline static auto toString(std::array<std::string, arrSize> arr)
     {
         std::string res;
         res.reserve(arr.size() * arr[0].size());
@@ -1862,8 +1862,15 @@ struct Qabs_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>,
 {
     inline static constexpr auto abs(const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f1)
     {
-        int absVal = std::abs(f1.data);
-        return Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>(absVal, DirectAssignTag());
+        if constexpr (!fromIsSigned)
+        {
+            return f1;
+        }
+        else
+        {
+            int absVal = std::abs(f1.data);
+            return Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>(absVal, DirectAssignTag());
+        }
     }
 };
 
