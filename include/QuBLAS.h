@@ -961,6 +961,12 @@ public:
     constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val) noexcept : data(std::move(val.data)) {}
 
     // 拷贝赋值运算符
+    constexpr Qu_s &operator=(Qu_s<dim<dims...>, Arg> &val) 
+    {
+        data = val.data;
+        return *this;
+    }
+
     template <typename SquareBracketIndexableType>
         requires isSquareBracketIndexable<SquareBracketIndexableType>
     constexpr Qu_s &operator=(const SquareBracketIndexableType &val)
