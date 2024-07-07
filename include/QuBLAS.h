@@ -2585,4 +2585,234 @@ inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
     return Qdiv_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::div(f1, f2);
 }
 
+
+
+// ------------------- Advanced Nonlinear Universal Subprograms -------------------
+// the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
+// note that the operations are not standard BLAS operations, use ANUS:: to get access to them
+
+namespace ANUS {
+
+// polynomial fitting
+template <auto... an>
+struct PolyImpl;
+
+template <typename anT, anT an>
+struct PolyImpl<an>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return Qadd<anT>(Qmul<anT>(prev, x), an);
+    }
+};
+
+template <typename a1T, a1T a1, typename... anT, anT... an>
+struct PolyImpl<a1, an...>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
+    }
+};
+
+template <auto a0, auto... an>
+    requires(sizeof...(an) > 0)
+struct Poly
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return PolyImpl<an...>::execute(a0, x);
+    }
+};
+
+// Approx
+
+template <auto... points>
+    requires(std::is_arithmetic_v<decltype(points)> && ...)
+struct segments;
+
+template <typename... polynomials>
+struct polys;
+
+template <typename... Args>
+struct Approx;
+
+template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
+struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
+{
+    template <typename T>
+    static inline constexpr T execute(const T x)
+    {
+        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
+        {
+            return T(firstPoly::execute(x));
+        }
+        else
+        {
+            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
+        }
+    }
+};
+
+template <typename polynominal>
+struct Approx<segments<>, polys<polynominal>>
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return polynominal::execute(x);
+    }
+};
+
+// lookup tables
+
+// some pre-defined functions, stored as std::function
+
+// sprt
+inline static constexpr auto sqrtFunc = [](double x) { return std::sqrt(x); };
+
+// reciprocal
+inline static constexpr auto reciprocalFunc = [](double x) { return 1.0 / x; };
+
+// reciprocal square root
+inline static constexpr auto rsqrtFunc = [](double x) { return 1.0 / std::sqrt(x); };
+
+// exponential
+inline static constexpr auto expFunc = [](double x) { return std::exp(x); };
+
+// note that essentially the lookup table is implemented via runtime calculation. This is theoretically identical to implementing a real pre-calculated lookup table in asic.
+template <double (*func)(double), int intB, int fracB, bool isS, typename QuM, typename OfM>
+inline constexpr auto Qtable(const Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> x)
+{
+    using interiorType = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<RND::ZERO>, OfMode<OfM>>;
+
+    interiorType val = func(x.toDouble());
+
+    return Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>(val.data, DirectAssignTag());
+}
+
+} // namespace ANUS
+
+// ===================== BLAS =====================
+
+// ------------------- Reducer -------------------
+// it's not a standard BLAS operation, but tree-based reduction is a common operation in asic design
+
+template <typename... Args>
+struct Reducer
+{
+    template <bool condition, size_t layer>
+    struct ReducerTypeSelector;
+
+    // 递归展开的情况，满足条件
+    template <size_t layer>
+    struct ReducerTypeSelector<true, layer>
+    {
+        using type = TypeAt<layer >= sizeof...(Args) ? sizeof...(Args) - 1 : layer, TypeList<Args...>>;
+    };
+
+    // 基础情况，不满足计算条件的部分
+    template <size_t layer>
+    struct ReducerTypeSelector<false, layer>
+    {
+        using type = std::nullptr_t;
+    };
+
+    // version for arbitrary input, please avoid using this version for efficiency consideration
+    template <size_t layer, typename... Ts, size_t... I>
+    static inline auto reduce_impl(std::index_sequence<I...>,
+                                   const Ts... quants)
+    {
+        // (quants.display("layer " + std::to_string(layer)), ...);
+        if constexpr (sizeof...(quants) == 1)
+        {
+            return packIndex<0>(quants...);
+        }
+        else
+        {
+            using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+            if constexpr (sizeof...(quants) % 2 == 0)
+            {
+                return reduce_impl<layer + 1>(
+                    std::make_index_sequence<sizeof...(I) / 2>{},
+                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
+            }
+            else
+            {
+                auto res = reduce_impl<layer + 1>(
+                    std::make_index_sequence<sizeof...(I) / 2>{},
+                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
+
+                return Qadd<type>(res, packIndex<sizeof...(quants) - 1>(quants...));
+            }
+        }
+    }
+
+    template <typename... Ts>
+    static auto reduce(const Ts... quants)
+    {
+        return reduce_impl<0>(std::make_index_sequence<sizeof...(Ts) / 2>{}, quants...);
+    }
+
+    // version for a vec
+    template <size_t layer, size_t len, typename... fromArgs>
+    static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+        // quants.display("layer " + std::to_string(layer));
+
+        static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
+        if constexpr (len == 1)
+        {
+            return quants.template get<0>();
+        }
+        else
+        {
+            [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
+                ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
+            }(std::make_index_sequence<len / 2>());
+
+            if constexpr (len % 2 != 0)
+            {
+                res.template get<(len + 1) / 2 - 1>() = quants.template get<len - 1>();
+            }
+
+            return reduce_impl<layer + 1>(res);
+        }
+    }
+
+    template <size_t len, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        return reduce_impl<0>(quants);
+    }
+
+    template <size_t... dims, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<dims...>, fromArgs...> &quants)
+    {
+        static Qu_s<dim<dim<dims...>::elemSize>, fromArgs...> vec;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            vec[i] = quants[i];
+        }
+        return reduce(vec);
+    }
+};
+
+template <typename... Args>
+struct ReducerInputHelper : public Reducer<Args...>
+{
+};
+
+template <typename... Args>
+struct ReducerInputHelper<TypeList<Args...>> : public Reducer<Args...>
+{
+};
+
+template <typename... Args, typename... Ts>
+inline auto constexpr Qreduce(const Ts... quants)
+{
+    return ReducerInputHelper<Args...>::reduce(quants...);
+}
+
+
 } // namespace QuBLAS
