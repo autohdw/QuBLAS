@@ -1381,6 +1381,8 @@ class Qu_s<dim<dims...>, Arg>
 public:
     std::array<Arg, dim<dims...>::elemSize> data;
 
+    using size = dim<dims...>;
+
     template <typename First, typename... Rest>
     inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
     {
@@ -1693,6 +1695,39 @@ struct QuInputHelper<dim<dims...>, TypeList<Args...>>
 {
     using type = Qu_s<dim<dims...>, TypeList<Args...>>;
 };
+
+template <typename T>
+struct isScalar_s
+{
+    static inline constexpr bool value = false;
+};
+
+template <int intBitsInput, int fracBitsInput, bool isSignedInput, typename QuModeInput, typename OfModeInput>
+struct isScalar_s<Qu_s<intBits<intBitsInput>, fracBits<fracBitsInput>, isSigned<isSignedInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>>
+{
+    static inline constexpr bool value = true;
+};
+
+template <>
+struct isScalar_s<Qu_s<QuDynamic>>
+{
+    static inline constexpr bool value = true;
+};
+
+template <typename... realArgs, typename... imagArgs>
+struct isScalar_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>>
+{
+    static inline constexpr bool value = true;
+};
+
+template <typename QuT, size_t... dims>
+struct isScalar_s<Qu_s<dim<dims...>, QuT>>
+{
+    static inline constexpr bool value = false;
+};
+
+template <typename T>
+inline constexpr bool isScalar = isScalar_s<T>::value;
 
 // ------------------- Basic Operations -------------------
 struct FullPrec;
@@ -2125,6 +2160,125 @@ struct Qdiv_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, TypeList<toArgs...>>
     }
 };
 
+// abs
+template <typename... Args>
+struct Qabs_s;
+
+// specialization for static Qu_s
+template <typename... toArgs, int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode>
+struct Qabs_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, TypeList<toArgs...>>
+{
+
+    inline static constexpr auto abs(const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f)
+    {
+        if constexpr (!fromIsSigned)
+        {
+            return f;
+        }
+        else
+        {
+            auto res = f.data < 0 ? -f.data : f.data;
+            return Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>(res, DirectAssignTag());
+        }
+    }
+};
+
+// specialization for QuDynamic
+template <typename... toArgs>
+struct Qabs_s<Qu_s<QuDynamic>, TypeList<toArgs...>>
+{
+    inline static auto abs(const Qu_s<QuDynamic> f)
+    {
+        if (!f.isS)
+        {
+            return f;
+        }
+        else
+        {
+            Qu<QuDynamic> res = f;
+            res.intB += 1;
+            res.data = f.data < 0 ? -f.data : f.data;
+
+            return res;
+        }
+    }
+};
+
+// neg
+template <typename... Args>
+struct Qneg_s;
+
+// specialization for static Qu_s
+template <typename... toArgs, int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode>
+struct Qneg_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, TypeList<toArgs...>>
+{
+    inline static constexpr auto neg(const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f)
+    {
+        return Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<true>, QuMode<fromQuMode>, OfMode<fromOfMode>>(-f.data, DirectAssignTag());
+    }
+};
+
+// specialization for QuDynamic
+template <typename... toArgs>
+struct Qneg_s<Qu_s<QuDynamic>, TypeList<toArgs...>>
+{
+    inline static auto neg(const Qu_s<QuDynamic> f)
+    {
+        Qu<QuDynamic> res = f;
+        res.intB += 1;
+        res.isS = true;
+        res.data = -f.data;
+        return res;
+    }
+};
+
+// specialization for complex
+template <typename... toArgs, typename... realArgs, typename... imagArgs>
+struct Qneg_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, TypeList<toArgs...>>
+{
+    inline static auto neg(const Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>> f)
+    {
+        auto realNeg = Qneg<toArgs...>(f.real);
+        auto imagNeg = Qneg<toArgs...>(f.imag);
+        return Qcomplex<decltype(realNeg), decltype(imagNeg)>(realNeg, imagNeg);
+    }
+};
+
+template <typename... Args>
+struct Qcmp_s;
+
+// specialization for static Qu_s
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct Qcmp_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+
+    inline static constexpr auto cmp(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        return (static_cast<long long int>(f1.data) << shiftA) <=> (static_cast<long long int>(f2.data) << shiftB);
+    }
+};
+
+// specialization for QuDynamic
+template <typename... toArgs, typename... fromArgs1, typename... fromArgs2>
+    requires std::is_same_v<Qu_s<fromArgs1...>, Qu_s<QuDynamic>> || std::is_same_v<Qu_s<fromArgs2...>, Qu_s<QuDynamic>>
+struct Qcmp_s<Qu_s<fromArgs1...>, Qu_s<fromArgs2...>, TypeList<toArgs...>>
+{
+    inline static auto cmp(const Qu_s<fromArgs1...> f1, const Qu_s<fromArgs2...> f2)
+    {
+
+        int fromFrac1 = f1.fracB;
+
+        int fromFrac2 = f2.fracB;
+
+        int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+        int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+
+        return (static_cast<long long int>(f1.data) << shiftA) <=> (static_cast<long long int>(f2.data) << shiftB);
+    }
+};
+
 // ------------------- Complex Operations -------------------
 // Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i
 template <typename... Args>
@@ -2489,330 +2643,578 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
 
 // ------------------- Basic tensor operations -------------------
 
-template <size_t... dims1, size_t... dims2, typename QuT1, typename QuT2, typename... toArgs>
-struct Qmul_s<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims2...>, QuT2>, toArgs...>
+// use [] to call the object if it is a tensor, otherwise just return the object
+template <typename T>
+inline auto autoCall(const T &obj, auto... index)
 {
-    static_assert(std::is_same_v<dim<dims1...>, dim<dims2...>>, "Tensor dimensions must match for multiplication. Broadcasting is not supported yet.");
-
-    inline static constexpr auto mul(const Qu_s<dim<dims1...>, QuT1> f1, const Qu_s<dim<dims2...>, QuT2> f2)
+    if constexpr (isScalar<T>)
     {
-        auto res = Qmul<toArgs...>(f1[0], f2[0]);
-        Qu<dim<dims1...>, decltype(res)> result;
-        result[0].assign(res);
-        for (size_t i = 1; i < dim<dims1...>::elemSize; i++)
-        {
-            result[i].assign(Qmul<toArgs...>(f1[i], f2[i]));
-        }
-        return result;
+        return obj;
+    }
+    else
+    {
+        return obj[index...];
+    }
+}
+
+template <typename... Args>
+class MulExpression;
+
+template <typename QuT1, typename QuT2, typename... toArgs>
+class MulExpression<QuT1, QuT2, toArgs...>
+{
+    const QuT1 &q1;
+    const QuT2 &q2;
+
+public:
+    using size = typename QuT1::size;
+
+    MulExpression(const QuT1 &f1, const QuT2 &f2)
+        : q1(f1), q2(f2) {}
+
+    auto operator[](auto... index) const
+    {
+        return Qmul<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
     }
 };
 
-template <size_t... dims1, size_t... dims2, typename QuT1, typename QuT2, typename... toArgs>
-struct Qadd_s<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims2...>, QuT2>, toArgs...>
-{
-    static_assert(std::is_same_v<dim<dims1...>, dim<dims2...>>, "Tensor dimensions must match for addition. Broadcasting is not supported yet.");
+template <typename... Args>
+struct QmulTensor_s;
 
-    inline static constexpr auto add(const Qu_s<dim<dims1...>, QuT1> f1, const Qu_s<dim<dims2...>, QuT2> f2)
+template <typename QuT1, typename QuT2, typename... toArgs>
+struct QmulTensor_s<QuT1, QuT2, toArgs...>
+{
+    inline static constexpr auto mul(const QuT1 &f1, const QuT2 &f2)
     {
-        auto res = Qadd<toArgs...>(f1[0], f2[0]);
-        Qu<dim<dims1...>, decltype(res)> result;
-        result[0].assign(res);
-        for (size_t i = 1; i < dim<dims1...>::elemSize; i++)
-        {
-            result[i].assign(Qadd<toArgs...>(f1[i], f2[i]));
-        }
-        return result;
+        return MulExpression<QuT1, QuT2, toArgs...>(f1, f2);
     }
 };
 
-template <size_t... dims1, size_t... dims2, typename QuT1, typename QuT2, typename... toArgs>
-struct Qsub_s<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims2...>, QuT2>, toArgs...>
-{
-    static_assert(std::is_same_v<dim<dims1...>, dim<dims2...>>, "Tensor dimensions must match for subtraction. Broadcasting is not supported yet.");
+template <typename... Args>
+class AddExpression;
 
-    inline static constexpr auto sub(const Qu_s<dim<dims1...>, QuT1> f1, const Qu_s<dim<dims2...>, QuT2> f2)
+template <typename QuT1, typename QuT2, typename... toArgs>
+class AddExpression<QuT1, QuT2, toArgs...>
+{
+    const QuT1 &q1;
+    const QuT2 &q2;
+
+public:
+    using size = typename QuT1::size;
+
+    AddExpression(const QuT1 &f1, const QuT2 &f2)
+        : q1(f1), q2(f2) {}
+
+    auto operator[](auto... index) const
     {
-        auto res = Qsub<toArgs...>(f1[0], f2[0]);
-        Qu<dim<dims1...>, decltype(res)> result;
-        result[0].assign(res);
-        for (size_t i = 1; i < dim<dims1...>::elemSize; i++)
-        {
-            result[i].assign(Qsub<toArgs...>(f1[i], f2[i]));
-        }
-        return result;
+        return Qadd<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
     }
 };
 
-template <size_t... dims1, size_t... dims2, typename QuT1, typename QuT2, typename... toArgs>
-struct Qdiv_s<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims2...>, QuT2>, toArgs...>
-{
-    static_assert(std::is_same_v<dim<dims1...>, dim<dims2...>>, "Tensor dimensions must match for division. Broadcasting is not supported yet.");
+template <typename... Args>
+struct QaddTensor_s;
 
-    inline static constexpr auto div(const Qu_s<dim<dims1...>, QuT1> f1, const Qu_s<dim<dims2...>, QuT2> f2)
+template <typename QuT1, typename QuT2, typename... toArgs>
+struct QaddTensor_s<QuT1, QuT2, toArgs...>
+{
+    inline static constexpr auto add(const QuT1 &f1, const QuT2 &f2)
     {
-        auto res = Qdiv<toArgs...>(f1[0], f2[0]);
-        Qu<dim<dims1...>, decltype(res)> result;
-        result[0].assign(res);
-        for (size_t i = 1; i < dim<dims1...>::elemSize; i++)
-        {
-            result[i].assign(Qdiv<toArgs...>(f1[i], f2[i]));
-        }
-        return result;
+        return AddExpression<QuT1, QuT2, toArgs...>(f1, f2);
     }
 };
+
+template <typename... Args>
+class SubExpression;
+
+template <typename QuT1, typename QuT2, typename... toArgs>
+class SubExpression<QuT1, QuT2, toArgs...>
+{
+    const QuT1 &q1;
+    const QuT2 &q2;
+
+public:
+    using size = typename QuT1::size;
+
+    SubExpression(const QuT1 &f1, const QuT2 &f2)
+        : q1(f1), q2(f2) {}
+
+    auto operator[](auto... index) const
+    {
+        return Qsub<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
+    }
+};
+
+template <typename... Args>
+struct QsubTensor_s;
+
+template <typename QuT1, typename QuT2, typename... toArgs>
+struct QsubTensor_s<QuT1, QuT2, toArgs...>
+{
+    inline static constexpr auto sub(const QuT1 &f1, const QuT2 &f2)
+    {
+        return SubExpression<QuT1, QuT2, toArgs...>(f1, f2);
+    }
+};
+
+template <typename... Args>
+class DivExpression;
+
+template <typename QuT1, typename QuT2, typename... toArgs>
+class DivExpression<QuT1, QuT2, toArgs...>
+{
+    const QuT1 &q1;
+    const QuT2 &q2;
+
+public:
+    using size = typename QuT1::size;
+
+    DivExpression(const QuT1 &f1, const QuT2 &f2)
+        : q1(f1), q2(f2) {}
+
+    auto operator[](auto... index) const
+    {
+        return Qdiv<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
+    }
+};
+
+template <typename... Args>
+struct QdivTensor_s;
+
+template <typename QuT1, typename QuT2, typename... toArgs>
+struct QdivTensor_s<QuT1, QuT2, toArgs...>
+{
+    inline static constexpr auto div(const QuT1 &f1, const QuT2 &f2)
+    {
+        return DivExpression<QuT1, QuT2, toArgs...>(f1, f2);
+    }
+};
+
+template <typename... Args>
+class AbsExpression;
+
+template <typename QuT, typename... toArgs>
+class AbsExpression<QuT, toArgs...>
+{
+    const QuT &q;
+
+public:
+    using size = typename QuT::size;
+
+    AbsExpression(const QuT &f)
+        : q(f) {}
+
+    auto operator[](auto... index) const
+    {
+        return Qabs<toArgs...>(q[index...]);
+    }
+};
+
+template <typename... Args>
+struct QabsTensor_s;
+
+template <typename QuT, typename... toArgs>
+struct QabsTensor_s<QuT, toArgs...>
+{
+    inline static constexpr auto abs(const QuT &f)
+    {
+        return AbsExpression<QuT, toArgs...>(f);
+    }
+};
+
+template <typename... Args>
+class NegExpression;
+
+template <typename QuT, typename... toArgs>
+class NegExpression<QuT, toArgs...>
+{
+    const QuT &q;
+
+public:
+    using size = typename QuT::size;
+
+    NegExpression(const QuT &f)
+        : q(f) {}
+
+    auto operator[](auto... index) const
+    {
+        return Qneg<toArgs...>(q[index...]);
+    }
+};
+
+template <typename... Args>
+struct QnegTensor_s;
+
+template <typename QuT, typename... toArgs>
+struct QnegTensor_s<QuT, toArgs...>
+{
+    inline static constexpr auto neg(const QuT &f)
+    {
+        return NegExpression<QuT, toArgs...>(f);
+    }
+};
+
+// ------------------- Functions -------------------
+
+// scalar functions
 
 template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qmul(const QuT1 f1, const QuT2 f2)
 {
     return Qmul_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::mul(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qadd(const QuT1 f1, const QuT2 f2)
 {
     return Qadd_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::add(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qsub(const QuT1 f1, const QuT2 f2)
 {
     return Qsub_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::sub(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
 {
     return Qdiv_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::div(f1, f2);
 }
 
-
-
-// ------------------- Advanced Nonlinear Universal Subprograms -------------------
-// the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
-// note that the operations are not standard BLAS operations, use ANUS:: to get access to them
-
-namespace ANUS {
-
-// polynomial fitting
-template <auto... an>
-struct PolyImpl;
-
-template <typename anT, anT an>
-struct PolyImpl<an>
+template <typename... toArgs, typename QuT>
+    requires isScalar<QuT>
+inline constexpr auto Qabs(const QuT f)
 {
-    static inline constexpr auto execute(const auto prev, const auto x)
-    {
-        return Qadd<anT>(Qmul<anT>(prev, x), an);
-    }
-};
-
-template <typename a1T, a1T a1, typename... anT, anT... an>
-struct PolyImpl<a1, an...>
-{
-    static inline constexpr auto execute(const auto prev, const auto x)
-    {
-        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
-    }
-};
-
-template <auto a0, auto... an>
-    requires(sizeof...(an) > 0)
-struct Poly
-{
-    static inline constexpr auto execute(const auto x)
-    {
-        return PolyImpl<an...>::execute(a0, x);
-    }
-};
-
-// Approx
-
-template <auto... points>
-    requires(std::is_arithmetic_v<decltype(points)> && ...)
-struct segments;
-
-template <typename... polynomials>
-struct polys;
-
-template <typename... Args>
-struct Approx;
-
-template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
-struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
-{
-    template <typename T>
-    static inline constexpr T execute(const T x)
-    {
-        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
-        {
-            return T(firstPoly::execute(x));
-        }
-        else
-        {
-            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
-        }
-    }
-};
-
-template <typename polynominal>
-struct Approx<segments<>, polys<polynominal>>
-{
-    static inline constexpr auto execute(const auto x)
-    {
-        return polynominal::execute(x);
-    }
-};
-
-// lookup tables
-
-// some pre-defined functions, stored as std::function
-
-// sprt
-inline static constexpr auto sqrtFunc = [](double x) { return std::sqrt(x); };
-
-// reciprocal
-inline static constexpr auto reciprocalFunc = [](double x) { return 1.0 / x; };
-
-// reciprocal square root
-inline static constexpr auto rsqrtFunc = [](double x) { return 1.0 / std::sqrt(x); };
-
-// exponential
-inline static constexpr auto expFunc = [](double x) { return std::exp(x); };
-
-// note that essentially the lookup table is implemented via runtime calculation. This is theoretically identical to implementing a real pre-calculated lookup table in asic.
-template <double (*func)(double), int intB, int fracB, bool isS, typename QuM, typename OfM>
-inline constexpr auto Qtable(const Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> x)
-{
-    using interiorType = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<RND::ZERO>, OfMode<OfM>>;
-
-    interiorType val = func(x.toDouble());
-
-    return Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>(val.data, DirectAssignTag());
+    return Qabs_s<QuT, MergerArgsWrapper<toArgs...>>::abs(f);
 }
 
-} // namespace ANUS
-
-// ===================== BLAS =====================
-
-// ------------------- Reducer -------------------
-// it's not a standard BLAS operation, but tree-based reduction is a common operation in asic design
-
-template <typename... Args>
-struct Reducer
+template <typename... toArgs, typename QuT>
+    requires isScalar<QuT>
+inline constexpr auto Qneg(const QuT f)
 {
-    template <bool condition, size_t layer>
-    struct ReducerTypeSelector;
-
-    // 递归展开的情况，满足条件
-    template <size_t layer>
-    struct ReducerTypeSelector<true, layer>
-    {
-        using type = TypeAt<layer >= sizeof...(Args) ? sizeof...(Args) - 1 : layer, TypeList<Args...>>;
-    };
-
-    // 基础情况，不满足计算条件的部分
-    template <size_t layer>
-    struct ReducerTypeSelector<false, layer>
-    {
-        using type = std::nullptr_t;
-    };
-
-    // version for arbitrary input, please avoid using this version for efficiency consideration
-    template <size_t layer, typename... Ts, size_t... I>
-    static inline auto reduce_impl(std::index_sequence<I...>,
-                                   const Ts... quants)
-    {
-        // (quants.display("layer " + std::to_string(layer)), ...);
-        if constexpr (sizeof...(quants) == 1)
-        {
-            return packIndex<0>(quants...);
-        }
-        else
-        {
-            using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
-            if constexpr (sizeof...(quants) % 2 == 0)
-            {
-                return reduce_impl<layer + 1>(
-                    std::make_index_sequence<sizeof...(I) / 2>{},
-                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
-            }
-            else
-            {
-                auto res = reduce_impl<layer + 1>(
-                    std::make_index_sequence<sizeof...(I) / 2>{},
-                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
-
-                return Qadd<type>(res, packIndex<sizeof...(quants) - 1>(quants...));
-            }
-        }
-    }
-
-    template <typename... Ts>
-    static auto reduce(const Ts... quants)
-    {
-        return reduce_impl<0>(std::make_index_sequence<sizeof...(Ts) / 2>{}, quants...);
-    }
-
-    // version for a vec
-    template <size_t layer, size_t len, typename... fromArgs>
-    static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
-    {
-        using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
-        // quants.display("layer " + std::to_string(layer));
-
-        static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
-        if constexpr (len == 1)
-        {
-            return quants.template get<0>();
-        }
-        else
-        {
-            [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
-                ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
-            }(std::make_index_sequence<len / 2>());
-
-            if constexpr (len % 2 != 0)
-            {
-                res.template get<(len + 1) / 2 - 1>() = quants.template get<len - 1>();
-            }
-
-            return reduce_impl<layer + 1>(res);
-        }
-    }
-
-    template <size_t len, typename... fromArgs>
-    static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
-    {
-        return reduce_impl<0>(quants);
-    }
-
-    template <size_t... dims, typename... fromArgs>
-    static auto reduce(const Qu_s<dim<dims...>, fromArgs...> &quants)
-    {
-        static Qu_s<dim<dim<dims...>::elemSize>, fromArgs...> vec;
-        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
-        {
-            vec[i] = quants[i];
-        }
-        return reduce(vec);
-    }
-};
-
-template <typename... Args>
-struct ReducerInputHelper : public Reducer<Args...>
-{
-};
-
-template <typename... Args>
-struct ReducerInputHelper<TypeList<Args...>> : public Reducer<Args...>
-{
-};
-
-template <typename... Args, typename... Ts>
-inline auto constexpr Qreduce(const Ts... quants)
-{
-    return ReducerInputHelper<Args...>::reduce(quants...);
+    return Qneg_s<QuT, MergerArgsWrapper<toArgs...>>::neg(f);
 }
 
+// operator overloading
+template <typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto operator*(const QuT1 f1, const QuT2 f2)
+{
+    return Qmul(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto operator+(const QuT1 f1, const QuT2 f2)
+{
+    return Qadd(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto operator-(const QuT1 f1, const QuT2 f2)
+{
+    return Qsub(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto operator/(const QuT1 f1, const QuT2 f2)
+{
+    return Qdiv(f1, f2);
+}
+
+template <typename QuT>
+    requires isScalar<QuT>
+inline constexpr auto operator-(const QuT f1)
+{
+    return Qneg(f1);
+}
+template <typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto operator<=>(const QuT1 f1, const QuT2 f2)
+{
+    return Qcmp_s<QuT1, QuT2, MergerArgsWrapper<>>::cmp(f1, f2);
+}
+
+// tensor functions
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto Qmul(const QuT1 &f1, const QuT2 &f2)
+{
+    return QmulTensor_s<QuT1, QuT2, toArgs...>::mul(f1, f2);
+}
+
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto Qadd(const QuT1 &f1, const QuT2 &f2)
+{
+    return QaddTensor_s<QuT1, QuT2, toArgs...>::add(f1, f2);
+}
+
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto Qsub(const QuT1 &f1, const QuT2 &f2)
+{
+    return QsubTensor_s<QuT1, QuT2, toArgs...>::sub(f1, f2);
+}
+
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto Qdiv(const QuT1 &f1, const QuT2 &f2)
+{
+    return QdivTensor_s<QuT1, QuT2, toArgs...>::div(f1, f2);
+}
+
+template <typename... toArgs, typename QuT>
+    requires(!isScalar<QuT>)
+inline constexpr auto Qabs(const QuT &f)
+{
+    return QabsTensor_s<QuT, toArgs...>::abs(f);
+}
+
+template <typename... toArgs, typename QuT>
+    requires(!isScalar<QuT>)
+inline constexpr auto Qneg(const QuT &f)
+{
+    return QnegTensor_s<QuT, toArgs...>::neg(f);
+}
+
+// operator overloading
+template <typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto operator*(const QuT1 &f1, const QuT2 &f2)
+{
+    return Qmul(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto operator+(const QuT1 &f1, const QuT2 &f2)
+{
+    return Qadd(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto operator-(const QuT1 &f1, const QuT2 &f2)
+{
+    return Qsub(f1, f2);
+}
+
+template <typename QuT1, typename QuT2>
+    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
+inline constexpr auto operator/(const QuT1 &f1, const QuT2 &f2)
+{
+    return Qdiv(f1, f2);
+}
+
+template <typename QuT>
+    requires(!isScalar<QuT>)
+inline constexpr auto operator-(const QuT &f1)
+{
+    return Qneg(f1);
+}
+
+// ------------------- Slice -------------------
+
+// static slice
+template <auto... Args>
+struct sr;
+
+template <size_t d, size_t L, size_t U>
+struct sr<d, L, U>
+{
+    static constexpr size_t dimIndex = d;
+    static constexpr size_t lower = L;
+    static constexpr size_t upper = U;
+};
+
+// dynamic slice
+template <>
+struct sr<>
+{
+    const size_t dimIndex;
+    const size_t lower;
+    const size_t upper;
+
+    sr(size_t dimIndex, size_t lower, size_t upper) : dimIndex(dimIndex), lower(lower), upper(upper) {}
+};
+
+using srd = sr<>;
+
+template <size_t targetDimIndex, typename... srs>
+struct dimExtractor
+{
+};
+
+template <size_t targetDimIndex, typename sr1, typename... srs>
+    requires(sr1::dimIndex == targetDimIndex)
+struct dimExtractor<targetDimIndex, sr1, srs...>
+{
+    inline static constexpr size_t lower = sr1::lower;
+    inline static constexpr size_t upper = sr1::upper;
+};
+
+template <size_t targetDimIndex, typename sr1, typename... srs>
+    requires(sr1::dimIndex != targetDimIndex)
+struct dimExtractor<targetDimIndex, sr1, srs...> : dimExtractor<targetDimIndex, srs...>
+{};
+
+template <size_t targetDimIndex>
+struct dimExtractor<targetDimIndex>
+{
+    inline static constexpr size_t lower = 0;
+    inline static constexpr size_t upper = 0;
+};
+
+template <typename... Args>
+struct SliceExpression
+{};
+
+// static slice
+template <typename tensorT, typename... srs>
+struct SliceExpression<tensorT, srs...> : SliceExpression<std::make_index_sequence<tensorT::size::dimSize>, tensorT, srs...>
+{};
+
+template <typename tensorT, typename... srs, size_t... Is>
+struct SliceExpression<std::index_sequence<Is...>, tensorT, srs...>
+{
+    using size = typename tensorT::size;
+    inline constexpr static std::array<size_t, size::dimSize> lowers = {dimExtractor<Is, srs...>::lower...};
+    inline constexpr static std::array<size_t, size::dimSize> uppers = {dimExtractor<Is, srs...>::upper == 0 ? size ::dimArray[Is] : dimExtractor<Is, srs...>::upper...};
+    inline constexpr static std::array<size_t, size::dimSize> sliceDims = {1 + uppers[Is] - lowers[Is]...};
+
+    const tensorT &q;
+
+    SliceExpression(const tensorT &f) : q(f) {}
+
+    auto operator[](auto... index) const
+        requires(sizeof...(index) > 1 && (sizeof...(index) == size ::dimSize))
+    {
+        return q[index + lowers[Is]...];
+    }
+
+    auto operator[](size_t index) const
+    {
+        if constexpr (size ::dimSize == 1)
+        {
+            return q[index + lowers[0]];
+        }
+        else if constexpr (size ::dimSize == 2)
+        {
+            size_t rowInnerIndex = index % sliceDims[0];
+            size_t colInnerIndex = index / sliceDims[0];
+
+            static constexpr size_t startIndex = lowers[0] + lowers[1] * size ::dimArray[0];
+            static constexpr size_t outerStride = size ::dimArray[0];
+
+            return q[startIndex + rowInnerIndex + colInnerIndex * outerStride];
+        }
+        else
+        {
+            static std::array<size_t, size ::dimSize> innerIndex;
+
+            for (size_t i = 0; i < size ::dimSize; i++)
+            {
+                innerIndex[i] = index % sliceDims[i];
+                index /= sliceDims[i];
+            }
+
+            return q[innerIndex[Is] + lowers[Is]...];
+        }
+    }
+};
+
+template <typename tensorT>
+struct SliceExpression<tensorT, QuDynamic>
+{
+    using size = typename tensorT::size;
+    const tensorT &q;
+    std::array<size_t, size::dimSize> lowers;
+    std::array<size_t, size::dimSize> uppers;
+    std::array<size_t, size::dimSize> sliceDims;
+
+    SliceExpression(const tensorT &f, auto... srs) : q(f)
+    {
+        static auto updateTargetDim = [srs..., this]<size_t... Is>(size_t targetDimIndex, std::index_sequence<Is...>) {
+            lowers[targetDimIndex] = (0 + ... + (srs.dimIndex == targetDimIndex ? srs.lower : 0));
+            uppers[targetDimIndex] = (0 + ... + (srs.dimIndex == targetDimIndex ? srs.upper : 0));
+        };
+
+        [this]<size_t... Is>(std::index_sequence<Is...>) {
+            (updateTargetDim(Is, std::make_index_sequence<sizeof...(srs)>()), ...);
+        }(std::make_index_sequence<size::dimSize>());
+
+        for (size_t i = 0; i < size::dimSize; i++)
+        {
+            if (uppers[i] == 0)
+            {
+                uppers[i] = size::dimArray[i];
+            }
+            sliceDims[i] = 1 + uppers[i] - lowers[i];
+        }
+    }
+
+    auto operator[](auto... index) const
+        requires(sizeof...(index) > 1 && (sizeof...(index) == size::dimSize))
+    {
+        return indexHelper(std::make_index_sequence<size::dimSize>(), index...);
+    }
+
+    template <size_t... Is>
+    auto indexHelper(std::index_sequence<Is...>, auto... index) const
+    {
+        return q[index + lowers[Is]...];
+    }
+
+    auto operator[](size_t index) const
+    {
+        if constexpr (size::dimSize == 1)
+        {
+            return q[index + lowers[0]];
+        }
+        else if constexpr (size::dimSize == 2)
+        {
+            size_t rowInnerIndex = index % sliceDims[0];
+            size_t colInnerIndex = index / sliceDims[0];
+
+            size_t startIndex = lowers[0] + lowers[1] * size::dimArray[0];
+            size_t outerStride = size::dimArray[0];
+
+            return q[startIndex + rowInnerIndex + colInnerIndex * outerStride];
+        }
+        else
+        {
+            static std::array<size_t, size::dimSize> innerIndex;
+
+            for (size_t i = 0; i < size::dimSize; i++)
+            {
+                innerIndex[i] = index % sliceDims[i];
+                index /= sliceDims[i];
+            }
+
+            return [this]<size_t... Is>(std::index_sequence<Is...>) {
+                return q[innerIndex[Is] + lowers[Is]...];
+            }(std::make_index_sequence<size::dimSize>());
+        }
+    }
+};
+
+template <typename... srs, typename T>
+inline static constexpr auto Qslice(const T &f)
+{
+    return SliceExpression<T, srs...>(f);
+}
+
+template <typename T>
+inline static constexpr auto Qslice(const T &f, auto... srs)
+{
+    return SliceExpression<T, QuDynamic>(f, srs...);
+}
 
 } // namespace QuBLAS
