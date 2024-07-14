@@ -3217,4 +3217,1106 @@ inline static constexpr auto Qslice(const T &f, auto... srs)
     return SliceExpression<T, QuDynamic>(f, srs...);
 }
 
+
+
+
+// BitStream converter
+struct l2r
+{};
+
+template <size_t... in>
+    requires(sizeof...(in) <= 1)
+struct r2l;
+
+template <size_t in>
+struct r2l<in>
+{
+    static inline constexpr size_t index = in;
+};
+
+template <>
+struct r2l<> : r2l<1>
+{};
+
+// handle string to string
+template <typename... Args>
+struct SingleString_s;
+
+template <>
+struct SingleString_s<l2r>
+{
+    inline static auto convert(std::string_view str)
+    {
+        return std::string(str);
+    }
+
+    // from function, currently indentical to convert
+    inline static auto from(std::string_view str)
+    {
+        return convert(str);
+    }
+
+    // to function, currently indentical to convert
+    inline static auto to(std::string_view str)
+    {
+        return convert(str);
+    }
+};
+
+template <size_t... in>
+struct SingleString_s<r2l<in...>>
+{
+    inline static constexpr auto index = r2l<in...>::index;
+
+    inline static auto convert(std::string_view str)
+    {
+        if (str.size() % index != 0)
+        {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(index));
+        }
+
+        std::string res;
+        res.reserve(str.size());
+
+        // Reverse chunks of size Index directly
+        for (size_t i = str.size(); i >= index; i -= index)
+        {
+            res.append(str.data() + i - index, index);
+        }
+
+        return res;
+    }
+
+    // from function, currently indentical to convert
+    inline static auto from(std::string_view str)
+    {
+        return convert(str);
+    }
+
+    // to function, currently indentical to convert
+    inline static auto to(std::string_view str)
+    {
+        return convert(str);
+    }
+};
+
+template <typename... Args>
+struct TensorString_s;
+
+template <typename elemProcessT>
+struct TensorString_s<l2r, elemProcessT>
+{
+    // convert to std::array<std::string, size> with element string stored in l2r
+    // the input string is expected to be a single string containing all elements, each element has length of elemLength
+    template <typename QuTensorT>
+    inline static auto fromString(std::string_view str)
+    {
+        using QuT = typename QuTensorT::innerType;
+        static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
+        static constexpr auto size = QuTensorT::size;
+        if (str.size() % elemLen != 0)
+        {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+        }
+
+        std::array<std::string, size> res;
+        for (size_t i = 0; i < res.size(); i++)
+        {
+            res[i] = SingleString_s<elemProcessT>::convert(str.substr(i * elemLen, elemLen));
+        }
+
+        return res;
+    }
+
+    template <size_t arrSize>
+    inline static auto toString(std::array<std::string, arrSize> arr)
+    {
+        std::string res;
+        res.reserve(arr.size() * arr[0].size());
+
+        for (size_t i = 0; i < arr.size(); i++)
+        {
+            res.append(SingleString_s<elemProcessT>::to(arr[i]));
+        }
+
+        return res;
+    }
+
+    // from QuBLAS type to std::array<std::string, size>
+    template <size_t... dims, typename QuT>
+    inline static auto fromQu(const Qu_s<dim<dims...>, QuT> &tensor)
+    {
+        std::array<std::string, Qu_s<dim<dims...>, QuT>::size> res;
+
+        for (size_t i = 0; i < Qu_s<dim<dims...>, QuT>::size; i++)
+        {
+            res[i] = SingleString_s<elemProcessT>::to(tensor[i].toString());
+        }
+        return res;
+    }
+
+    // from std::array<std::string, size> to QuBLAS type
+    template <typename QuTensorT>
+    inline static auto toQu(const std::array<std::string, QuTensorT::size> &arr)
+    {
+        QuTensorT res;
+
+        for (size_t i = 0; i < QuTensorT::size; i++)
+        {
+            auto str = SingleString_s<elemProcessT>::from(arr[i]);
+            // convert  binary stored in str to integer
+            int decimal = std::stoi(str, 0, 2);
+            res[i].fill(decimal);
+        }
+        return res;
+    }
+};
+
+template <typename elemProcessT, size_t index>
+struct TensorString_s<r2l<index>, elemProcessT>
+{
+    template <typename QuTensorT>
+    inline static auto fromString(std::string_view str)
+    {
+        using QuT = typename QuTensorT::innerType;
+        static constexpr auto elemLen = QuT::intB + QuT::fracB + QuT::isS;
+        static constexpr auto size = QuTensorT::size;
+        if (str.size() % elemLen != 0)
+        {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+        }
+
+        std::array<std::string, size> res;
+
+        // Reverse chunks of size Index directly
+        size_t in = 0;
+        for (size_t i = size; i > 0; i = i - index)
+        {
+            for (size_t j = 0; j < index; j++)
+            {
+                res[in] = SingleString_s<elemProcessT>::convert(str.substr((i + j - index) * elemLen, elemLen));
+                in++;
+            }
+        }
+
+        return res;
+    }
+
+    template <size_t arrSize>
+    inline static auto toString(std::array<std::string, arrSize> arr)
+    {
+        std::string res;
+        res.reserve(arr.size() * arr[0].size());
+
+        // reverse the order of elements, with every Index elements as a chunk
+        for (size_t i = arr.size(); i > 0; i = i - index)
+        {
+            for (size_t j = 0; j < index; j++)
+            {
+                res.append(SingleString_s<elemProcessT>::to(arr[i + j - index]));
+            }
+        }
+        return res;
+    }
+};
+
+// scalar
+template <typename... Args>
+struct BitStream_s;
+
+template <typename... QuArgs, typename processT>
+struct BitStream_s<Qu_s<QuArgs...>, processT>
+{
+    inline static auto convert(std::string_view str)
+    {
+        auto toStr = processT::from(str);
+        int decimal = std::stoi(toStr.data(), 0, 2);
+        Qu_s<QuArgs...> res;
+        res.fill(decimal);
+        return res;
+    }
+};
+
+template <typename processT>
+struct BitStream_s<processT>
+{
+    inline static auto convert(auto Qu)
+    {
+        return SingleString_s<processT>::to(Qu.toString());
+    }
+};
+
+// tensor
+template <typename QuT, size_t... dims, typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<Qu_s<dim<dims...>, QuT>, tensorProcessT, elemProcessT>
+{
+    inline static auto convert(std::string_view str)
+    {
+        // use TensorString_s
+        auto arr = TensorString_s<tensorProcessT, elemProcessT>::template fromString<Qu_s<dim<dims...>, QuT>>(str);
+        return TensorString_s<l2r, l2r>::template toQu<Qu_s<dim<dims...>, QuT>>(arr);
+    }
+};
+
+template <typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<tensorProcessT, elemProcessT>
+{
+    template <typename... QuArgs>
+    inline static auto convert(Qu_s<QuArgs...> Qu)
+    {
+        auto arr = TensorString_s<l2r, l2r>::template fromQu(Qu);
+        return TensorString_s<tensorProcessT, elemProcessT>::template toString(arr);
+    }
+};
+
+template <typename... Args>
+inline auto BitStream(auto input)
+{
+    return BitStream_s<Args...>::convert(input);
+}
+
+
+
+
+
+
+
+// ------------------- Advanced Nonlinear Universal Subprograms -------------------
+// the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
+// note that the operations are not standard BLAS operations, use ANUS:: to get access to them
+
+namespace ANUS {
+
+// polynomial fitting
+template <auto... an>
+struct PolyImpl;
+
+template <typename anT, anT an>
+struct PolyImpl<an>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return Qadd<anT>(Qmul<anT>(prev, x), an);
+    }
+};
+
+template <typename a1T, a1T a1, typename... anT, anT... an>
+struct PolyImpl<a1, an...>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
+    }
+};
+
+template <auto a0, auto... an>
+    requires(sizeof...(an) > 0)
+struct Poly
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return PolyImpl<an...>::execute(a0, x);
+    }
+};
+
+// Approx
+
+template <auto... points>
+    requires(std::is_arithmetic_v<decltype(points)> && ...)
+struct segments;
+
+template <typename... polynomials>
+struct polys;
+
+template <typename... Args>
+struct Approx;
+
+template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
+struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
+{
+    template <typename T>
+    static inline constexpr T execute(const T x)
+    {
+        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
+        {
+            return T(firstPoly::execute(x));
+        }
+        else
+        {
+            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
+        }
+    }
+};
+
+template <typename polynominal>
+struct Approx<segments<>, polys<polynominal>>
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return polynominal::execute(x);
+    }
+};
+
+// lookup tables
+
+// some pre-defined functions, stored as std::function
+
+// sprt
+inline static constexpr auto sqrtFunc = [](double x) { return std::sqrt(x); };
+
+// reciprocal
+inline static constexpr auto reciprocalFunc = [](double x) { return 1.0 / x; };
+
+// reciprocal square root
+inline static constexpr auto rsqrtFunc = [](double x) { return 1.0 / std::sqrt(x); };
+
+// exponential
+inline static constexpr auto expFunc = [](double x) { return std::exp(x); };
+
+// note that essentially the lookup table is implemented via runtime calculation. This is theoretically identical to implementing a real pre-calculated lookup table in asic.
+template <double (*func)(double), int intB, int fracB, bool isS, typename QuM, typename OfM>
+inline constexpr auto Qtable(const Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> x)
+{
+    using interiorType = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<RND::ZERO>, OfMode<OfM>>;
+
+    interiorType val = func(x.toDouble());
+
+    return Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>(val.data, DirectAssignTag());
+}
+
+} // namespace ANUS
+
+
+
+// ===================== BLAS =====================
+// ------------------- Reducer -------------------
+// it's not a standard BLAS operation, but tree-based reduction is a common operation in asic design
+
+template <typename... Args>
+struct Reducer
+{
+    template <bool condition, size_t layer>
+    struct ReducerTypeSelector;
+
+    // 递归展开的情况，满足条件
+    template <size_t layer>
+    struct ReducerTypeSelector<true, layer>
+    {
+        using type = TypeAt<layer >= sizeof...(Args) ? sizeof...(Args) - 1 : layer, TypeList<Args...>>;
+    };
+
+    // 基础情况，不满足计算条件的部分
+    template <size_t layer>
+    struct ReducerTypeSelector<false, layer>
+    {
+        using type = std::nullptr_t;
+    };
+
+    // version for arbitrary input, please avoid using this version for efficiency consideration
+    template <size_t layer, typename... Ts, size_t... I>
+    static inline auto reduce_impl(std::index_sequence<I...>,
+                                   const Ts... quants)
+    {
+        // (quants.display("layer " + std::to_string(layer)), ...);
+        if constexpr (sizeof...(quants) == 1)
+        {
+            return packIndex<0>(quants...);
+        }
+        else
+        {
+            using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+            if constexpr (sizeof...(quants) % 2 == 0)
+            {
+                return reduce_impl<layer + 1>(
+                    std::make_index_sequence<sizeof...(I) / 2>{},
+                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
+            }
+            else
+            {
+                auto res = reduce_impl<layer + 1>(
+                    std::make_index_sequence<sizeof...(I) / 2>{},
+                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
+
+                return Qadd<type>(res, packIndex<sizeof...(quants) - 1>(quants...));
+            }
+        }
+    }
+
+    template <typename... Ts>
+    static auto reduce(const Ts... quants)
+    {
+        return reduce_impl<0>(std::make_index_sequence<sizeof...(Ts) / 2>{}, quants...);
+    }
+
+    // version for a vec
+    template <size_t layer, size_t len, typename... fromArgs>
+    static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+        // quants.display("layer " + std::to_string(layer));
+
+        static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
+        if constexpr (len == 1)
+        {
+            return quants.template get<0>();
+        }
+        else
+        {
+            [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
+                ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
+            }(std::make_index_sequence<len / 2>());
+
+            if constexpr (len % 2 != 0)
+            {
+                res.template get<(len + 1) / 2 - 1>() = quants.template get<len - 1>();
+            }
+
+            return reduce_impl<layer + 1>(res);
+        }
+    }
+
+    template <size_t len, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        return reduce_impl<0>(quants);
+    }
+
+    template <size_t... dims, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<dims...>, fromArgs...> &quants)
+    {
+        static Qu_s<dim<dim<dims...>::elemSize>, fromArgs...> vec;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            vec[i] = quants[i];
+        }
+        return reduce(vec);
+    }
+};
+
+template <typename... Args>
+struct ReducerInputHelper : public Reducer<Args...>
+{
+};
+
+template <typename... Args>
+struct ReducerInputHelper<TypeList<Args...>> : public Reducer<Args...>
+{
+};
+
+template <typename... Args, typename... Ts>
+inline auto constexpr Qreduce(const Ts... quants)
+{
+    return ReducerInputHelper<Args...>::reduce(quants...);
+}
+
+
+// ----------- Qgemul -----------
+// C = op(A) * op(B)
+
+template <bool Value>
+struct QgemulTransposedA;
+
+template <bool Value>
+struct QgemulTransposedB;
+
+// the arguments for the tree-based reduction
+template <typename... Args>
+struct QgemulAddArgs;
+
+// the arguments for the dot product
+template <typename... Args>
+struct QgemulMulArgs;
+
+template <typename... Args>
+struct Qgemul_s;
+
+
+template <bool isTransposedA, bool isTransposedB, typename... addArgs, typename... mulArgs, size_t colA, size_t rowA, size_t colB, size_t rowB, size_t colC, size_t rowC, typename... ArgsC, typename... ArgsA, typename... ArgsB>
+struct Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, QgemulAddArgs<addArgs...>, QgemulMulArgs<mulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<rowB, colB>, ArgsB...>>
+{
+    static_assert(
+        (!isTransposedA && !isTransposedB && (colA == rowB && rowA == rowC && colB == colC)) ||
+            (!isTransposedA && isTransposedB && (colA == colB && rowA == rowC && rowB == colC)) ||
+            (isTransposedA && !isTransposedB && (rowA == rowB && colA == rowC && colB == colC)) ||
+            (isTransposedA && isTransposedB && (rowA == colB && colA == rowC && rowB == colC)),
+        "Size mismatch when calling Qgemul");
+
+    // the intermediate vector for the dot product
+    using mulMerger = MulMerger<Qu<ArgsA...>, Qu<ArgsB...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecC;
+
+    static inline void execute(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
+    {
+        for (size_t i = 0; i < (isTransposedA ? colA : rowA); i++)
+        {
+            for (size_t j = 0; j < (isTransposedB ? rowB : colB); j++)
+            {
+                for (size_t k = 0; k < (isTransposedA ? rowA : colA); k++)
+                {
+                    // vecC[k] = Qmul<mulArgs...>(A[i, k], B[k, j]);
+
+                    size_t rA = isTransposedA ? k : i;
+                    size_t cA = isTransposedA ? i : k;
+                    size_t rB = isTransposedB ? j : k;
+                    size_t cB = isTransposedB ? k : j;
+
+                    vecC[k] = Qmul<mulArgs...>(A[rA, cA], B[rB, cB]);
+                }
+                C[i, j] = Qreduce<addArgs...>(vecC);
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, size_t rowB, size_t colB, typename... ArgsC, typename... ArgsA, typename... ArgsB>
+inline static void Qgemul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<rowB, colB>, ArgsB...> &B)
+{
+    static constexpr bool isTransposedA = tagExtractor<QgemulTransposedA<false>, interiorArgs...>::value;
+    static constexpr bool isTransposedB = tagExtractor<QgemulTransposedB<false>, interiorArgs...>::value;
+    using addArgs = tagExtractor<QgemulAddArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgemulMulArgs<>, interiorArgs...>::type;
+
+    Qgemul_s<QgemulTransposedA<isTransposedA>, QgemulTransposedB<isTransposedB>, addArgs, mulArgs, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<rowB, colB>, ArgsB...>>::execute(C, A, B);
+}
+
+
+
+// ----------- Qgramul -----------
+// C = op(A^T) * op(A)
+// It's a special case of Qgemul, where the matrix B is the same as A.
+// The diagonal elements of C will be treated with special quantization rules.
+// It is not a standard BLAS routine.
+
+template <bool Value>
+struct QgramulTransposed;
+
+template <typename... Args>
+struct QgramulDiagAddArgs;
+
+template <typename... Args>
+struct QgramulDiagMulArgs;
+
+template <typename... Args>
+struct QgramulOffDiagAddArgs;
+
+template <typename... Args>
+struct QgramulOffDiagMulArgs;
+
+template <typename... Args>
+struct Qgramul_s;
+
+
+template <bool isTransposed, typename... diagAddArgs, typename... diagMulArgs, typename... offDiagAddArgs, typename... offDiagMulArgs, size_t rowA, size_t colA, size_t rowC, size_t colC, typename... ArgsC, typename... ArgsA>
+struct Qgramul_s<QgramulTransposed<isTransposed>, QgramulDiagAddArgs<diagAddArgs...>, QgramulDiagMulArgs<diagMulArgs...>, QgramulOffDiagAddArgs<offDiagAddArgs...>, QgramulOffDiagMulArgs<offDiagMulArgs...>, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>>
+{
+    // the intermediate vector stores the multiplication result of the diagonal elements
+    static inline Qu_s<dim<isTransposed ? colA : rowA>, Qu<diagMulArgs...>> diagMulRes;
+
+    // the intermediate vector stores the multiplication result of the off-diagonal elements
+    static inline Qu_s<dim<isTransposed ? colA : rowA>, Qu<offDiagMulArgs...>> offDiagMulRes;
+
+ 
+    static_assert(rowC == colC, "The output matrix of Qgramul must be square");
+
+    static_assert(
+        (!isTransposed && (rowC == colA)) ||
+            (isTransposed && (rowC == rowA)),
+        "Size mismatch when calling Qgramul");
+
+    static inline void execute(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A)
+    {
+        for (size_t i = 0; i < rowC; i++)
+        {
+            for (size_t j = 0; j < colC; j++)
+            {
+                if (i == j)
+                {
+                    for (size_t k = 0; k < (isTransposed ? rowA : colA); k++)
+                    {
+                        diagMulRes[k] = Qmul<diagMulArgs...>(A[isTransposed ? k : i, isTransposed ? i : k], A[isTransposed ? k : i, isTransposed ? i : k]);
+                    }
+                    C[i, j] = Qreduce<diagAddArgs...>(diagMulRes);
+                }
+                else
+                {
+                    for (size_t k = 0; k < (isTransposed ? rowA : colA); k++)
+                    {
+                        offDiagMulRes[k] = Qmul<offDiagMulArgs...>(A[isTransposed ? k : i, isTransposed ? i : k], A[isTransposed ? k : j, isTransposed ? j : k]);
+                    }
+                    C[i, j] = Qreduce<offDiagAddArgs...>(offDiagMulRes);
+                }
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t rowC, size_t colC, size_t rowA, size_t colA, typename... ArgsC, typename... ArgsA>
+inline static void Qgramul(Qu_s<dim<rowC, colC>, ArgsC...> &C, const Qu_s<dim<rowA, colA>, ArgsA...> &A)
+{
+    static constexpr bool isTransposed = tagExtractor<QgramulTransposed<false>, interiorArgs...>::value;
+    using diagAddArgs = tagExtractor<QgramulDiagAddArgs<>, interiorArgs...>::type;
+    using diagMulArgs = tagExtractor<QgramulDiagMulArgs<>, interiorArgs...>::type;
+    using offDiagAddArgs = tagExtractor<QgramulOffDiagAddArgs<>, interiorArgs...>::type;
+    using offDiagMulArgs = tagExtractor<QgramulOffDiagMulArgs<>, interiorArgs...>::type;
+
+    Qgramul_s<QgramulTransposed<isTransposed>, diagAddArgs, diagMulArgs, offDiagAddArgs, offDiagMulArgs, Qu_s<dim<rowC, colC>, ArgsC...>, Qu_s<dim<rowA, colA>, ArgsA...>>::execute(C, A);
+};
+
+
+
+// ------------------- Qgemv -------------------
+// y = beta * y + alpha * op(A) * x
+
+template <bool isTransposedA>
+struct QgemvTransposedA;
+
+template <typename... Args>
+struct QgemvAddArgs;
+
+template <typename... Args>
+struct QgemvMulArgs;
+
+template <Qu_s alpha>
+struct QgemvAlpha;
+
+template <Qu_s beta>
+struct QgemvBeta;
+
+template <typename... Args>
+struct Qgemv_s;
+
+
+template <size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX, typename... addArgs, typename... mulArgs, bool isTransposedA, Qu_s alpha, Qu_s beta>
+struct Qgemv_s<QgemvTransposedA<isTransposedA>, QgemvAddArgs<addArgs...>, QgemvMulArgs<mulArgs...>, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>
+{
+    static_assert(
+        (!isTransposedA && (colA == sizeX && rowA == sizeY)) ||
+            (isTransposedA && (rowA == sizeX && colA == sizeY)),
+        "Size mismatch when calling Qgemv");
+
+    using mulMerger = MulMerger<Qu<ArgsA...>, Qu<ArgsX...>, mulArgs...>;
+    static inline Qu_s<dim<isTransposedA ? rowA : colA>, typename mulMerger::resType> vecA;
+
+    static inline void execute(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
+    {
+        for (size_t i = 0; i < sizeY; i++)
+        {
+            for (size_t j = 0; j < sizeX; j++)
+            {
+                vecA[j] = Qmul<mulArgs...>(A[isTransposedA ? j : i, isTransposedA ? i : j], x[j]);
+            }
+            auto addRes = Qreduce<addArgs...>(vecA);
+
+            if constexpr (beta.data == 0)
+            {
+                if constexpr (alpha == Qu<ArgsY...>(1))
+                {
+                    y[i] = addRes;
+                }
+                else
+                {
+                    y[i] = Qmul<ArgsY...>(alpha, addRes);
+                }
+            }
+            else
+            {
+                if constexpr (alpha == Qu<ArgsY...>(1))
+                {
+                    y[i] = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y[i]), addRes);
+                }
+                else
+                {
+                    y[i] = Qadd<ArgsY...>(Qmul<ArgsY...>(beta, y[i]), Qmul<ArgsY...>(alpha, addRes));
+                }
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t sizeY, size_t rowA, size_t colA, size_t sizeX, typename... ArgsY, typename... ArgsA, typename... ArgsX>
+inline static void Qgemv(Qu_s<dim<sizeY>, ArgsY...> &y, const Qu_s<dim<rowA, colA>, ArgsA...> &A, const Qu_s<dim<sizeX>, ArgsX...> &x)
+{
+    static constexpr bool isTransposedA = tagExtractor<QgemvTransposedA<false>, interiorArgs...>::value;
+    using addArgs = tagExtractor<QgemvAddArgs<>, interiorArgs...>::type;
+    using mulArgs = tagExtractor<QgemvMulArgs<>, interiorArgs...>::type;
+
+    static constexpr Qu<ArgsY...> defaultAlpha = 1;
+    static constexpr Qu<ArgsY...> defaultBeta = 0;
+
+    static constexpr auto alpha = tagExtractor<QgemvAlpha<defaultAlpha>, interiorArgs...>::value;
+    static constexpr auto beta = tagExtractor<QgemvBeta<defaultBeta>, interiorArgs...>::value;
+
+    Qgemv_s<QgemvTransposedA<isTransposedA>, addArgs, mulArgs, Qu_s<dim<sizeY>, ArgsY...>, Qu_s<dim<rowA, colA>, ArgsA...>, Qu_s<dim<sizeX>, ArgsX...>, QgemvAlpha<alpha>, QgemvBeta<beta>>::execute(y, A, x);
+}
+
+
+
+// normal version for reference
+// int potrf(double* A, int n) {
+//     for (int j = 0; j < n; ++j) {
+//         for (int k = 0; k < j; ++k) {
+//             for (int i = j; i < n; ++i) {
+//                 A[i * n + j] -= A[i * n + k] * A[j * n + k];
+//             }
+//         }
+//         if (A[n * j + j] <= 0) {
+//             return -1; // 不是正定矩阵
+//         }
+//         double temp = 1.0/sqrt(A[n * j + j]);
+//         for (int i = j; i < n; ++i) {
+//             A[i * n + j] *= temp;
+//         }
+//     }
+//     return 0;
+// }
+
+// ------------------- Qpotrf -------------------
+// the diagonal elements of the input matrix will be treated with special quantization rules.
+// IMPORTANT: the diagonal elements of the output matrix will be stored as the reciprocal form
+
+template <typename... Args>
+struct Qpotrf_s;
+
+template <typename... Args, size_t row, size_t col>
+struct Qpotrf_s<Qu_s<dim<row, col>, Args...>>
+{
+    static_assert(row == col, "The input matrix of Qpotrf must be square");
+
+    static inline void execute(Qu_s<dim<row, col>, Args...> &A)
+    {
+        return loop(A, std::make_index_sequence<col>());
+    }
+
+    template <size_t... J>
+    static inline void loop(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<J...>)
+    {
+        ((loop_inner<J>(A), ...));
+    }
+
+    template <size_t J>
+    static inline void loop_inner(Qu_s<dim<row, col>, Args...> &A)
+    {
+        loop_sec1_outer<J>(A, std::make_index_sequence<J>());
+        if (A.template get<J, J>().data <= 0)
+        {
+            return;
+        }
+        loop_sec2<J>(A, std::make_index_sequence<row - J>());
+    }
+
+    template <size_t J, size_t... K>
+    static inline void loop_sec1_outer(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<K...>)
+    {
+        ((loop_sec1_inner<J, K>(A, std::make_index_sequence<row - J>()), ...));
+    }
+
+    template <size_t J, size_t K, size_t... I>
+    static inline void loop_sec1_inner(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<I...>)
+    {
+        ((A.template get<I + J, J>() = A.template get<I + J, J>() - A.template get<I + J, K>() * A.template get<J, K>()), ...);
+    }
+
+    template <size_t J, size_t... I>
+    static inline void loop_sec2(Qu_s<dim<row, col>, Args...> &A, std::index_sequence<I...>)
+    {
+        auto temp = ANUS::Qtable<ANUS::rsqrtFunc>(A.template get<J, J>());
+        ((A.template get<I + J, J>() = A.template get<I + J, J>() * temp), ...);
+        A.template get<J, J>() = temp;
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, typename... Args>
+inline static void Qpotrf(Qu_s<dim<row, col>, Args...> &A)
+{
+    Qpotrf_s<Qu_s<dim<row, col>, Args...>>::execute(A);
+}
+
+// normal version for reference
+// void potrs(double* L, double* b, int n) {
+//     // 前向替代
+//     for (int i = 0; i < n; ++i) {
+//         for (int j = 0; j < i; ++j) {
+//             b[i] -= L[i * n + j] * b[j];
+//         }
+//         b[i] *= L[i * n + i];
+//     }
+
+//     // 后向替代
+//     for (int i = n - 1; i >= 0; --i) {
+//         for (int j = i + 1; j < n; ++j) {
+//             b[i] -= L[j * n + i] * b[j];
+//         }
+//         b[i] *= L[i * n + i];
+//     }
+// }
+
+// ------------------- Qpotrs -------------------
+// IMPORTANT: the diagonal elements of the input matrix must be stored as the reciprocal form
+
+template <typename... Args>
+struct Qpotrs_s;
+
+template <typename... LArgs, typename... bArgs, size_t row, size_t col, size_t bRow>
+struct Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>
+{
+    static_assert(row == col, "The input matrix of Qpotrs must be square");
+
+    static inline void execute(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b)
+    {
+        return execute_loop(L, b, std::make_index_sequence<row>());
+    }
+
+    template <size_t... I>
+    static inline void execute_loop(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<I...>)
+    {
+        ((execute_forward<I>(L, b, std::make_index_sequence<I>()), ...));
+        ((execute_backward<row - 1 - I>(L, b, std::make_index_sequence<I>()), ...));
+    }
+
+    template <size_t I, size_t... J>
+    static inline void execute_forward(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<J...>)
+    {
+        ((b.template get<I>() = b.template get<I>() - L.template get<I, J>() * b.template get<J>()), ...);
+        b.template get<I>() = b.template get<I>() * L.template get<I, I>();
+    }
+
+    template <size_t I, size_t... J>
+    static inline void execute_backward(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b, std::index_sequence<J...>)
+    {
+        ((b.template get<I>() = b.template get<I>() - L.template get<J + I + 1, I>() * b.template get<J + I + 1>()), ...);
+        b.template get<I>() = b.template get<I>() * L.template get<I, I>();
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, size_t bRow, typename... LArgs, typename... bArgs>
+inline static void Qpotrs(const Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<bRow>, bArgs...> &b)
+{
+    Qpotrs_s<Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<bRow>, bArgs...>>::execute(L, b);
+}
+
+// ------------------- Qsytrf -------------------
+// LDL^T factorization
+// not identical to the standard LAPACK routine, L and D will be stored separately
+
+// matlab code for reference
+
+// L = eye(n); % 初始化L为单位矩阵
+// D = zeros(n, 1); % 初始化D为零向量
+
+// for j = 1:n
+//     % 计算D(j)
+//     LD_vector = zeros(1, j-1);
+//     for k = 1:(j-1)
+//         LD_vector(k) = L[j, k]^2 * D(k);
+//     end
+//     sum_LD = vector_sum(LD_vector);
+//     D(j) = A[j, j] - sum_LD;
+
+//     % 计算L(i, j) 对于 i > j
+//     for i = (j+1):n
+//         LD_vector = zeros(1, j-1);
+//         for k = 1:(j-1)
+//             LD_vector(k) = L(i, k) * L[j, k] * D(k);
+//         end
+//         sum_LD = vector_sum(LD_vector);
+//         L(i, j) = (A(i, j) - sum_LD) / D(j);
+//     end
+// end
+
+template <typename... Args>
+struct QsytrfLDArgs;
+
+template <typename... Args>
+struct QsytrfSumLDArgs;
+
+template <typename... Args>
+struct Qsytrf_s;
+
+template <typename... AArgs, typename... LArgs, typename... DArgs, typename... LDArgs, typename... sumLDArgs, size_t row, size_t col>
+struct Qsytrf_s<QsytrfLDArgs<LDArgs...>, QsytrfSumLDArgs<sumLDArgs...>, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<row>, DArgs...>>
+{
+    static_assert(row == col, "The input matrix of Qsytrf must be square");
+
+    inline static auto LD_vector = Qu<dim<row - 1>, LDArgs...>();
+
+    inline static auto sum_LD = Qu<sumLDArgs...>();
+
+    inline static void execute(Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D, Qu_s<dim<row, col>, AArgs...> &A)
+    {
+        // set L to identity matrix
+        L.clear();
+        for (size_t i = 0; i < row; ++i)
+        {
+            L[i, i] = 1;
+        }
+
+        for (size_t j = 0; j < row; ++j)
+        {
+            // clear LD_vector
+            LD_vector.clear();
+
+            // 计算D[j]
+            for (size_t k = 0; k < j; ++k)
+            {
+                LD_vector[k] = L[j, k] * L[j, k] * D[k];
+            }
+
+            sum_LD = 0;
+            for (size_t k = 0; k < j; ++k)
+            {
+                sum_LD = sum_LD + LD_vector[k];
+            }
+            D[j] = A[j, j] - sum_LD;
+
+            // 计算L[i, j] 对于 i > j
+            for (size_t i = j + 1; i < row; ++i)
+            {
+                // clear LD_vector
+                LD_vector.clear();
+
+                for (size_t k = 0; k < j; ++k)
+                {
+                    LD_vector[k] = L[i, k] * L[j, k] * D[k];
+                }
+                sum_LD = 0;
+                for (size_t k = 0; k < j; ++k)
+                {
+                    sum_LD = sum_LD + LD_vector[k];
+                }
+
+                L[i, j] = (A[i, j] - sum_LD) / D[j];
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, typename... AArgs, typename... LArgs, typename... DArgs>
+inline static void Qsytrf(Qu_s<dim<row, col>, LArgs...> &L, Qu_s<dim<row>, DArgs...> &D, Qu_s<dim<row, col>, AArgs...> &A)
+{
+    using LDArgs = tagExtractor<QsytrfLDArgs<LArgs...>, interiorArgs...>::type;
+    using sumLDArgs = tagExtractor<QsytrfSumLDArgs<LArgs...>, interiorArgs...>::type;
+
+    Qsytrf_s<LDArgs, sumLDArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, LArgs...>, Qu_s<dim<row>, DArgs...>>::execute(L, D, A);
+}
+
+// ------------------- Qtrtri -------------------
+// inverse of a triangular matrix
+// not identical to the standard LAPACK routine, need a extra matrix to store the result
+
+// matlab code for reference
+// % for lower triangular matrix
+// function Ainv = inverseLowerTriangularMatrix(A)
+//     % 计算下三角矩阵的逆矩阵
+//     n = size(A, 1);
+//     Ainv = zeros(n, n);
+//     for i = 1:n
+//         Ainv(i, i) = 1 / A(i, i);
+//         for j = (i+1):n
+//             sum_Ainv = 0;
+//             for k = i:(j-1)
+//                 sum_Ainv = sum_Ainv + A(j, k) * Ainv(k, i);
+//             end
+//             Ainv(j, i) = -sum_Ainv / A(j, j);
+//         end
+//     end
+// end
+
+// % for upper triangular matrix
+// function Ainv = inverseUpperTriangularMatrix(A)
+//     % 计算上三角矩阵的逆矩阵
+//     n = size(A, 1);
+//     Ainv = zeros(n, n);
+//     for i = n:-1:1
+//         Ainv(i, i) = 1 / A(i, i);
+//         for j = (i-1):-1:1
+//             sum_Ainv = 0;
+//             for k = (j+1):i
+//                 sum_Ainv = sum_Ainv + A(j, k) * Ainv(k, i);
+//             end
+//             Ainv(j, i) = -sum_Ainv / A(j, j);
+//         end
+//     end
+// end
+
+template <bool isLower>
+struct QtrtriLower;
+
+// too lazy to add more configurations, currently only the sum args
+template <typename... Args>
+struct QtrtriSumAinvArgs;
+
+template <typename... Args>
+struct Qtrtri_s;
+
+template <bool isLow, typename... sumAinvArgs, size_t row, size_t col, typename... AArgs, typename... AinvArgs>
+struct Qtrtri_s<QtrtriLower<isLow>, QtrtriSumAinvArgs<sumAinvArgs...>, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, AinvArgs...>>
+{
+    static_assert(row == col, "The input matrix of Qtrtri must be square");
+
+    inline static auto sum_Ainv = Qu<sumAinvArgs...>();
+
+    inline static void execute(Qu_s<dim<row, col>, AinvArgs...> &Ainv, Qu_s<dim<row, col>, AArgs...> &A)
+    {
+        if constexpr (isLow)
+        {
+            Ainv.clear();
+
+            for (size_t i = 0; i < row; ++i)
+            {
+                Ainv[i, i] = ANUS::Qtable<ANUS::reciprocalFunc>(A[i, i]);
+                for (size_t j = i + 1; j < row; ++j)
+                {
+                    sum_Ainv = 0;
+                    for (size_t k = i; k < j; ++k)
+                    {
+                        sum_Ainv = sum_Ainv + A[j, k] * Ainv[k, i];
+                    }
+                    Ainv[j, i] = -sum_Ainv / A[j, j];
+                }
+            }
+        }
+        else
+        {
+            Ainv.clear();
+
+            for (size_t i = row - 1; i < row; --i)
+            {
+                Ainv[i, i] = 1 / A[i, i];
+                for (size_t j = i - 1; j < row; --j)
+                {
+                    sum_Ainv = 0;
+                    for (size_t k = j + 1; k < i; ++k)
+                    {
+                        sum_Ainv = sum_Ainv + A[j, k] * Ainv[k, i];
+                    }
+                    Ainv[j, i] = -sum_Ainv / A[j, j];
+                }
+            }
+        }
+    }
+};
+
+template <typename... interiorArgs, size_t row, size_t col, typename... AArgs, typename... AinvArgs>
+inline static void Qtrtri(Qu_s<dim<row, col>, AinvArgs...> &Ainv, Qu_s<dim<row, col>, AArgs...> &A)
+{
+    static constexpr bool isLower = tagExtractor<QtrtriLower<true>, interiorArgs...>::value;
+    using sumAinvArgs = tagExtractor<QtrtriSumAinvArgs<AinvArgs...>, interiorArgs...>::type;
+
+    Qtrtri_s<QtrtriLower<isLower>, sumAinvArgs, Qu_s<dim<row, col>, AArgs...>, Qu_s<dim<row, col>, AinvArgs...>>::execute(Ainv, A);
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 } // namespace QuBLAS
