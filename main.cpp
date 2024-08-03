@@ -6,23 +6,25 @@ using namespace QuBLAS;
 int main()
 {
 
-    using type1 = Qu<QuDynamic>;
+    using seg1 = sr<0,1,3>;    
+    using seg2 = sr<1,2,4>;  
+    using type = Qu<>;
 
-    type1 a,b;
+    using MatrixT = Qu<dim<4,4>,type>;
 
-    a.intB = 5;
-    a.fracB = 3;
-    b.intB = 3;
-    b.fracB = 4;
+    MatrixT A = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 
-    a=1;
-    b=2;
+    std::cout<<A<<std::endl;
 
-    auto c = Qreduce(b,a,a,a,a);
-
-    c.display();
+    using resT = SliceExpression<MatrixT,seg1,seg2>  ;
 
  
+    resT B = A;
+ 
+    auto res  = B[3];
 
-    return 0;
+    std::cout<<res<<std::endl;
+
+ 
+ 
 }

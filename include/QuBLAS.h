@@ -15,6 +15,7 @@
 #include <random>
 #include <stdexcept>
 #include <string_view>
+#include <sys/resource.h>
 #include <type_traits>
 #include <utility>
 
@@ -3031,9 +3032,324 @@ inline constexpr auto operator-(const QuT &f1)
     return Qneg(f1);
 }
 
+// ------------------- Slice -------------------
+
+template <size_t... Args>
+struct sr;
+
+template <size_t targetDim, size_t lower, size_t upper>
+struct sr<targetDim, lower, upper>
+{
+    static constexpr size_t dim = targetDim;
+    static constexpr size_t start = lower;
+    static constexpr size_t end = upper;
+};
+
+template <size_t targetDim, size_t lower>
+struct sr<targetDim, lower>
+{
+    static constexpr size_t dim = targetDim;
+    static constexpr size_t start = lower;
+    static constexpr size_t end = lower + 1;
+};
+
+template <size_t I, auto toDimSize>
+struct IndexLoader
+{
+    static constexpr size_t count1 = std::accumulate(toDimSize.begin(), toDimSize.begin() + I, 0, [](size_t a, size_t b) { return a + (b == 1); });
+
+    inline static auto execute(auto... index)
+    {
+        return packIndex<I - count1>(index...);
+    }
+};
+
+template <size_t targetDimIndex, typename... srs>
+struct dimExtractor
+{
+};
+
+template <size_t targetDimIndex, typename sr1, typename... srs>
+    requires(sr1::dim == targetDimIndex)
+struct dimExtractor<targetDimIndex, sr1, srs...>
+{
+    inline static constexpr size_t start = sr1::start;
+    inline static constexpr size_t end = sr1::end;
+};
+
+template <size_t targetDimIndex, typename sr1, typename... srs>
+    requires(sr1::dim != targetDimIndex)
+struct dimExtractor<targetDimIndex, sr1, srs...> : dimExtractor<targetDimIndex, srs...>
+{
+};
+
+template <size_t targetDimIndex>
+struct dimExtractor<targetDimIndex>
+{
+    inline static constexpr size_t start = 0;
+    inline static constexpr size_t end = 0;
+};
+
+template <typename targetTensorT, typename... Args>
+struct dimArrayExtractor : dimArrayExtractor<std::make_index_sequence<targetTensorT::size::dimSize>, targetTensorT, Args...>
+{
+};
+
+template <size_t... I, typename targetTensorT, typename... Args>
+struct dimArrayExtractor<std::index_sequence<I...>, targetTensorT, Args...>
+{
+    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toLower = {dimExtractor<I, Args...>::start...};
+    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toUpper = {dimExtractor<I, Args...>::end == 0 ? targetTensorT::size::dimArray[I] : dimExtractor<I, Args...>::end...};
+    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toDimSize = {toUpper[I] - toLower[I]...};
+};
+
+template <typename... Args>
+class SliceExpression;
+
+// general case, try not to use this version for compile-time efficiency
+template <typename targetTensorT, typename... Args>
+    requires(targetTensorT::size::dimSize >= 3)
+class SliceExpression<targetTensorT, Args...>
+{
+public:
+    // target tensor
+    const targetTensorT &targetTensor;
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    inline constexpr static auto fromDimSize = targetTensorT::size::dimSize;
+    inline constexpr static std::array<size_t, fromDimSize> toLower = dimArrayExtractor<targetTensorT, Args...>::toLower;
+    inline constexpr static std::array<size_t, fromDimSize> toUpper = dimArrayExtractor<targetTensorT, Args...>::toUpper;
+    inline constexpr static std::array<size_t, fromDimSize> toDimSize = dimArrayExtractor<targetTensorT, Args...>::toDimSize;
+
+    inline auto &operator[](auto... index)
+    {
+        return indexHelper(std::make_index_sequence<fromDimSize>{}, index...);
+    }
+
+    // const version []
+    inline auto &operator[](auto... index) const
+    {
+        return indexHelper(std::make_index_sequence<fromDimSize>{}, index...);
+    }
+
+    template <size_t... I>
+    inline auto &indexHelper(std::index_sequence<I...>, auto... index)
+    {
+        return targetTensor[toDimSize[I] == 1 ? toLower[I] : (toLower[I] + IndexLoader<I, toDimSize>::execute(index...))...];
+    }
+
+    inline auto &operator[](size_t index)
+    {
+        throw std::runtime_error("Not supported yet. Tell Niurx if you need this feature.");
+        return 0;
+    }
+
+    inline auto &operator[](size_t index) const
+    {
+        throw std::runtime_error("Not supported yet. Tell Niurx if you need this feature.");
+        return 0;
+    }
+};
+
+// slice a matrix to a vector
+template <typename targetTensorT, size_t... Args>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::start == sr<Args...>::end - 1)
+class SliceExpression<targetTensorT, sr<Args...>>
+{
+public:
+    using size = std::conditional_t<sr<Args...>::dim == 0, dim<1, targetTensorT::size::dimArray[1]>, dim<targetTensorT::size::dimArray[0]>>;
+
+    const targetTensorT &targetTensor;
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[sr<Args...>::start, index];
+        }
+        else
+        {
+            return targetTensor[index, sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t index) const
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[sr<Args...>::start, index];
+        }
+        else
+        {
+            return targetTensor[index, sr<Args...>::start];
+        }
+    }
+};
+
+template <typename targetTensorT, size_t... Args1, size_t... Args2>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::start == sr<Args2...>::end - 1)
+class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>> : public SliceExpression<targetTensorT, sr<Args2...>, sr<Args1...>>
+{
+};
+
+template <typename targetTensorT, size_t... Args1, size_t... Args2>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args1...>::start == sr<Args1...>::end - 1)
+class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
+{
+public:
+    using size = std::conditional_t<sr<Args1...>::dim == 0, dim<1, sr<Args2...>::end - sr<Args2...>::start>, dim<sr<Args2...>::end - sr<Args2...>::start>>;
+
+    const targetTensorT &targetTensor;
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        if constexpr (sr<Args1...>::dim == 0)
+        {
+            return targetTensor[sr<Args1...>::start, index + sr<Args2...>::start];
+        }
+        else
+        {
+            return targetTensor[index + sr<Args2...>::start, sr<Args1...>::start];
+        }
+    }
+
+    auto &operator[](size_t index) const
+    {
+        if constexpr (sr<Args1...>::dim == 0)
+        {
+            return targetTensor[sr<Args1...>::start, index + sr<Args2...>::start];
+        }
+        else
+        {
+            return targetTensor[index + sr<Args2...>::start, sr<Args1...>::start];
+        }
+    }
+};
+
+// slice a matrix to a matrix
+template <typename targetTensorT, size_t... Args>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::end - sr<Args...>::start > 1)
+class SliceExpression<targetTensorT, sr<Args...>>
+{
+public:
+
+    inline static constexpr size_t row = sr<Args...>::dim == 0 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[0];
+    inline static constexpr size_t col = sr<Args...>::dim == 1 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[1];
+    using size = dim<row, col>;
+
+    const targetTensorT &targetTensor;
+
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t index) const
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t i, size_t j)
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t i, size_t j) const
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+};
 
 
+template <typename targetTensorT, size_t... Args1, size_t... Args2>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::end - sr<Args2...>::start > 1 && sr<Args1...>::end - sr<Args1...>::start > 1)
+class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
+{
+public:
+    inline static constexpr size_t row = sr<Args1...>::dim == 0 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
+    inline static constexpr size_t col = sr<Args1...>::dim == 1 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
+    using size = dim<row, col>;
 
+    inline static constexpr size_t rowStart = sr<Args1...>::dim == 0 ? sr<Args1...>::start : sr<Args2...>::start;
+    inline static constexpr size_t colStart = sr<Args1...>::dim == 1 ? sr<Args1...>::start : sr<Args2...>::start;
+
+    const targetTensorT &targetTensor;
+
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        return targetTensor[i + rowStart, j + colStart];
+    }
+
+    auto &operator[](size_t index) const
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        return targetTensor[i + rowStart, j + colStart];
+    }
+
+    auto &operator[](size_t i, size_t j)
+    {
+        return targetTensor[i + rowStart, j + colStart];
+    }
+
+    auto &operator[](size_t i, size_t j) const
+    {
+        return targetTensor[i + rowStart, j + colStart];
+    }
+};
 
 // ===================== BLAS =====================
 // ------------------- Reducer -------------------
@@ -3155,17 +3471,5 @@ inline auto constexpr Qreduce(const Ts... quants)
 {
     return ReducerInputHelper<Args...>::reduce(quants...);
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 } // namespace QuBLAS
