@@ -815,8 +815,8 @@ struct fracBits;
 template <bool Value>
 struct isSigned;
 
-constexpr int defaultIntBits = 12;
-constexpr int defaultFracBits = 12;
+constexpr int defaultIntBits = 8;
+constexpr int defaultFracBits = 8;
 constexpr bool defaultIsSigned = true;
 using defaultQuMode = TRN::TCPL;
 using defaultOfMode = SAT::TCPL;
@@ -3108,7 +3108,7 @@ class SliceExpression;
 
 // general case, try not to use this version for compile-time efficiency
 template <typename targetTensorT, typename... Args>
-    requires(targetTensorT::size::dimSize >= 3)
+    requires(targetTensorT::size::dimSize >= 3 && sizeof...(Args) >= 1)
 class SliceExpression<targetTensorT, Args...>
 {
 public:
@@ -3351,6 +3351,70 @@ public:
     }
 };
 
+
+
+// Dynamic slice
+
+template<>
+struct sr<>
+{
+    size_t dim;
+    size_t start;
+    size_t end;
+
+    sr(size_t dim, size_t start, size_t end)
+        : dim(dim), start(start), end(end) {}
+    
+    sr(size_t dim, size_t start)
+        : dim(dim), start(start), end(start + 1) {}
+    
+    void display(std::string prefix = "")
+    {
+        std::cout << prefix << "dim: " << dim << " start: " << start << " end: " << end << std::endl;
+    }
+};
+
+using srd = sr<>;
+
+
+template <typename targetTensorT>
+class SliceExpression<targetTensorT>
+{
+public:
+    const targetTensorT &targetTensor;
+
+    std::array<size_t, targetTensorT::size::dimSize> toLower;
+    std::array<size_t, targetTensorT::size::dimSize> toUpper;
+    std::array<size_t, targetTensorT::size::dimSize> toDimSize;
+
+    SliceExpression(const targetTensorT &f, auto... srs)
+        : targetTensor(f)
+    {
+
+        static  auto updateTargetDim = [srs..., this]<size_t... Is>(size_t index, std::index_sequence<Is...>)
+        {
+            toLower[index] = (0 + ... + (index == srs.dim ? srs.start : 0));
+            toUpper[index] = (0 + ... + (index == srs.dim ? srs.end : 0));
+            if (toUpper[index] == 0)
+            {
+                toUpper[index] = targetTensorT::size::dimArray[index];
+            }
+        };
+
+        [this]<size_t... Is>(std::index_sequence<Is...>)
+        {
+            (updateTargetDim(Is, std::make_index_sequence<sizeof...(srs)>{}), ...);
+        }(std::make_index_sequence<targetTensorT::size::dimSize>{});
+    }
+
+    inline auto &operator[](auto... index)
+    {
+ 
+    }
+
+ 
+};
+
 // ===================== BLAS =====================
 // ------------------- Reducer -------------------
 // it's not a standard BLAS operation, but tree-based reduction is a common operation in asic design
@@ -3471,5 +3535,111 @@ inline auto constexpr Qreduce(const Ts... quants)
 {
     return ReducerInputHelper<Args...>::reduce(quants...);
 }
+
+
+// ------------------- Advanced Nonlinear Universal Subprograms -------------------
+// the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
+// note that the operations are not standard BLAS operations, use ANUS:: to get access to them
+
+namespace ANUS {
+
+// polynomial fitting
+template <auto... an>
+struct PolyImpl;
+
+template <typename anT, anT an>
+struct PolyImpl<an>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return Qadd<anT>(Qmul<anT>(prev, x), an);
+    }
+};
+
+template <typename a1T, a1T a1, typename... anT, anT... an>
+struct PolyImpl<a1, an...>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
+    }
+};
+
+template <auto a0, auto... an>
+    requires(sizeof...(an) > 0)
+struct Poly
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return PolyImpl<an...>::execute(a0, x);
+    }
+};
+
+// Approx
+
+template <auto... points>
+    requires(std::is_arithmetic_v<decltype(points)> && ...)
+struct segments;
+
+template <typename... polynomials>
+struct polys;
+
+template <typename... Args>
+struct Approx;
+
+template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
+struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
+{
+    template <typename T>
+    static inline constexpr T execute(const T x)
+    {
+        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
+        {
+            return T(firstPoly::execute(x));
+        }
+        else
+        {
+            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
+        }
+    }
+};
+
+template <typename polynominal>
+struct Approx<segments<>, polys<polynominal>>
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return polynominal::execute(x);
+    }
+};
+
+// lookup tables
+
+// some pre-defined functions, stored as std::function
+
+// sprt
+inline static constexpr auto sqrtFunc = [](double x) { return std::sqrt(x); };
+
+// reciprocal
+inline static constexpr auto reciprocalFunc = [](double x) { return 1.0 / x; };
+
+// reciprocal square root
+inline static constexpr auto rsqrtFunc = [](double x) { return 1.0 / std::sqrt(x); };
+
+// exponential
+inline static constexpr auto expFunc = [](double x) { return std::exp(x); };
+
+// note that essentially the lookup table is implemented via runtime calculation. This is theoretically identical to implementing a real pre-calculated lookup table in asic.
+template <double (*func)(double), int intB, int fracB, bool isS, typename QuM, typename OfM>
+inline constexpr auto Qtable(const Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> x)
+{
+    using interiorType = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<RND::ZERO>, OfMode<OfM>>;
+
+    interiorType val = func(x.toDouble());
+
+    return Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>(val.data, DirectAssignTag());
+}
+
+} // namespace ANUS
 
 } // namespace QuBLAS
