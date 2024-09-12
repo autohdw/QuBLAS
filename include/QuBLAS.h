@@ -812,6 +812,12 @@ struct intBits;
 template <int Value>
 struct fracBits;
 
+template <int Value>
+struct expBits;
+
+template <int Value>
+struct valBits;
+
 template <bool Value>
 struct isSigned;
 
@@ -827,6 +833,8 @@ struct DirectAssignTag
 
 // Dynamic Qu
 struct QuDynamic;
+
+struct QuFloat;
 
 // the base specialization that should not be used
 template <typename... Args>
@@ -1330,7 +1338,108 @@ struct isDynamic_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>>
 
 template <typename T>
 inline constexpr bool isDynamic = isDynamic_s<T>::value;
+// ------------------- Float -------------------------------
+template <int expBitsInput, int valBitsInput, typename QuModeInput, typename OfModeInput>
+class Qu_s<QuFloat, expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
+{
+public:
+    inline static constexpr int expB = expBitsInput;
+    inline static constexpr int valB = valBitsInput;
+  
+    using QuM_t = QuModeInput;
+    using OfM_t = OfModeInput;
+    inline static constexpr int QuM = QuModeInput::value;
+    inline static constexpr int OfM = OfModeInput::value;
 
+    inline static constexpr int maxVal = (1 << valB) - 1;
+    inline static constexpr int bias = (1 << expB - 1);
+
+
+    int expData;
+    int valData;
+    bool signData;
+
+    inline constexpr Qu_s() {expData = valData = signData = 0;}
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    Qu_s(T val)
+    {
+        long double ldVal = val;
+
+        if (ldVal < 0) signData = 1 , ldVal = -ldVal;
+        else signData = 0;
+
+        int s = 0;
+        while (ldVal < 1) ldVal *= 2, s--;
+        while (ldVal >= 2) ldVal /= 2, s++;
+        ldVal -= 1, ldVal *= 2;
+
+        valData = 0;
+        for (int i = 0; i < valB; i++)
+        {
+            if (ldVal >= 1) valData |= (1 << (valB - i - 1)), ldVal -= 1;
+            ldVal *= 2;
+        }
+        expData = s + bias;
+        if (expData < 0) expData = 0;
+        if (expData > (1 << expB) - 1) expData = (1 << expB) - 1;
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    inline Qu_s& operator=(T val)
+    {
+        long double ldVal = val;
+
+        if (ldVal < 0) signData = 1 , ldVal = -ldVal;
+        else signData = 0;
+
+        int s = 0;
+        while (ldVal < 1) ldVal *= 2, s--;
+        while (ldVal >= 2) ldVal /= 2, s++;
+        ldVal -= 1, ldVal *= 2;
+
+        valData = 0;
+        for (int i = 0; i < valB; i++)
+        {
+            if (ldVal >= 1) valData |= (1 << (valB - i - 1)), ldVal -= 1;
+            ldVal *= 2;
+        }
+        expData = s + bias;
+        if (expData < 0) expData = 0;
+        if (expData > (1 << expB) - 1) expData = (1 << expB) - 1;
+        return *this;
+    }
+
+
+    inline void display()
+    {
+        long double ldVal = 0;
+        if (expData + valData == 0) return (void)printf("0\n");
+        for (int i = 0; i < valB; i++)
+        {
+            ldVal += (valData >> i & 1);
+            ldVal /= 2.0;
+        }
+        ldVal += 1;
+        for (int i = 0; i < expData - bias; i++) ldVal *= 2;
+        for (int i = 0; i > expData - bias; i--) ldVal /= 2;
+        if (signData) ldVal *= -1;
+        printf("%Lf\n",ldVal);
+    }
+};
+template <typename... Args>
+struct QuInputHelper<QuFloat, Args...>
+{
+    inline static constexpr auto expB = tagExtractor<expBits<8>, Args...>::value;
+    inline static constexpr auto valB = tagExtractor<valBits<8>, Args...>::value;
+
+    using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
+    using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
+
+    using type = Qu_s<QuFloat, expBits<expB>, valBits<valB>, QuMode<QuM>, OfMode<OfM> >;
+};
 // ------------------- Vector and Matrix -------------------
 
 // std::mdspan only available in clang 18, we need to support gcc
@@ -3543,6 +3652,7 @@ inline auto constexpr Qreduce(const Ts... quants)
 
 namespace ANUS {
 
+/*
 // polynomial fitting
 template <auto... an>
 struct PolyImpl;
@@ -3612,7 +3722,7 @@ struct Approx<segments<>, polys<polynominal>>
         return polynominal::execute(x);
     }
 };
-
+*/
 // lookup tables
 
 // some pre-defined functions, stored as std::function
