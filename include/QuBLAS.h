@@ -2655,6 +2655,31 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
 
 // ------------------- Basic tensor operations -------------------
 
+template<typename... Args>
+struct sizeMerger;
+
+template<size_t ...dims1, typename QuT1, size_t ...dims2, typename QuT2>
+// requires QuT1::size == QuT2::size
+requires std::is_same_v<typename QuT1::size, typename QuT2::size>
+struct sizeMerger<Qu_s<dim<dims1...>,QuT1>, Qu_s<dim<dims2...>,QuT2>>
+{
+    using size = dim<dims1...>;
+};
+
+template<size_t ...dims1, typename QuT1, typename QuT2>
+requires isScalar<QuT2>
+struct sizeMerger<Qu_s<dim<dims1...>,QuT1>, QuT2>
+{
+    using size = dim<dims1...>;
+};
+
+template<size_t ...dims2, typename QuT2, typename QuT1>
+requires isScalar<QuT1>
+struct sizeMerger<QuT1, Qu_s<dim<dims2...>,QuT2>>
+{
+    using size = dim<dims2...>;
+};
+
 // use [] to call the object if it is a tensor, otherwise just return the object
 template <typename T>
 inline auto autoCall(const T &obj, auto... index)
@@ -2679,7 +2704,7 @@ class MulExpression<QuT1, QuT2, toArgs...>
     const QuT2 &q2;
 
 public:
-    using size = typename QuT1::size;
+    using size = typename sizeMerger<QuT1, QuT2>::size;
 
     MulExpression(const QuT1 &f1, const QuT2 &f2)
         : q1(f1), q2(f2) {}
@@ -2712,7 +2737,7 @@ class AddExpression<QuT1, QuT2, toArgs...>
     const QuT2 &q2;
 
 public:
-    using size = typename QuT1::size;
+    using size = typename sizeMerger<QuT1, QuT2>::size;
 
     AddExpression(const QuT1 &f1, const QuT2 &f2)
         : q1(f1), q2(f2) {}
@@ -2745,7 +2770,7 @@ class SubExpression<QuT1, QuT2, toArgs...>
     const QuT2 &q2;
 
 public:
-    using size = typename QuT1::size;
+    using size = typename sizeMerger<QuT1, QuT2>::size;
 
     SubExpression(const QuT1 &f1, const QuT2 &f2)
         : q1(f1), q2(f2) {}
@@ -2778,7 +2803,7 @@ class DivExpression<QuT1, QuT2, toArgs...>
     const QuT2 &q2;
 
 public:
-    using size = typename QuT1::size;
+    using size = typename sizeMerger<QuT1, QuT2>::size;
 
     DivExpression(const QuT1 &f1, const QuT2 &f2)
         : q1(f1), q2(f2) {}
@@ -2912,126 +2937,126 @@ inline constexpr auto Qneg(const QuT f)
 }
 
 // operator overloading
-template <typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
-inline constexpr auto operator*(const QuT1 f1, const QuT2 f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator*(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qmul(f1, f2);
 }
 
-template <typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
-inline constexpr auto operator+(const QuT1 f1, const QuT2 f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator+(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qadd(f1, f2);
 }
 
-template <typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
-inline constexpr auto operator-(const QuT1 f1, const QuT2 f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator-(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qsub(f1, f2);
 }
 
-template <typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
-inline constexpr auto operator/(const QuT1 f1, const QuT2 f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator/(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qdiv(f1, f2);
 }
 
-template <typename QuT>
-    requires isScalar<QuT>
-inline constexpr auto operator-(const QuT f1)
+template <typename... QuArgs>
+    requires isScalar<Qu_s<QuArgs...>>
+inline constexpr auto operator-(const Qu_s<QuArgs...> f1)
 {
     return Qneg(f1);
 }
-template <typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
-inline constexpr auto operator<=>(const QuT1 f1, const QuT2 f2)
+
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator<=>(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
-    return Qcmp_s<QuT1, QuT2, MergerArgsWrapper<>>::cmp(f1, f2);
+    return Qcmp_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, MergerArgsWrapper<>>::cmp(f1, f2);
 }
 
 // tensor functions
-template <typename... toArgs, typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto Qmul(const QuT1 &f1, const QuT2 &f2)
+template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto Qmul(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
-    return QmulTensor_s<QuT1, QuT2, toArgs...>::mul(f1, f2);
+    return QmulTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::mul(f1, f2);
 }
 
-template <typename... toArgs, typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto Qadd(const QuT1 &f1, const QuT2 &f2)
+template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto Qadd(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
-    return QaddTensor_s<QuT1, QuT2, toArgs...>::add(f1, f2);
+    return QaddTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::add(f1, f2);
 }
 
-template <typename... toArgs, typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto Qsub(const QuT1 &f1, const QuT2 &f2)
+template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto Qsub(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
-    return QsubTensor_s<QuT1, QuT2, toArgs...>::sub(f1, f2);
+    return QsubTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::sub(f1, f2);
 }
 
-template <typename... toArgs, typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto Qdiv(const QuT1 &f1, const QuT2 &f2)
+template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto Qdiv(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
-    return QdivTensor_s<QuT1, QuT2, toArgs...>::div(f1, f2);
+    return QdivTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::div(f1, f2);
 }
 
-template <typename... toArgs, typename QuT>
-    requires(!isScalar<QuT>)
-inline constexpr auto Qabs(const QuT &f)
+template <typename... toArgs, typename... QuArgs>
+    requires (!isScalar<Qu_s<QuArgs...>>)
+inline constexpr auto Qabs(const Qu_s<QuArgs...> &f)
 {
-    return QabsTensor_s<QuT, toArgs...>::abs(f);
+    return QabsTensor_s<Qu_s<QuArgs...>, toArgs...>::abs(f);
 }
 
-template <typename... toArgs, typename QuT>
-    requires(!isScalar<QuT>)
-inline constexpr auto Qneg(const QuT &f)
+template <typename... toArgs, typename... QuArgs>
+    requires (!isScalar<Qu_s<QuArgs...>>)
+inline constexpr auto Qneg(const Qu_s<QuArgs...> &f)
 {
-    return QnegTensor_s<QuT, toArgs...>::neg(f);
+    return QnegTensor_s<Qu_s<QuArgs...>, toArgs...>::neg(f);
 }
 
 // operator overloading
-template <typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto operator*(const QuT1 &f1, const QuT2 &f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto operator*(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qmul(f1, f2);
 }
 
-template <typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto operator+(const QuT1 &f1, const QuT2 &f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto operator+(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qadd(f1, f2);
 }
 
-template <typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto operator-(const QuT1 &f1, const QuT2 &f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto operator-(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qsub(f1, f2);
 }
 
-template <typename QuT1, typename QuT2>
-    requires(!isScalar<QuT1>) || (!isScalar<QuT2>)
-inline constexpr auto operator/(const QuT1 &f1, const QuT2 &f2)
+template <typename... QuArgs1, typename... QuArgs2>
+    requires (!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
+inline constexpr auto operator/(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qdiv(f1, f2);
 }
 
-template <typename QuT>
-    requires(!isScalar<QuT>)
-inline constexpr auto operator-(const QuT &f1)
+template <typename... QuArgs>
+    requires (!isScalar<Qu_s<QuArgs...>>)
+inline constexpr auto operator-(const Qu_s<QuArgs...> &f1)
 {
     return Qneg(f1);
 }
-
 // ------------------- Slice -------------------
 
 template <size_t... Args>

@@ -5,13 +5,19 @@ using namespace QuBLAS;
 
 int main()
 {
-    Qu<dim<2,2>, Qu<>> mat = {1, 2, 3, 4};
-    
-    Qu<Qu<>,Qu<>> a = {1,2};
+    using type = Qu<>;
+    using complex_t = Qu<type,type>;
+    using vec_t = Qu<dim<4>,complex_t>;
 
-    Qu<dim<2,2>, Qu<Qu<>,Qu<>>>  res = Qadd(mat, a);
+    vec_t v1;
+    v1[0] = std::complex<double>(1,1);
+    v1[1] = std::complex<double>(2,2);
+    v1[2] = std::complex<double>(3,3);
+    v1[3] = std::complex<double>(4,4);
 
-    std::cout << res << std::endl;
+    type a = 1.5;
+
+    vec_t v2 = a * v1 ;
  
 
 }
