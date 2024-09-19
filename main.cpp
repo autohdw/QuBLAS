@@ -7,17 +7,40 @@ int main()
 {
     using type = Qu<>;
     using complex_t = Qu<type,type>;
-    using vec_t = Qu<dim<4>,complex_t>;
+    
 
-    vec_t v1;
-    v1[0] = std::complex<double>(1,1);
-    v1[1] = std::complex<double>(2,2);
-    v1[2] = std::complex<double>(3,3);
-    v1[3] = std::complex<double>(4,4);
+    complex_t a = {1.123, 2.351};
 
-    type a = 1.5;
+    type b = 2.131131;
 
-    vec_t v2 = a * v1 ;
+
+    using innerT  = Qu<intBits<2>,fracBits<2>>;
+    using innerT2  = Qu<intBits<3>,fracBits<3>>;
+    using innerT3  = Qu<intBits<4>,fracBits<4>>;
+    using innerT4  = Qu<intBits<5>,fracBits<5>>;
+    using innerT5  = Qu<intBits<6>,fracBits<6>>;
+    using innerT6  = Qu<intBits<7>,fracBits<7>>;
+
+    auto res1 = Qmul<
+    BasicComplexMul<
+    acT<innerT>,
+    bdT<innerT2>,
+    adT<innerT3>,
+    bcT<innerT4>,
+    acbdT<innerT5>,
+    adbcT<innerT6>
+    >>(a,a);
+
+    res1.display();
+
+
+    // auto res2 = Qadd<realT<innerT>,imagT<innerT2>>(a,a);
+
+    // res2.display();
+
+ 
+
+    
  
 
 }
