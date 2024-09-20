@@ -5,42 +5,51 @@ using namespace QuBLAS;
 
 int main()
 {
-    using type = Qu<>;
-    using complex_t = Qu<type,type>;
-    
 
-    complex_t a = {1.123, 2.351};
+    using type = Qu<intBits<-12>, fracBits<42>>;
 
-    type b = 2.131131;
+    using complex_t = Qu<type, type>;
 
+    complex_t a = {0.000118430797345516, -5.00646053666303e-05};
+    complex_t b = {0.000117963441140594, 5.11566487885574e-05};
 
-    using innerT  = Qu<intBits<2>,fracBits<2>>;
-    using innerT2  = Qu<intBits<3>,fracBits<3>>;
-    using innerT3  = Qu<intBits<4>,fracBits<4>>;
-    using innerT4  = Qu<intBits<5>,fracBits<5>>;
-    using innerT5  = Qu<intBits<6>,fracBits<6>>;
-    using innerT6  = Qu<intBits<7>,fracBits<7>>;
+    a.display();
+    b.display();
 
-    auto res1 = Qmul<
-    BasicComplexMul<
-    acT<innerT>,
-    bdT<innerT2>,
-    adT<innerT3>,
-    bcT<innerT4>,
-    acbdT<innerT5>,
-    adbcT<innerT6>
-    >>(a,a);
+    double a_real = 0.000118430797345516;
+    double a_imag = -5.00646053666303e-05;
+    double b_real = 0.000117963441140594;
+    double b_imag = 5.11566487885574e-05;
 
-    res1.display();
+    auto ac = Qmul<type>(a.real, b.real);
+    auto bd = Qmul<type>(a.imag, b.imag);
+    auto ad = Qmul<type>(a.real, b.imag);
+    auto bc = Qmul<type>(a.imag, b.real);
 
+    auto acbd = Qsub<type>(ac, bd);
+    auto adbc = Qadd<type>(ad, bc);
 
-    // auto res2 = Qadd<realT<innerT>,imagT<innerT2>>(a,a);
+    ac.display("ac");
+    double ac_true = a_real * b_real;
+    std::cout << "True ac: " << ac_true << std::endl;
 
-    // res2.display();
+    bd.display("bd");
+    double bd_true = a_imag * b_imag;
+    std::cout << "True bd: " << bd_true << std::endl;
 
- 
+    ad.display("ad");
+    double ad_true = a_real * b_imag;
+    std::cout << "True ad: " << ad_true << std::endl;
 
-    
- 
+    bc.display("bc");
+    double bc_true = a_imag * b_real;
+    std::cout << "True bc: " << bc_true << std::endl;
 
+    acbd.display("acbd");
+    double acbd_true = ac_true - bd_true;
+    std::cout << "True acbd: " << acbd_true << std::endl;
+
+    adbc.display("adbc");
+    double adbc_true = ad_true + bc_true;
+    std::cout << "True adbc: " << adbc_true << std::endl;
 }

@@ -273,9 +273,11 @@ static inline long long int inputDynamic(auto val, int shift)
     }
 }
 
+
 template <int shift>
 struct shifter
 {
+    static constexpr long one = 1;
     template <typename T>
     inline static constexpr T shiftLeft(T val)
     {
@@ -309,11 +311,14 @@ struct shifter
     {
         if constexpr (shift >= 0)
         {
-            return static_cast<double>(val) / (1 << shift);
+            // return static_cast<double>(val) / (1 << shift);
+            
+            double div = one << shift;
+            return static_cast<double>(val) / div;
         }
         else
         {
-            return static_cast<double>(val) * (1 << (-shift));
+            return static_cast<double>(val) * (one << (-shift));
         }
     }
 
@@ -322,18 +327,18 @@ struct shifter
     {
         if constexpr (shift >= 0)
         {
-            return static_cast<long long int>(static_cast<double>(val) * (1 << shift));
+            return static_cast<long long int>(static_cast<double>(val) * (one << shift));
         }
         else
         {
 
             if (val < (1 << (-shift)))
             {
-                return (static_cast<long long int>((static_cast<double>(val) * (1 << (-shift))) / (1 << (-shift)))) >> (-shift);
+                return (static_cast<long long int>((static_cast<double>(val) * (one << (-shift))) / (one << (-shift)))) >> (-shift);
             }
             else
             {
-                return static_cast<long long int>(static_cast<double>(val) / (1 << (-shift)));
+                return static_cast<long long int>(static_cast<double>(val) / (one << (-shift)));
             }
         }
     }
