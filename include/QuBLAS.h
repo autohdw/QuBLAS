@@ -1758,7 +1758,7 @@ struct MergerArgsWrapper_s
 template <typename... Args>
 struct MergerArgsWrapper_s<TypeList<Args...>>
 {
-    using type = TypeList<>;
+    using type = TypeList<Args...>;
 };
 
 template <typename... Args>
@@ -2310,46 +2310,42 @@ struct MergerArgsWrapper_s<BasicComplexMul<Args...>>
 };
 
 template <typename... Args>
-struct acT;
+struct acT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct bdT;
+struct bdT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct adT;
+struct adT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct bcT;
+struct bcT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct acbdT;
+struct acbdT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct adbcT;
+struct adbcT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
-template <typename... Args>
-struct MergerArgsWrapper_s<acT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<bdT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<adT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<bcT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<acbdT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<adbcT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
+ 
 
 // used for Qmul(c1, c2) without any additional arguments
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2>
@@ -2359,13 +2355,13 @@ struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, BasicComplexMul<toArgs...>>
 {
-    using mulACType = tagExtractor<acT<>, toArgs...>::type;
-    using mulBDType = tagExtractor<bdT<>, toArgs...>::type;
-    using mulADType = tagExtractor<adT<>, toArgs...>::type;
-    using mulBCType = tagExtractor<bcT<>, toArgs...>::type;
+    using mulACType = tagExtractor<acT<toArgs...>, toArgs...>::type::list;
+    using mulBDType = tagExtractor<bdT<toArgs...>, toArgs...>::type::list;
+    using mulADType = tagExtractor<adT<toArgs...>, toArgs...>::type::list;
+    using mulBCType = tagExtractor<bcT<toArgs...>, toArgs...>::type::list;
 
-    using subACBDType = tagExtractor<acbdT<>, toArgs...>::type;
-    using addADBCType = tagExtractor<adbcT<>, toArgs...>::type;
+    using subACBDType = tagExtractor<acbdT<toArgs...>, toArgs...>::type::list;
+    using addADBCType = tagExtractor<adbcT<toArgs...>, toArgs...>::type::list;
 
     inline static constexpr auto mul(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
     {
@@ -2393,72 +2389,64 @@ struct MergerArgsWrapper_s<TFComplexMul<Args...>>
 };
 
 template <typename... Args>
-struct abT;
+struct abT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct cdT;
+struct cdT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct baT;
+struct baT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct abcT;
+struct abcT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct cdbT;
+struct cdbT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct badT;
+struct badT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct ABT;
+struct ABT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct BCT;
-
-template <typename... Args>
-struct MergerArgsWrapper_s<abT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<cdT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<baT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<abcT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<cdbT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<badT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<ABT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<BCT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
+struct BCT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TFComplexMul<toArgs...>>
 {
-    using addabType = tagExtractor<abT<>, toArgs...>::type;
-    using addcdType = tagExtractor<cdT<>, toArgs...>::type;
-    using subbaType = tagExtractor<baT<>, toArgs...>::type;
-    using mulabcType = tagExtractor<abcT<>, toArgs...>::type;
-    using mulcdbType = tagExtractor<cdbT<>, toArgs...>::type;
-    using mulbadType = tagExtractor<badT<>, toArgs...>::type;
-    using subABType = tagExtractor<ABT<>, toArgs...>::type;
-    using subBCType = tagExtractor<BCT<>, toArgs...>::type;
+    using addabType = tagExtractor<abT<toArgs...>, toArgs...>::type::list;
+    using addcdType = tagExtractor<cdT<toArgs...>, toArgs...>::type::list;
+    using subbaType = tagExtractor<baT<toArgs...>, toArgs...>::type;
+    using mulabcType = tagExtractor<abcT<toArgs...>, toArgs...>::type::list;
+    using mulcdbType = tagExtractor<cdbT<toArgs...>, toArgs...>::type::list;
+    using mulbadType = tagExtractor<badT<toArgs...>, toArgs...>::type::list;
+    using subABType = tagExtractor<ABT<toArgs...>, toArgs...>::type::list;
+    using subBCType = tagExtractor<BCT<toArgs...>, toArgs...>::type::list;
 
     inline static constexpr auto mul(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
     {
@@ -2476,18 +2464,16 @@ struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
 };
 
 template <typename... Args>
-struct realT;
+struct realT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... Args>
-struct imagT;
-
-template <typename... Args>
-struct MergerArgsWrapper_s<realT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
-
-template <typename... Args>
-struct MergerArgsWrapper_s<imagT<Args...>> : MergerArgsWrapper_s<Args...>
-{};
+struct imagT
+{
+    using list = MergerArgsWrapper<Args...>;
+};
 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<toArgs...>>
@@ -2538,36 +2524,44 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
 template <typename... realArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qmul_s<Qu_s<realArgs1...>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<toArgs...>>
 {
-    using realMulType = tagExtractor<realT<>, toArgs...>::type;
-    using imagMulType = tagExtractor<imagT<>, toArgs...>::type;
+    using realMulType = tagExtractor<realT<toArgs...>, toArgs...>::type;
+    using imagMulType = tagExtractor<imagT<toArgs...>, toArgs...>::type;
 
     inline static constexpr auto mul(const Qu_s<realArgs1...> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
     {
-        auto realPart = Qmul<realMulType>(f1, f2.real);
-        auto imagPart = Qmul<imagMulType>(f1, f2.imag);
+
+
+        auto realPart = Qmul<typename realMulType::list>(f1, f2.real);
+        auto imagPart = Qmul<typename imagMulType::list>(f1, f2.imag);
 
         // get the type of the real part and the imaginary part
         Qcomplex<decltype(realPart), decltype(imagPart)> res(realPart, imagPart);
         return res;
     }
 };
+
+template <typename... realArgs1, typename... realArgs2, typename... imagArgs2, typename... QuArgs1,typename...QuArgs2>
+struct Qmul_s<Qu_s<realArgs1...>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<Qu_s<QuArgs1...>,Qu_s<QuArgs2...>>>:Qmul_s<Qu_s<realArgs1...>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<realT<QuArgs1...>,imagT<QuArgs2...>>>{};
 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... toArgs>
 struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, TypeList<toArgs...>>
 {
-    using realMulType = tagExtractor<realT<>, toArgs...>::type;
-    using imagMulType = tagExtractor<imagT<>, toArgs...>::type;
+    using realMulType = tagExtractor<realT<toArgs...>, toArgs...>::type;
+    using imagMulType = tagExtractor<imagT<toArgs...>, toArgs...>::type;
 
     inline static constexpr auto mul(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<realArgs2...> f2)
     {
-        auto realPart = Qmul<realMulType>(f1.real, f2);
-        auto imagPart = Qmul<imagMulType>(f1.imag, f2);
+        auto realPart = Qmul<typename realMulType::list>(f1.real, f2);
+        auto imagPart = Qmul<typename imagMulType::list>(f1.imag, f2);
 
         // get the type of the real part and the imaginary part
         Qcomplex<decltype(realPart), decltype(imagPart)> res(realPart, imagPart);
         return res;
     }
 };
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... QuArgs1,typename...QuArgs2>
+struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>,  TypeList<Qu_s<QuArgs1...>,Qu_s<QuArgs2...>>>:Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, TypeList<realT<QuArgs1...>,imagT<QuArgs2...>>>{};
 
 // Real-Complex addition
 template <typename... realArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
@@ -2645,13 +2639,13 @@ struct Qdiv_s<Qu_s<realArgs1...>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... toArgs>
 struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, TypeList<toArgs...>>
 {
-    using realDivType = tagExtractor<realT<>, toArgs...>::type;
-    using imagDivType = tagExtractor<imagT<>, toArgs...>::type;
+    using realDivType = tagExtractor<realT<toArgs...>, toArgs...>::type;
+    using imagDivType = tagExtractor<imagT<toArgs...>, toArgs...>::type;
 
     inline static constexpr auto div(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<realArgs2...> f2)
     {
-        auto realPart = Qdiv<realDivType>(f1.real, f2);
-        auto imagPart = Qdiv<imagDivType>(f1.imag, f2);
+        auto realPart = Qdiv<typename realDivType::list>(f1.real, f2);
+        auto imagPart = Qdiv<typename imagDivType::list>(f1.imag, f2);
 
         // get the type of the real part and the imaginary part
         Qcomplex<decltype(realPart), decltype(imagPart)> res(realPart, imagPart);
@@ -2659,6 +2653,10 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
         return res;
     }
 };
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename ... QuArgs1,typename...QuArgs2>
+struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, TypeList<Qu_s<QuArgs1...>,Qu_s<QuArgs2...>>>:Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, TypeList<realT<QuArgs1...>,imagT<QuArgs2...>>>{};
+
 
 // ------------------- Basic tensor operations -------------------
 

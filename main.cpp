@@ -6,50 +6,27 @@ using namespace QuBLAS;
 int main()
 {
 
-    using type = Qu<intBits<-12>, fracBits<42>>;
+    using type1 = Qu<intBits<3>, fracBits<2>>;
+    using type2 = Qu<intBits<4>, fracBits<3>>;
+    using type3 = Qu<intBits<5>, fracBits<4>>;
+    using type4 = Qu<intBits<6>, fracBits<5>>;
+    using type5 = Qu<intBits<7>, fracBits<6>>;
+    using type6 = Qu<intBits<8>, fracBits<7>>;
+    using type7 = Qu<intBits<9>, fracBits<8>>;
+    using type8 = Qu<intBits<10>, fracBits<9>>;
 
-    using complex_t = Qu<type, type>;
+    using complex_t = Qu<type1, type2>;
 
-    complex_t a = {0.000118430797345516, -5.00646053666303e-05};
-    complex_t b = {0.000117963441140594, 5.11566487885574e-05};
+    complex_t a = {1.123123, 2.123123};
 
-    a.display();
-    b.display();
+    auto b = Qmul<BasicComplexMul<
+        acT<intBits<11>>,
+        bdT<type2>,
+        adT<type3>,
+        // bcT<type4>,
+        acbdT<type5>,
+        adbcT<type6>>>(a, a);
 
-    double a_real = 0.000118430797345516;
-    double a_imag = -5.00646053666303e-05;
-    double b_real = 0.000117963441140594;
-    double b_imag = 5.11566487885574e-05;
-
-    auto ac = Qmul<type>(a.real, b.real);
-    auto bd = Qmul<type>(a.imag, b.imag);
-    auto ad = Qmul<type>(a.real, b.imag);
-    auto bc = Qmul<type>(a.imag, b.real);
-
-    auto acbd = Qsub<type>(ac, bd);
-    auto adbc = Qadd<type>(ad, bc);
-
-    ac.display("ac");
-    double ac_true = a_real * b_real;
-    std::cout << "True ac: " << ac_true << std::endl;
-
-    bd.display("bd");
-    double bd_true = a_imag * b_imag;
-    std::cout << "True bd: " << bd_true << std::endl;
-
-    ad.display("ad");
-    double ad_true = a_real * b_imag;
-    std::cout << "True ad: " << ad_true << std::endl;
-
-    bc.display("bc");
-    double bc_true = a_imag * b_real;
-    std::cout << "True bc: " << bc_true << std::endl;
-
-    acbd.display("acbd");
-    double acbd_true = ac_true - bd_true;
-    std::cout << "True acbd: " << acbd_true << std::endl;
-
-    adbc.display("adbc");
-    double adbc_true = ad_true + bc_true;
-    std::cout << "True adbc: " << adbc_true << std::endl;
+    auto c = Qmul<BasicComplexMul<
+        type5>>(a, a);
 }
