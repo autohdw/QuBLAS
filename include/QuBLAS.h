@@ -2478,8 +2478,8 @@ struct imagT
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<toArgs...>>
 {
-    using realType = tagExtractor<realT<>, toArgs...>::type;
-    using imagType = tagExtractor<imagT<>, toArgs...>::type;
+    using realType = tagExtractor<realT<toArgs...>, toArgs...>::type::list;
+    using imagType = tagExtractor<imagT<toArgs...>, toArgs...>::type::list;
 
     inline static constexpr auto add(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
     {
@@ -2492,11 +2492,15 @@ struct Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
     }
 };
 
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... QuArgs1,typename...QuArgs2>
+struct Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<Qu_s<QuArgs1...>,Qu_s<QuArgs2...>>>:Qadd_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<realT<QuArgs1...>,imagT<QuArgs2...>>>{};
+
+
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<toArgs...>>
 {
-    using realType = tagExtractor<realT<>, toArgs...>::type;
-    using imagType = tagExtractor<imagT<>, toArgs...>::type;
+    using realType = tagExtractor<realT<toArgs...>, toArgs...>::type::list;
+    using imagType = tagExtractor<imagT<toArgs...>, toArgs...>::type::list;
 
     inline static constexpr auto sub(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
     {
@@ -2508,6 +2512,9 @@ struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
         return res;
     }
 };
+
+template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... QuArgs1,typename...QuArgs2>
+struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<Qu_s<QuArgs1...>,Qu_s<QuArgs2...>>>:Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<realT<QuArgs1...>,imagT<QuArgs2...>>>{};
 
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>

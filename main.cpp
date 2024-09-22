@@ -29,4 +29,9 @@ int main()
 
     auto c = Qmul<BasicComplexMul<
         type5>>(a, a);
+
+
+    auto d = Qadd<type8,type1>(a, a);
+
+    d.display();
 }
