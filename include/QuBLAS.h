@@ -1011,11 +1011,14 @@ struct QuInputHelper
     inline static constexpr auto intB = tagExtractor<intBits<defaultIntBits>, Args...>::value;
     inline static constexpr auto fracB = tagExtractor<fracBits<defaultFracBits>, Args...>::value;
     inline static constexpr auto isS = tagExtractor<isSigned<defaultIsSigned>, Args...>::value;
+    inline static constexpr auto expB = tagExtractor<expBits<-1>, Args...>::value;
+    inline static constexpr auto valB = tagExtractor<valBits<-1>, Args...>::value;
+
 
     using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
     using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
 
-    using type = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>;
+    using type = std::conditional_t< (expB < 0 && valB < 0), Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>, Qu_s<expBits<expB>, valBits<valB>, QuMode<QuM>, OfMode<OfM>>>;
 };
 
 template <typename... Args>
@@ -1339,8 +1342,9 @@ struct isDynamic_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>>
 template <typename T>
 inline constexpr bool isDynamic = isDynamic_s<T>::value;
 // ------------------- Float -------------------------------
+
 template <int expBitsInput, int valBitsInput, typename QuModeInput, typename OfModeInput>
-class Qu_s<QuFloat, expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
+class Qu_s<expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
 {
 public:
     inline static constexpr int expB = expBitsInput;
@@ -1359,14 +1363,10 @@ public:
     int valData;
     bool signData;
 
-    inline constexpr Qu_s() {expData = valData = signData = 0;}
+    inline constexpr Qu_s() {}
 
-    template <typename T>
-        requires std::is_arithmetic_v<T>
-    Qu_s(T val)
+    inline void toQuFloat(long double ldVal)
     {
-        long double ldVal = val;
-
         if (ldVal < 0) signData = 1 , ldVal = -ldVal;
         else signData = 0;
 
@@ -1383,40 +1383,13 @@ public:
         }
         expData = s + bias;
         if (expData < 0) expData = 0;
-        if (expData > (1 << expB) - 1) expData = (1 << expB) - 1;
+        if (expData > (1 << expB) - 1) expData = (1 << expB) - 1;    
     }
 
-    template <typename T>
-        requires std::is_arithmetic_v<T>
-    inline Qu_s& operator=(T val)
-    {
-        long double ldVal = val;
-
-        if (ldVal < 0) signData = 1 , ldVal = -ldVal;
-        else signData = 0;
-
-        int s = 0;
-        while (ldVal < 1) ldVal *= 2, s--;
-        while (ldVal >= 2) ldVal /= 2, s++;
-        ldVal -= 1, ldVal *= 2;
-
-        valData = 0;
-        for (int i = 0; i < valB; i++)
-        {
-            if (ldVal >= 1) valData |= (1 << (valB - i - 1)), ldVal -= 1;
-            ldVal *= 2;
-        }
-        expData = s + bias;
-        if (expData < 0) expData = 0;
-        if (expData > (1 << expB) - 1) expData = (1 << expB) - 1;
-        return *this;
-    }
-
-
-    inline void display()
+    inline long double toDouble()
     {
         long double ldVal = 0;
-        if (expData + valData == 0) return (void)printf("0\n");
+        if (expData + valData == 0) return 0;
         for (int i = 0; i < valB; i++)
         {
             ldVal += (valData >> i & 1);
@@ -1426,9 +1399,37 @@ public:
         for (int i = 0; i < expData - bias; i++) ldVal *= 2;
         for (int i = 0; i > expData - bias; i--) ldVal /= 2;
         if (signData) ldVal *= -1;
-        printf("%Lf\n",ldVal);
+        return ldVal;
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    Qu_s(T val)
+    {
+        toQuFloat((long double)val);
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    inline Qu_s& operator=(T val)
+    {
+        toQuFloat((long double)val);
+        return *this;
+    }
+
+    template <typename... Args>
+    inline Qu_s& operator=(Qu_s<Args...> val)
+    {
+        long double ldVal = val.toDouble();
+        toQuFloat(ldVal);
+        return *this;
+    }    
+    inline void display()
+    {
+        printf("%Lf\n",toDouble());
     }
 };
+/*
 template <typename... Args>
 struct QuInputHelper<QuFloat, Args...>
 {
@@ -1439,7 +1440,7 @@ struct QuInputHelper<QuFloat, Args...>
     using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
 
     using type = Qu_s<QuFloat, expBits<expB>, valBits<valB>, QuMode<QuM>, OfMode<OfM> >;
-};
+};*/
 // ------------------- Vector and Matrix -------------------
 
 // std::mdspan only available in clang 18, we need to support gcc
