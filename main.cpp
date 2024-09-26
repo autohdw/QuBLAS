@@ -10,11 +10,11 @@ int main()
 
     ArbiInt<150> a;
 
-    a = ~a;
+    a.fill();
 
     a.display();
  
-    auto b = staticShiftRight<100>(a);
+    auto b = staticShiftRight<30>(a);
 
     b.display();
 

@@ -26,7 +26,7 @@ inline namespace QuBLAS {
 
 static std::random_device rd;
 static std::mt19937 gen(rd());
-static std::uniform_int_distribution<int> UniRand(std::numeric_limits<int>::min(), std::numeric_limits<int>::max()); // 整数的全范围分布
+static std::uniform_int_distribution<uint64_t> UniRand(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max()); // 整数的全范围分布
 static std::normal_distribution<double> NormRand(0, 1);                                                              // 正态分布
 
 // ------------------- TypeList -------------------
@@ -497,7 +497,6 @@ public:
     }
 
     static constexpr uint64_t mask = (static_cast<uint64_t>(1) << (N % 64)) - 1;
-
 
     // Constructor from arithmetic types
     template <typename T>
@@ -1317,10 +1316,9 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     return staticShiftRight<-shift>(x);
 }
 
-
 // operator >>
 
-template <size_t shift, size_t N>
+template <int shift, size_t N>
     requires(shift > 0) && (N <= 64)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
@@ -1333,7 +1331,7 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
     return result;
 }
 
-template <size_t shift, size_t N>
+template <int shift, size_t N>
     requires(shift > 0) && (N > 64) && (N - shift <= 64)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
@@ -1342,11 +1340,58 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 
     constexpr size_t num_words = ArbiInt<N>::num_words;
 
-    __uint128_t temp = (static_cast<__uint128_t>(x.data[num_words - 1]) << 64 ) | static_cast<__uint128_t>(x.data[num_words - 2]);
-    result.data = static_cast<uint64_t>(temp >> (shift % 64));
+    __int128_t temp = static_cast<__int128_t>((static_cast<__uint128_t>(x.data[num_words - 1]) << 64) | static_cast<__uint128_t>(x.data[num_words - 2]));
+    result.data = static_cast<ArbiInt<N - shift>::data_t>(temp >> (shift % 64));
 
     return result;
 }
+
+template <int shift, size_t N>
+    requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 == 0)
+constexpr auto staticShiftRight(const ArbiInt<N> &x) { 
+    ArbiInt<N - shift> result;
+    std::copy(x.data.begin() + shift / 64, x.data.end(), result.data.begin());
+    return result;
+
+}
+
+template <int shift, size_t N>
+    requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
+constexpr auto staticShiftRight(const ArbiInt<N> &x) {
+    static constexpr size_t shift_words = shift / 64;    // 计算完整的64位块的右移数量
+    static constexpr size_t shift_bits = shift % 64;     // 计算剩余的位右移数量
+    static constexpr size_t num_input_words = ArbiInt<N>::num_words;
+    static constexpr size_t num_output_words = ArbiInt<N - shift>::num_words;
+
+    ArbiInt<N - shift> result;
+    result.data.fill(0);
+
+    // 使用128位整数进行合并和位移
+    for (size_t i = 0; i < num_output_words; ++i) {
+        if (i + shift_words < num_input_words) {
+            __uint128_t temp = static_cast<__uint128_t>(x.data[i + shift_words]) >> shift_bits;
+
+            if (shift_bits > 0 && i + shift_words + 1 < num_input_words) {
+                temp |= static_cast<__uint128_t>(x.data[i + shift_words + 1]) << (64 - shift_bits);
+            }
+
+            result.data[i] = static_cast<uint64_t>(temp);
+        }
+    }
+    return result;
+}
+
+
+
+template <int shift, size_t N>
+    requires(shift < 0)
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
+    return staticShiftLeft<-shift>(x);
+}
+
+
+
 
 
 // comparison operators
@@ -1854,8 +1899,8 @@ public:
     // no matter whether the sign bit is commanded by the user, the actual implementation will always have a sign bit
     ArbiInt<1 + intB + fracB> data;
 
-    template<typename T>
-    requires std::is_arithmetic_v<T>
+    template <typename T>
+        requires std::is_arithmetic_v<T>
     inline constexpr Qu_s(T val)
     {
         ArbiInt<1 + intB + fracB> temp = val;
@@ -1864,11 +1909,9 @@ public:
 
         // currently, the intConvert is not implemented
         data = fracConverted;
-        
     }
 
     inline constexpr Qu_s() : data() {}
-
 
     // from another static Qu_s
     template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
@@ -1881,14 +1924,8 @@ public:
         else
         {
             data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data));
-
-            
         }
     }
-
-
-
-
 
     void display(std::string name = "") const
     {
