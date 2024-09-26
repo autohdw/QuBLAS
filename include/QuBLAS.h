@@ -271,7 +271,7 @@ std::array<uint64_t, num_words> string_to_big_integer(const std::string &str)
     return result;
 }
 
-constexpr void divide_by_uint64(const uint64_t* numerator, size_t num_words, uint64_t divisor, uint64_t* quotient, uint64_t& remainder)
+constexpr void divide_by_uint64(const uint64_t *numerator, size_t num_words, uint64_t divisor, uint64_t *quotient, uint64_t &remainder)
 {
     remainder = 0;
     for (size_t i = num_words; i-- > 0;)
@@ -283,7 +283,7 @@ constexpr void divide_by_uint64(const uint64_t* numerator, size_t num_words, uin
 }
 
 template <size_t num_words>
-constexpr std::string big_integer_to_string(const std::array<uint64_t, num_words>& value)
+constexpr std::string big_integer_to_string(const std::array<uint64_t, num_words> &value)
 {
     bool is_negative = false;
     uint64_t highest_word = value[num_words - 1];
@@ -456,7 +456,6 @@ public:
         return std::bitset < N < 32 ? 32 : 64 > (data).to_string();
     }
 
-    // display, for debugging
     void display() const
     {
         std::cout << "Binary:  " << std::bitset<64>(data) << std::endl;
@@ -561,7 +560,7 @@ public:
     }
 
     // operator=
-    auto operator=(const std::string &str)
+    constexpr auto operator=(const std::string &str)
     {
         data = string_to_big_integer<num_words>(str);
         return *this;
@@ -625,17 +624,47 @@ public:
         return *this;
     }
 
-    auto toString() const
+    constexpr auto toString() const
     {
         return big_integer_to_string(data);
     }
 
-    auto toDouble() const
+    constexpr double toDouble() const
     {
-        return std::stod(toString());
+        double result = 0.0;
+        double factor = 1.0;
+        constexpr double kBase = static_cast<double>(std::numeric_limits<uint64_t>::max()) + 1.0;
+
+        for (std::size_t i = 0; i < num_words; ++i)
+        {
+            result += static_cast<double>(data[i]) * factor;
+            factor *= kBase;
+        }
+
+        // 补码符号位处理，判断最高位
+        if (num_words > 0 && (data[num_words - 1] & (static_cast<uint64_t>(1) << 63)))
+        {
+            // 如果最高位是1，表明是负数
+            if constexpr (num_words == 1)
+            {
+                result -= 2 * factor; // 只有一个字就直接减去2^64
+            }
+            else
+            {
+                // 多于一个word，则需要更复杂的符号扩展考量
+                double sign_extension = -1.0;
+                for (std::size_t i = num_words; i < num_words * 2; ++i)
+                {
+                    result += sign_extension * factor;
+                    factor *= kBase;
+                }
+            }
+        }
+
+        return result;
     }
 
-    auto toBinary() const
+    constexpr auto toBinary() const
     {
         std::string result;
         for (int i = num_words - 1; i >= 0; --i)
@@ -645,7 +674,6 @@ public:
         return result;
     }
 
-    // display, for debugging
     void display() const
     {
 
@@ -1767,18 +1795,17 @@ public:
     // no matter whether the sign bit is commanded by the user, the actual implementation will always have a sign bit
     ArbiInt<1 + intB + fracB> data;
 
- 
     inline constexpr Qu_s(double val)
     {
         double temp = val * std::pow(2, fracB);
-        
+
         // check if the value is out of range
 
         constexpr auto maxRes = ArbiInt<1 + intB + fracB>::allOnes();
         constexpr auto minRes = isS ? ArbiInt<1 + intB + fracB>::allZeros() : ArbiInt<1 + intB + fracB>();
 
-        constexpr double  maxVal = maxRes.toDouble();
-        constexpr double  minVal = minRes.toDouble();
+        constexpr double maxVal = maxRes.toDouble();
+        constexpr double minVal = minRes.toDouble();
 
         if (temp > maxVal)
         {
@@ -1803,7 +1830,7 @@ public:
 
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << std::endl;
         std::cout << "Binary: " << this->data.toBinary() << std::endl;
-        std::cout << "Decimal: " << this->data.toDouble() / std::pow(2, fracB) << std::endl;
+        std::cout << "Decimal: " << std::to_string(this->data.toDouble() / std::pow(2, fracB)) << std::endl;
     }
 };
 

@@ -8,9 +8,9 @@ int main()
 {
  
 
-    double dbl = 512;
+    double dbl = 12331233123.523123;
 
-    Qu<intBits<8>,fracBits<8>, isSigned<false>> a = dbl;
+    Qu<intBits<100>,fracBits<2>, isSigned<false>> a = dbl;
  
      
     a.display("a");
