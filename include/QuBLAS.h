@@ -498,7 +498,6 @@ public:
 
     static constexpr uint64_t mask = (static_cast<uint64_t>(1) << (N % 64)) - 1;
 
-    // Constructor from another ArbiInt
 
     // Constructor from arithmetic types
     template <typename T>
@@ -631,34 +630,56 @@ public:
 
     constexpr double toDouble() const
     {
-        double result = 0.0;
-        double factor = 1.0;
-        constexpr double kBase = static_cast<double>(std::numeric_limits<uint64_t>::max()) + 1.0;
 
-        for (std::size_t i = 0; i < num_words; ++i)
-        {
-            result += static_cast<double>(data[i]) * factor;
-            factor *= kBase;
-        }
+        // 确定符号
+        const bool negative = (data[num_words - 1] >> 63) != 0;
 
-        // 补码符号位处理，判断最高位
-        if (num_words > 0 && (data[num_words - 1] & (static_cast<uint64_t>(1) << 63)))
+        // 计算绝对值（使用位操作优化）
+        std::array<uint64_t, num_words> mag = {};
+        if (negative)
         {
-            // 如果最高位是1，表明是负数
-            if constexpr (num_words == 1)
+            // 取反加一，使用位操作优化
+            uint64_t carry = 1;
+            for (std::size_t i = 0; i < num_words; ++i)
             {
-                result -= 2 * factor; // 只有一个字就直接减去2^64
-            }
-            else
-            {
-                // 多于一个word，则需要更复杂的符号扩展考量
-                double sign_extension = -1.0;
-                for (std::size_t i = num_words; i < num_words * 2; ++i)
+                uint64_t inverted = ~data[i];
+                mag[i] = inverted + carry;
+                if (carry && mag[i] == 0)
                 {
-                    result += sign_extension * factor;
-                    factor *= kBase;
+                    carry = 1;
+                }
+                else
+                {
+                    carry = (mag[i] < inverted) ? 1 : 0;
                 }
             }
+        }
+        else
+        {
+            // 正数，直接复制
+            mag = data;
+        }
+
+        // 找到最高非零字，以减少不必要的计算
+        std::size_t highest_non_zero_word = num_words;
+        while (highest_non_zero_word > 0 && mag[highest_non_zero_word - 1] == 0)
+        {
+            --highest_non_zero_word;
+        }
+
+        // 将绝对值转换为double（替代ldexp）
+        double result = 0.0;
+        constexpr double two_pow_64 = 18446744073709551616.0; // 2^64
+
+        for (std::size_t i = highest_non_zero_word; i-- > 0;)
+        {
+            result = result * two_pow_64 + static_cast<double>(mag[i]);
+        }
+
+        // 应用符号
+        if (negative)
+        {
+            result = -result;
         }
 
         return result;
@@ -1191,7 +1212,7 @@ auto operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 // operator <<
 // specially, the static shift left is designed for no overflow guaranteed
-template <size_t shift, size_t N>
+template <int shift, size_t N>
     requires(shift > 0) && (N + shift <= 64)
 constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
@@ -1202,7 +1223,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     return result;
 }
 
-template <size_t shift, size_t N>
+template <int shift, size_t N>
     requires(shift > 0) && (N + shift > 64) && (N <= 64)
 constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
@@ -1223,7 +1244,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     return result;
 }
 
-template <size_t shift, size_t N>
+template <int shift, size_t N>
     requires(shift > 0) && (N > 64) && (shift % 64 == 0)
 constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
@@ -1234,8 +1255,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 
     return result;
 }
-
-template <size_t shift, size_t N>
+template <int shift, size_t N>
     requires(shift > 0) && (N > 64) && (shift % 64 != 0)
 constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
@@ -1289,6 +1309,45 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 
     return result;
 }
+
+template <int shift, size_t N>
+    requires(shift < 0)
+constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+{
+    return staticShiftRight<-shift>(x);
+}
+
+
+// operator >>
+
+template <size_t shift, size_t N>
+    requires(shift > 0) && (N <= 64)
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
+    static_assert(N >= shift, "Right shift out of range");
+
+    ArbiInt<N - shift> result;
+
+    result.data = x.data >> shift;
+
+    return result;
+}
+
+template <size_t shift, size_t N>
+    requires(shift > 0) && (N > 64) && (N - shift <= 64)
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
+    // get the highest 128 bits and shift right
+    ArbiInt<N - shift> result;
+
+    constexpr size_t num_words = ArbiInt<N>::num_words;
+
+    __uint128_t temp = (static_cast<__uint128_t>(x.data[num_words - 1]) << 64 ) | static_cast<__uint128_t>(x.data[num_words - 2]);
+    result.data = static_cast<uint64_t>(temp >> (shift % 64));
+
+    return result;
+}
+
 
 // comparison operators
 template <size_t N, size_t M>
@@ -1795,31 +1854,41 @@ public:
     // no matter whether the sign bit is commanded by the user, the actual implementation will always have a sign bit
     ArbiInt<1 + intB + fracB> data;
 
-    inline constexpr Qu_s(double val)
+    template<typename T>
+    requires std::is_arithmetic_v<T>
+    inline constexpr Qu_s(T val)
     {
-        double temp = val * std::pow(2, fracB);
+        ArbiInt<1 + intB + fracB> temp = val;
 
-        // check if the value is out of range
+        auto fracConverted = fracConvert<fracBitsInput, fracBitsInput, QuMode<QuM_t>>::convert(temp);
 
-        constexpr auto maxRes = ArbiInt<1 + intB + fracB>::allOnes();
-        constexpr auto minRes = isS ? ArbiInt<1 + intB + fracB>::allZeros() : ArbiInt<1 + intB + fracB>();
+        // currently, the intConvert is not implemented
+        data = fracConverted;
+        
+    }
 
-        constexpr double maxVal = maxRes.toDouble();
-        constexpr double minVal = minRes.toDouble();
+    inline constexpr Qu_s() : data() {}
 
-        if (temp > maxVal)
+
+    // from another static Qu_s
+    template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
+    inline constexpr Qu_s(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> &val)
+    {
+        if constexpr (intBitsFrom == intBitsInput && fracBitsFrom == fracBitsInput && isSignedFrom == isSignedInput)
         {
-            data = maxRes;
-        }
-        else if (temp < minVal)
-        {
-            data = minRes;
+            data = val.data;
         }
         else
         {
-            data = temp;
+            data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data));
+
+            
         }
     }
+
+
+
+
 
     void display(std::string name = "") const
     {
@@ -1830,7 +1899,7 @@ public:
 
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << std::endl;
         std::cout << "Binary: " << this->data.toBinary() << std::endl;
-        std::cout << "Decimal: " << std::to_string(this->data.toDouble() / std::pow(2, fracB)) << std::endl;
+        std::cout << "Decimal: " << this->data.toDouble() / std::pow(2, fracB) << std::endl;
     }
 };
 

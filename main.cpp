@@ -8,12 +8,15 @@ int main()
 {
  
 
-    double dbl = 12331233123.523123;
+    ArbiInt<150> a;
 
-    Qu<intBits<100>,fracBits<2>, isSigned<false>> a = dbl;
+    a = ~a;
+
+    a.display();
  
-     
-    a.display("a");
+    auto b = staticShiftRight<100>(a);
+
+    b.display();
 
     return 0;
 }
