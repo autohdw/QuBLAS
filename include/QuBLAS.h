@@ -507,7 +507,7 @@ public:
         data[0] = static_cast<uint64_t>(val);
 
         // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(data[0] >> 63);
+        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[0]) >> 63);
         for (size_t i = 1; i < num_words; ++i)
         {
             data[i] = sign_extension;
@@ -1316,6 +1316,13 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     return staticShiftRight<-shift>(x);
 }
 
+template <int shift, size_t N>
+    requires(shift == 0)
+constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+{
+    return x;
+}
+
 // operator >>
 
 template <int shift, size_t N>
@@ -1388,6 +1395,13 @@ template <int shift, size_t N>
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     return staticShiftLeft<-shift>(x);
+}
+
+template <int shift, size_t N>
+    requires(shift == 0)
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
+    return x;
 }
 
 
@@ -1744,7 +1758,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
 {
     inline static constexpr auto convert(auto val)
     {
-        return 0;
+        return staticShiftRight<fromFrac - toFrac>(val);
     }
 };
 
@@ -1754,7 +1768,14 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 {
     inline static constexpr auto convert(auto val)
     {
-        return 0;
+        if constexpr (fromFrac < toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else
+        {
+            return - staticShiftRight<fromFrac - toFrac>(-val);
+        }
     }
 };
 
@@ -1903,12 +1924,29 @@ public:
         requires std::is_arithmetic_v<T>
     inline constexpr Qu_s(T val)
     {
-        ArbiInt<1 + intB + fracB> temp = val;
+        // this current implementation is involving customed QuMode and OfMode, will be updated in the future
+        double shiftedVal = static_cast<double>(val) * std::pow(2, fracB);
 
-        auto fracConverted = fracConvert<fracBitsInput, fracBitsInput, QuMode<QuM_t>>::convert(temp);
 
-        // currently, the intConvert is not implemented
-        data = fracConverted;
+
+        constexpr auto maxRes = ArbiInt<1 + intB + fracB>::allOnes();
+        constexpr auto minRes = isS ? ArbiInt<1 + intB + fracB>::allZeros() : ArbiInt<1 + intB + fracB>();
+
+        constexpr double maxVal =  maxRes.toDouble();
+        constexpr double minVal =  isS ? minRes.toDouble() : 0;
+
+        if (shiftedVal > maxVal)
+        {
+            data = maxRes;
+        }
+        else if (shiftedVal < minVal)
+        {
+            data = minRes;
+        }
+        else
+        {
+            data = ArbiInt<1 + intB + fracB>(shiftedVal);
+        }
     }
 
     inline constexpr Qu_s() : data() {}
@@ -1923,9 +1961,18 @@ public:
         }
         else
         {
-            data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data));
+            // data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data));
+
+            data = fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data);
         }
     }
+
+    double toDouble() const
+    {
+        return data.toDouble() / std::pow(2, fracB);
+    }
+
+
 
     void display(std::string name = "") const
     {
@@ -1936,7 +1983,7 @@ public:
 
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << std::endl;
         std::cout << "Binary: " << this->data.toBinary() << std::endl;
-        std::cout << "Decimal: " << this->data.toDouble() / std::pow(2, fracB) << std::endl;
+        std::cout << "Decimal: " << this->toDouble() << std::endl;
     }
 };
 
