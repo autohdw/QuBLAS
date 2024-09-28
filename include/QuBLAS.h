@@ -538,33 +538,35 @@ public:
         requires std::is_floating_point_v<T>
     constexpr ArbiInt(T val)
     {
-data.fill(0);
+        data.fill(0);
 
-        uint64_t sourceBits = reinterpret_cast<uint64_t &>(val);
-        std::cout << "sourceBits: " << std::bitset<64>(sourceBits) << std::endl;
+        // Handle whether the input value is negative
+        bool isNegative = (val < 0);
+        val = std::abs(val);
 
-        constexpr uint64_t leadingOne = (uint64_t)1 << 52;
-
-        uint64_t sign = sourceBits >> 63;                            // 1 bit
-        uint64_t exp = (sourceBits << 1) >> 53;                      // 11 bits
-        uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF) | leadingOne; // 53 bits
-
-        if(exp >= 1023)
+        // Calculate the number of words needed
+        size_t words_needed = 0;
+        T temp_val = val;
+        while (temp_val != 0)
         {
-            int delta = exp - 1023;
-            int p = delta / 64;
-            int r = delta % 64;
-            if(r <= 52) data[p] = frac >> (52 - r);
-            else data[p] = frac << (r - 52);
-            if(p && r <= 52) data[p - 1] = frac << (r + 12);
+            temp_val /= static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1;
+            words_needed++;
         }
-        if(sign)
+
+        // Fill the data array
+        for (size_t i = 0; i < words_needed && i < num_words; i++)
         {
-            for(size_t i = 0; i < num_words;i++)
+            data[i] = static_cast<uint64_t>(std::fmod(val, static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1));
+            val /= static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1;
+        }
+
+        if (isNegative)
+        {
+            for (size_t i = 0; i < num_words; i++)
             {
-                data[i] = ~data[i];
+                data[i] = ~data[i]; // Bitwise NOT for two's complement
             }
-            data[0]++;
+            data[0]++; // Adding 1 to the least significant word to complete two's complement
         }
     }
 
@@ -1990,55 +1992,54 @@ public:
     {
         if constexpr (1 + intB + fracB > 64)
         {
-            data.data.fill(0);
+            // clang-format off
+            const uint64_t doubleAsUint64 = *reinterpret_cast<const uint64_t*>(&val);
+            const uint64_t sign = doubleAsUint64 >> 63;
+            const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
+            const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
 
-            uint64_t sourceBits = reinterpret_cast<uint64_t &>(val);
-            // std::cout << "sourceBits: " << std::bitset<64>(sourceBits) << std::endl;
+            const int64_t effectivePos = exponent + fracB;
 
-            constexpr uint64_t leadingOne = (uint64_t)1 << 52;
-
-            uint64_t sign = sourceBits >> 63; // 1 bit
-            // std::cout << "sign: " << sign << std::endl;
-            uint64_t exp = (sourceBits << 1) >> 53; // 11 bits
-            // std::cout << "exp: " << std::bitset<11>(exp) <<  " " << exp << std::endl;
-            uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF) | leadingOne; // 53 bits
-            // std::cout << "frac: " << std::bitset<53>(frac) <<  " " << frac << std::endl;
-
-            if (exp >= 1023)
+            if (effectivePos >= 0)
             {
-                int delta = exp - 1023 + fracB;
-                int p = delta / 64;
-                int r = delta % 64;
-                if (r <= 52)
-                    if (p < data.num_words)
-                        data.data[p] = frac >> (52 - r);
-                    else if (p < data.num_words)
-                        data.data[p] = frac << (r - 52);
-                if (p && r <= 52 && p - 1 < data.num_words)
-                    data.data[p - 1] = frac << (r + 12);
+                int p = effectivePos >> 6; 
+                int r = effectivePos & 0x3F;
+
+                const uint64_t m1 = (mantissa >> (52 - r)) & ((uint64_t(1) << (64 - r)) - 1);
+                const uint64_t m2 = (mantissa << (r + 12)) & 0xFFFFFFFFFFFFFFFFull;
+
+                if (p < data.num_words) data.data[p] |= m1;
+                if (r <= 12 && (p - 1) < data.num_words) data.data[p - 1] |= m2;
             }
             else
             {
-                int delta = 52 - (exp - 1023) - fracB;
-                int p = -delta / 64 + 1;
-                int r = delta + p * 64;
-                if (delta >= 0)
-                    data.data[0] = frac >> delta;
+                const int64_t adjustedDelta = 52 - effectivePos;
+                const uint64_t m3 = (mantissa >> adjustedDelta) & 0xFFFFFFFFFFFFFFFFull;
+
+                if (adjustedDelta >= 0)
+                {
+                    data.data[0] |= m3;
+                }
                 else
                 {
-                    data.data[p] = frac >> r;
-                    data.data[p - 1] = frac << (64 - r);
+                    int p = (-adjustedDelta) >> 6; 
+                    int r = (-adjustedDelta) & 0x3F; 
+
+                    const uint64_t m4 = (mantissa >> r) & 0xFFFFFFFFFFFFFFFFull;
+                    const uint64_t m5 = (mantissa << (64 - r)) & 0xFFFFFFFFFFFFFFFFull;
+
+                    if (p < data.num_words) data.data[p] |= m4;
+                    if ((p - 1) < data.num_words) data.data[p - 1] |= m5;
                 }
             }
 
             if (sign)
             {
-                for (size_t i = 0; i < data.num_words; i++)
-                {
-                    data.data[i] = ~data.data[i];
-                }
-                data.data[0]++;
+                for (auto& word : data.data) word = ~word;
+                auto p = data.data.begin();
+                while (p != data.data.end() && !*p++) ++p;
             }
+            // clang-format on
         }
     }
 

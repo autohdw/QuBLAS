@@ -14,6 +14,7 @@ int main()
     using target_t = Qu<intBits<1>, fracBits<1>, isSigned<true>, QuMode<TRN::SMGN>>;
 
     High_t from = -1.25;
+    // from.data.data[1] ++;
     from.display("from");
 
     target_t target = from;
@@ -22,5 +23,5 @@ int main()
 
 
 
-
+    return 0;
 }
