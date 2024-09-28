@@ -7,20 +7,18 @@ using namespace QuBLAS;
 
 int main()
 {
-    // int a = -123;
+    using High_t = Qu<intBits<70>, fracBits<70>, isSigned<true>, QuMode<TRN::SMGN>>;
+    using Mid_t = Qu<intBits<30>, fracBits<30>, isSigned<true>, QuMode<TRN::SMGN>>;
+    using Low_t = Qu<intBits<10>, fracBits<5>, isSigned<true>, QuMode<TRN::SMGN>>;
 
-    // std::cout<< std::bitset<32>(a) << std::endl;
+    using target_t = Qu<intBits<1>, fracBits<1>, isSigned<true>, QuMode<TRN::SMGN>>;
 
-    // int b = ~((~a) >> 1);
+    Low_t low = 1.5;
+    low.display("low");
 
-    // std::cout<< std::bitset<32>(b) << std::endl;
-    
-    ArbiInt<80> a = -123123;
-
-    a.display();
-
-    auto b = - a;
-
-    b.display();
+    target_t target = low;
  
+
+    target.display("target");
+
 }

@@ -952,6 +952,36 @@ constexpr auto operator-(const ArbiInt<N> &x)
     return result;
 }
 
+template <size_t N>
+    requires(N <= 64) 
+// Negation without promotion, won't change the size of the integer and may cause overflow
+constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
+{
+    ArbiInt<N> result;
+    result.data = -x.data;
+    return result;
+}
+
+template <size_t N>
+    requires(N > 64)
+// Negation without promotion, won't change the size of the integer and may cause overflow
+constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
+{
+    ArbiInt<N> result;
+
+    uint64_t carry = 1;
+    for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
+    {
+        uint64_t temp = ~x.data[i] + carry;
+        result.data[i] = temp;
+        carry = (temp < carry);
+    }
+
+    return result;
+}
+
+
+
 // operator*
 
 template <size_t N, size_t M>
@@ -1480,7 +1510,7 @@ constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 template <size_t N, size_t M>
     requires(N <= 64 && M <= 64)
-constexpr bool operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     return lhs.data <=> rhs.data;
 }
@@ -1774,7 +1804,17 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         }
         else
         {
-            return - staticShiftRight<fromFrac - toFrac>(-val);
+            // return - staticShiftRight<fromFrac - toFrac>(-val);
+            constexpr decltype(val) zero = 0;
+
+            if (val < zero)
+            {
+                return negWithoutPromotion(staticShiftRight<fromFrac - toFrac>(negWithoutPromotion(val)));
+            }
+            else
+            {
+                return staticShiftRight<fromFrac - toFrac>(val);
+            }
         }
     }
 };
