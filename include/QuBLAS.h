@@ -403,18 +403,32 @@ public:
         data = other.data[0];
     }
 
-    template <typename T>
-        requires std::is_arithmetic_v<T>
-    constexpr ArbiInt(T val)
+ 
+    constexpr ArbiInt(double val)
     {
-        data = static_cast<data_t>(val);
-
-        // extend the sign bit to the higher bits
-        if constexpr (N < 64)
-        {
-            data = static_cast<data_t>(static_cast<int64_t>(data) << (64 - N) >> (64 - N));
-        }
+        loadFromDouble<0>(val);
     }
+
+    template< int fracB>
+    constexpr void loadFromDouble(double val)
+    {
+        if (val == 0.0)
+        {
+            data = 0;
+            return;
+        }
+
+        const uint64_t doubleAsUint64 = std::bit_cast<uint64_t>(val);
+        const uint64_t sign = doubleAsUint64 >> 63;
+        const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
+        const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
+
+        const int64_t effectivePos = exponent + fracB;
+ 
+        data = mantissa >> (52 - effectivePos);
+    }
+
+
 
     // Assignment from string
     ArbiInt(const std::string &str)
@@ -533,40 +547,59 @@ public:
         }
     }
 
-    // float and double
-    template <typename T>
-        requires std::is_floating_point_v<T>
-    constexpr ArbiInt(T val)
+
+    constexpr ArbiInt(double val)
     {
-        data.fill(0);
+        loadFromDouble<0>(val);
+    }
 
-        // Handle whether the input value is negative
-        bool isNegative = (val < 0);
-        val = std::abs(val);
+    template< int fracB>
+    constexpr void loadFromDouble(double val)
+    {
+        const uint64_t doubleAsUint64 = std::bit_cast<uint64_t>(val);
+        const uint64_t sign = doubleAsUint64 >> 63;
+        const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
+        const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
 
-        // Calculate the number of words needed
-        size_t words_needed = 0;
-        T temp_val = val;
-        while (temp_val != 0)
+        const int64_t effectivePos = exponent + fracB;
+        if (effectivePos >= 0)
         {
-            temp_val /= static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1;
-            words_needed++;
+            int p = effectivePos >> 6; 
+            int r = effectivePos & 0x3F;
+
+            const uint64_t m1 = (mantissa >> (52 - r)) & ((uint64_t(1) << (64 - r)) - 1);
+            const uint64_t m2 = (mantissa << (r + 12)) & 0xFFFFFFFFFFFFFFFFull;
+
+            if (p < num_words) data[p] |= m1;
+            if (r <= 12 && (p - 1) < num_words) data[p - 1] |= m2;
         }
-
-        // Fill the data array
-        for (size_t i = 0; i < words_needed && i < num_words; i++)
+        else
         {
-            data[i] = static_cast<uint64_t>(std::fmod(val, static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1));
-            val /= static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1;
-        }
+            const int64_t adjustedDelta = 52 - effectivePos;
+            const uint64_t m3 = (mantissa >> adjustedDelta) & 0xFFFFFFFFFFFFFFFFull;
 
-        if (isNegative)
-        {
-            for (size_t i = 0; i < num_words; i++)
+            if (adjustedDelta >= 0)
             {
-                data[i] = ~data[i]; // Bitwise NOT for two's complement
+                data[0] |= m3;
             }
-            data[0]++; // Adding 1 to the least significant word to complete two's complement
+            else
+            {
+                int p = (-adjustedDelta) >> 6; 
+                int r = (-adjustedDelta) & 0x3F; 
+
+                const uint64_t m4 = (mantissa >> r) & 0xFFFFFFFFFFFFFFFFull;
+                const uint64_t m5 = (mantissa << (64 - r)) & 0xFFFFFFFFFFFFFFFFull;
+
+                if (p < num_words) data[p] |= m4;
+                if ((p - 1) < num_words) data[p - 1] |= m5;
+            }
+        }
+
+        if (sign)
+        {
+            for (auto& word : data) word = ~word;
+            auto p = data.begin();
+            while (p != data.end() && !*p++) ++p;
         }
     }
 
@@ -598,14 +631,16 @@ public:
     }
 
     template <size_t M>
-        requires(M > 64) && (M < N)
+        requires(M > 64)
     constexpr ArbiInt(const ArbiInt<M> &other)
     {
-        std::memcpy(data.data(), other.data.data(), sizeof(uint64_t) * other.num_words);
+        constexpr size_t copyLen = std::min(ArbiInt<M>::num_words, ArbiInt<N>::num_words);
+
+        std::memcpy(data.data(), other.data.data(), sizeof(uint64_t) * copyLen);
 
         // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(data[other.num_words - 1] >> 63);
-        for (size_t i = other.num_words; i < num_words; ++i)
+        uint64_t sign_extension = static_cast<uint64_t>(data[copyLen - 1] >> 63);
+        for (size_t i = copyLen; i < num_words; ++i)
         {
             data[i] = sign_extension;
         }
@@ -765,13 +800,8 @@ constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
     constexpr size_t res_words = ArbiInt<R>::num_words;
     constexpr size_t lhs_words = ArbiInt<N>::num_words;
 
-    // Precompute sign bit positions at compile time
-    constexpr size_t lhs_sign_bit_pos = N - 1;
-    constexpr size_t lhs_sign_word_index = lhs_sign_bit_pos / 64;
-    constexpr size_t lhs_sign_bit_in_word = lhs_sign_bit_pos % 64;
-
     // Compute sign extensions using arithmetic right shift
-    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_sign_word_index]) >> lhs_sign_bit_in_word;
+    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_words - 1]) >> 63;
     int64_t rhs_sign_extension = static_cast<int64_t>(rhs.data) >> 63;
 
     __uint128_t carry = 0;
@@ -808,18 +838,9 @@ constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
     constexpr size_t lhs_words = ArbiInt<N>::num_words;
     constexpr size_t rhs_words = ArbiInt<M>::num_words;
 
-    // Precompute sign bit positions at compile time
-    constexpr size_t lhs_sign_bit_pos = N - 1;
-    constexpr size_t lhs_sign_word_index = lhs_sign_bit_pos / 64;
-    constexpr size_t lhs_sign_bit_in_word = lhs_sign_bit_pos % 64;
-
-    constexpr size_t rhs_sign_bit_pos = M - 1;
-    constexpr size_t rhs_sign_word_index = rhs_sign_bit_pos / 64;
-    constexpr size_t rhs_sign_bit_in_word = rhs_sign_bit_pos % 64;
-
     // Compute sign extensions using arithmetic right shift
-    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_sign_word_index]) >> lhs_sign_bit_in_word;
-    int64_t rhs_sign_extension = static_cast<int64_t>(rhs.data[rhs_sign_word_index]) >> rhs_sign_bit_in_word;
+    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_words - 1]) >> 63;
+    int64_t rhs_sign_extension = static_cast<int64_t>(rhs.data[rhs_words - 1]) >> 63;
 
     __uint128_t carry = 0;
     for (size_t i = 0; i < res_words; ++i)
@@ -828,7 +849,9 @@ constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
         uint64_t rhs_word = (i < rhs_words) ? rhs.data[i] : static_cast<uint64_t>(rhs_sign_extension);
 
         __uint128_t sum = static_cast<__uint128_t>(lhs_word) + rhs_word + carry;
+
         result.data[i] = static_cast<uint64_t>(sum);
+
         carry = sum >> 64;
     }
 
@@ -1410,29 +1433,29 @@ template <int shift, size_t N>
     requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
-    static constexpr size_t shift_words = shift / 64; // 计算完整的64位块的右移数量
-    static constexpr size_t shift_bits = shift % 64;  // 计算剩余的位右移数量
-    static constexpr size_t num_input_words = ArbiInt<N>::num_words;
-    static constexpr size_t num_output_words = ArbiInt<N - shift>::num_words;
-
+    constexpr size_t shift_words = shift / 64; // 计算完整的64位块的右移数量
+    constexpr size_t shift_bits = shift % 64;  // 计算剩余的位右移数量
+    constexpr size_t num_input_words = ArbiInt<N>::num_words;
+    constexpr size_t num_output_words = ArbiInt<N - shift>::num_words;
     ArbiInt<N - shift> result;
-    result.data.fill(0);
 
-    // 使用128位整数进行合并和位移
-    for (size_t i = 0; i < num_output_words; ++i)
+    // sign extension
+    int64_t sign_extension = static_cast<int64_t>(x.data[num_input_words - 1]) >> shift_bits;
+
+    for (size_t i = 0; i < num_output_words - 1; ++i)
     {
-        if (i + shift_words < num_input_words)
-        {
-            __uint128_t temp = static_cast<__uint128_t>(x.data[i + shift_words]) >> shift_bits;
+        uint64_t left = x.data[i + shift_words + 1];
 
-            if (shift_bits > 0 && i + shift_words + 1 < num_input_words)
-            {
-                temp |= static_cast<__uint128_t>(x.data[i + shift_words + 1]) << (64 - shift_bits);
-            }
+        uint64_t right = x.data[i + shift_words];
 
-            result.data[i] = static_cast<uint64_t>(temp);
-        }
+        __uint128_t temp = (static_cast<__uint128_t>(left) << 64 ) | static_cast<__uint128_t>(right);  
+        
+        result.data[i] = static_cast<uint64_t>(temp >> shift_bits);
+
     }
+
+    result.data[num_output_words - 1] = static_cast<__int128_t>((static_cast<__uint128_t>(sign_extension) << 64 ) | static_cast<__uint128_t>(x.data[num_input_words - 1]))>> shift_bits;
+
     return result;
 }
 
@@ -1827,24 +1850,16 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         }
         else
         {
-            constexpr auto one = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
-            constexpr auto zero = ArbiInt<fromFrac - toFrac>(0);
-
+            constexpr auto one = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+            constexpr auto zero = ArbiInt<fromFrac - toFrac + 1>(0);
 
             auto oneOrZero = val.isNegative() ? one : zero;
-
-            oneOrZero.display("oneOrZero");
-
-            val.display("val");
-
-            (val + oneOrZero).display("val + oneOrZero");
 
             return staticShiftRight<fromFrac - toFrac>(val + oneOrZero);
     
         }
     }
 };
-
 
 template <typename T>
 struct OfMode;
@@ -1986,61 +2001,12 @@ public:
     // no matter whether the sign bit is commanded by the user, the actual implementation will always have a sign bit
     ArbiInt<1 + intB + fracB> data;
 
-    template <typename T>
-        requires std::is_arithmetic_v<T>
-    inline constexpr Qu_s(T val)
+    inline constexpr Qu_s(double val)
     {
-        if constexpr (1 + intB + fracB > 64)
-        {
-            // clang-format off
-            const uint64_t doubleAsUint64 = *reinterpret_cast<const uint64_t*>(&val);
-            const uint64_t sign = doubleAsUint64 >> 63;
-            const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
-            const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
+        static ArbiInt<1025> buffer;
+        buffer.loadFromDouble<fracB>(val);
 
-            const int64_t effectivePos = exponent + fracB;
-
-            if (effectivePos >= 0)
-            {
-                int p = effectivePos >> 6; 
-                int r = effectivePos & 0x3F;
-
-                const uint64_t m1 = (mantissa >> (52 - r)) & ((uint64_t(1) << (64 - r)) - 1);
-                const uint64_t m2 = (mantissa << (r + 12)) & 0xFFFFFFFFFFFFFFFFull;
-
-                if (p < data.num_words) data.data[p] |= m1;
-                if (r <= 12 && (p - 1) < data.num_words) data.data[p - 1] |= m2;
-            }
-            else
-            {
-                const int64_t adjustedDelta = 52 - effectivePos;
-                const uint64_t m3 = (mantissa >> adjustedDelta) & 0xFFFFFFFFFFFFFFFFull;
-
-                if (adjustedDelta >= 0)
-                {
-                    data.data[0] |= m3;
-                }
-                else
-                {
-                    int p = (-adjustedDelta) >> 6; 
-                    int r = (-adjustedDelta) & 0x3F; 
-
-                    const uint64_t m4 = (mantissa >> r) & 0xFFFFFFFFFFFFFFFFull;
-                    const uint64_t m5 = (mantissa << (64 - r)) & 0xFFFFFFFFFFFFFFFFull;
-
-                    if (p < data.num_words) data.data[p] |= m4;
-                    if ((p - 1) < data.num_words) data.data[p - 1] |= m5;
-                }
-            }
-
-            if (sign)
-            {
-                for (auto& word : data.data) word = ~word;
-                auto p = data.data.begin();
-                while (p != data.data.end() && !*p++) ++p;
-            }
-            // clang-format on
-        }
+        data = buffer;
     }
 
     inline constexpr Qu_s() : data() {}
