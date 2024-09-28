@@ -27,7 +27,7 @@ inline namespace QuBLAS {
 static std::random_device rd;
 static std::mt19937 gen(rd());
 static std::uniform_int_distribution<uint64_t> UniRand(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max()); // 整数的全范围分布
-static std::normal_distribution<double> NormRand(0, 1);                                                              // 正态分布
+static std::normal_distribution<double> NormRand(0, 1);                                                                             // 正态分布
 
 // ------------------- TypeList -------------------
 
@@ -371,7 +371,39 @@ public:
         return result;
     }
 
+    constexpr auto isZero() const
+    {
+        return data == 0;
+    }
+
+    constexpr auto isNegative() const
+    {
+        return data < 0;
+    }
+
+    constexpr auto isPositive() const
+    {
+        return data > 0;
+    }
+
     // Constructor
+
+    // Constructor from another ArbiInt
+    template <size_t M>
+        requires(M > 0 && M <= 64)
+    constexpr ArbiInt(const ArbiInt<M> &other)
+    {
+        data = other.data;
+    }
+
+    template <size_t M>
+        requires(M > 64)
+    constexpr ArbiInt(const ArbiInt<M> &other)
+    {
+        data = other.data[0];
+    }
+
+
     template <typename T>
         requires std::is_arithmetic_v<T>
     constexpr ArbiInt(T val)
@@ -400,36 +432,6 @@ public:
         }
     }
 
-    // operator=
-    auto operator=(const std::string &str)
-    {
-        // Convert string to int64_t
-        int64_t value = std::stoll(str);
-        data = static_cast<data_t>(value);
-
-        // Extend or mask to N bits
-        if constexpr (N < 64)
-        {
-            // Mask to N bits while preserving the sign
-            data = static_cast<data_t>((static_cast<int64_t>(data) << (64 - N)) >> (64 - N));
-        }
-        return *this;
-    }
-
-    // Constructor from another ArbiInt
-    template <size_t M>
-        requires(M > 0 && M <= 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        data = other.data;
-    }
-
-    template <size_t M>
-        requires(M > 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        data = other.data[0];
-    }
 
     auto fill()
     {
@@ -458,7 +460,7 @@ public:
 
     void display() const
     {
-        std::cout << "Binary:  " << std::bitset<64>(data) << std::endl;
+        std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
         std::cout << "Decimal: " << data << std::endl;
     }
 };
@@ -494,6 +496,21 @@ public:
         result.data.fill(0);
         result.data[num_words - 1] = ~uint64_t(0) << (N % 64);
         return result;
+    }
+
+    constexpr auto isZero() const
+    {
+        return std::all_of(data.begin(), data.end(), [](uint64_t w) { return w == 0; });
+    }
+
+    constexpr bool isNegative() const
+    {
+        return data[num_words - 1] >> 63;
+    }
+
+    constexpr bool isPositive() const
+    {
+        return data[num_words - 1] >> 63 == 0;
     }
 
     static constexpr uint64_t mask = (static_cast<uint64_t>(1) << (N % 64)) - 1;
@@ -555,13 +572,6 @@ public:
     ArbiInt(const std::string &str)
     {
         data = string_to_big_integer<num_words>(str);
-    }
-
-    // operator=
-    constexpr auto operator=(const std::string &str)
-    {
-        data = string_to_big_integer<num_words>(str);
-        return *this;
     }
 
     template <size_t M>
@@ -952,35 +962,33 @@ constexpr auto operator-(const ArbiInt<N> &x)
     return result;
 }
 
-template <size_t N>
-    requires(N <= 64) 
-// Negation without promotion, won't change the size of the integer and may cause overflow
-constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
-{
-    ArbiInt<N> result;
-    result.data = -x.data;
-    return result;
-}
+// template <size_t N>
+//     requires(N <= 64)
+// // Negation without promotion, won't change the size of the integer and may cause overflow
+// constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
+// {
+//     ArbiInt<N> result;
+//     result.data = -x.data;
+//     return result;
+// }
 
-template <size_t N>
-    requires(N > 64)
-// Negation without promotion, won't change the size of the integer and may cause overflow
-constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
-{
-    ArbiInt<N> result;
+// template <size_t N>
+//     requires(N > 64)
+// // Negation without promotion, won't change the size of the integer and may cause overflow
+// constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
+// {
+//     ArbiInt<N> result;
 
-    uint64_t carry = 1;
-    for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
-    {
-        uint64_t temp = ~x.data[i] + carry;
-        result.data[i] = temp;
-        carry = (temp < carry);
-    }
+//     uint64_t carry = 1;
+//     for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
+//     {
+//         uint64_t temp = ~x.data[i] + carry;
+//         result.data[i] = temp;
+//         carry = (temp < carry);
+//     }
 
-    return result;
-}
-
-
+//     return result;
+// }
 
 // operator*
 
@@ -1385,18 +1393,19 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 
 template <int shift, size_t N>
     requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 == 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x) { 
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
     ArbiInt<N - shift> result;
     std::copy(x.data.begin() + shift / 64, x.data.end(), result.data.begin());
     return result;
-
 }
 
 template <int shift, size_t N>
     requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x) {
-    static constexpr size_t shift_words = shift / 64;    // 计算完整的64位块的右移数量
-    static constexpr size_t shift_bits = shift % 64;     // 计算剩余的位右移数量
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
+    static constexpr size_t shift_words = shift / 64; // 计算完整的64位块的右移数量
+    static constexpr size_t shift_bits = shift % 64;  // 计算剩余的位右移数量
     static constexpr size_t num_input_words = ArbiInt<N>::num_words;
     static constexpr size_t num_output_words = ArbiInt<N - shift>::num_words;
 
@@ -1404,11 +1413,14 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x) {
     result.data.fill(0);
 
     // 使用128位整数进行合并和位移
-    for (size_t i = 0; i < num_output_words; ++i) {
-        if (i + shift_words < num_input_words) {
+    for (size_t i = 0; i < num_output_words; ++i)
+    {
+        if (i + shift_words < num_input_words)
+        {
             __uint128_t temp = static_cast<__uint128_t>(x.data[i + shift_words]) >> shift_bits;
 
-            if (shift_bits > 0 && i + shift_words + 1 < num_input_words) {
+            if (shift_bits > 0 && i + shift_words + 1 < num_input_words)
+            {
                 temp |= static_cast<__uint128_t>(x.data[i + shift_words + 1]) << (64 - shift_bits);
             }
 
@@ -1417,8 +1429,6 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x) {
     }
     return result;
 }
-
-
 
 template <int shift, size_t N>
     requires(shift < 0)
@@ -1434,11 +1444,8 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
     return x;
 }
 
-
-
-
-
 // comparison operators
+
 template <size_t N, size_t M>
     requires(N <= 64 && M <= 64)
 constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
@@ -1742,7 +1749,17 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 {
     inline static constexpr auto convert(auto val)
     {
-        return 0;
+        if constexpr (fromFrac <= toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else {
+
+            return staticShiftRight<fromFrac - toFrac>(val);
+ 
+        }
+
+         
     }
 };
 
@@ -1798,23 +1815,19 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 {
     inline static constexpr auto convert(auto val)
     {
-        if constexpr (fromFrac < toFrac)
+        if constexpr (fromFrac <= toFrac)
         {
             return staticShiftLeft<toFrac - fromFrac>(val);
         }
         else
         {
-            // return - staticShiftRight<fromFrac - toFrac>(-val);
-            constexpr decltype(val) zero = 0;
+            constexpr auto one = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
+            constexpr auto zero = ArbiInt<fromFrac - toFrac>(0);
 
-            if (val < zero)
-            {
-                return negWithoutPromotion(staticShiftRight<fromFrac - toFrac>(negWithoutPromotion(val)));
-            }
-            else
-            {
-                return staticShiftRight<fromFrac - toFrac>(val);
-            }
+            decltype(val) oneOrZero = val.isNegative() ? one : zero;
+
+            return staticShiftRight<fromFrac - toFrac>(val + oneOrZero);
+    
         }
     }
 };
@@ -1967,13 +1980,11 @@ public:
         // this current implementation is involving customed QuMode and OfMode, will be updated in the future
         double shiftedVal = static_cast<double>(val) * std::pow(2, fracB);
 
-
-
         constexpr auto maxRes = ArbiInt<1 + intB + fracB>::allOnes();
         constexpr auto minRes = isS ? ArbiInt<1 + intB + fracB>::allZeros() : ArbiInt<1 + intB + fracB>();
 
-        constexpr double maxVal =  maxRes.toDouble();
-        constexpr double minVal =  isS ? minRes.toDouble() : 0;
+        constexpr double maxVal = maxRes.toDouble();
+        constexpr double minVal = isS ? minRes.toDouble() : 0;
 
         if (shiftedVal > maxVal)
         {
@@ -2011,8 +2022,6 @@ public:
     {
         return data.toDouble() / std::pow(2, fracB);
     }
-
-
 
     void display(std::string name = "") const
     {
