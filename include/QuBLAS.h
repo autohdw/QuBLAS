@@ -403,7 +403,6 @@ public:
         data = other.data[0];
     }
 
-
     template <typename T>
         requires std::is_arithmetic_v<T>
     constexpr ArbiInt(T val)
@@ -432,7 +431,6 @@ public:
         }
     }
 
-
     auto fill()
     {
         // generate a random number with the full range of - 2^(N-1) to 2^(N-1) - 1
@@ -458,8 +456,12 @@ public:
         return std::bitset < N < 32 ? 32 : 64 > (data).to_string();
     }
 
-    void display() const
+    void display(std::string name = "") const
     {
+        if (!name.empty())
+        {
+            std::cout << name << ":" << std::endl;
+        }
         std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
         std::cout << "Decimal: " << data << std::endl;
     }
@@ -704,8 +706,12 @@ public:
         return result;
     }
 
-    void display() const
+    void display(std::string name = "") const
     {
+        if (!name.empty())
+        {
+            std::cout << name << ":" << std::endl;
+        }
 
         std::cout << "Binary:  ";
         for (int i = num_words - 1; i >= 0; --i)
@@ -1269,13 +1275,13 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     // check if the shifted bits will occupy 2 uint64_t
     if ((N + shift) / 64 == shift / 64)
     {
-        result.data[0] = x.data << (shift % 64);
+        result.data[shift / 64] = x.data << (shift % 64);
     }
     else
     {
         __uint128_t temp = static_cast<__uint128_t>(x.data) << (shift % 64);
-        result.data[0] = static_cast<uint64_t>(temp);
-        result.data[1] = static_cast<uint64_t>(temp >> 64);
+        result.data[shift / 64] = static_cast<uint64_t>(temp);
+        result.data[shift / 64 + 1] = static_cast<uint64_t>(temp >> 64);
     }
 
     return result;
@@ -1824,7 +1830,8 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
             constexpr auto one = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
             constexpr auto zero = ArbiInt<fromFrac - toFrac>(0);
 
-            decltype(val) oneOrZero = val.isNegative() ? one : zero;
+
+            auto oneOrZero = val.isNegative() ? one : zero;
 
             return staticShiftRight<fromFrac - toFrac>(val + oneOrZero);
     

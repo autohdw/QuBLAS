@@ -13,8 +13,10 @@ int main()
 
     using target_t = Qu<intBits<1>, fracBits<1>, isSigned<true>, QuMode<TRN::SMGN>>;
 
-    High_t high = -1.25;
-    target_t target = high;
+    High_t from = -1.25;
+    from.display("HighToTargetPositive");
+
+    target_t target = from;
 
     target.display("HighToTargetPositive");
 
