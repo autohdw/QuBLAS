@@ -538,35 +538,33 @@ public:
         requires std::is_floating_point_v<T>
     constexpr ArbiInt(T val)
     {
-        data.fill(0);
+data.fill(0);
 
-        // Handle whether the input value is negative
-        bool isNegative = (val < 0);
-        val = std::abs(val);
+        uint64_t sourceBits = reinterpret_cast<uint64_t &>(val);
+        std::cout << "sourceBits: " << std::bitset<64>(sourceBits) << std::endl;
 
-        // Calculate the number of words needed
-        size_t words_needed = 0;
-        T temp_val = val;
-        while (temp_val != 0)
+        constexpr uint64_t leadingOne = (uint64_t)1 << 52;
+
+        uint64_t sign = sourceBits >> 63;                            // 1 bit
+        uint64_t exp = (sourceBits << 1) >> 53;                      // 11 bits
+        uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF) | leadingOne; // 53 bits
+
+        if(exp >= 1023)
         {
-            temp_val /= static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1;
-            words_needed++;
+            int delta = exp - 1023;
+            int p = delta / 64;
+            int r = delta % 64;
+            if(r <= 52) data[p] = frac >> (52 - r);
+            else data[p] = frac << (r - 52);
+            if(p && r <= 52) data[p - 1] = frac << (r + 12);
         }
-
-        // Fill the data array
-        for (size_t i = 0; i < words_needed && i < num_words; i++)
+        if(sign)
         {
-            data[i] = static_cast<uint64_t>(std::fmod(val, static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1));
-            val /= static_cast<T>(std::numeric_limits<uint64_t>::max()) + 1;
-        }
-
-        if (isNegative)
-        {
-            for (size_t i = 0; i < num_words; i++)
+            for(size_t i = 0; i < num_words;i++)
             {
-                data[i] = ~data[i]; // Bitwise NOT for two's complement
+                data[i] = ~data[i];
             }
-            data[0]++; // Adding 1 to the least significant word to complete two's complement
+            data[0]++;
         }
     }
 
@@ -1833,6 +1831,12 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 
             auto oneOrZero = val.isNegative() ? one : zero;
 
+            oneOrZero.display("oneOrZero");
+
+            val.display("val");
+
+            (val + oneOrZero).display("val + oneOrZero");
+
             return staticShiftRight<fromFrac - toFrac>(val + oneOrZero);
     
         }
@@ -1984,26 +1988,57 @@ public:
         requires std::is_arithmetic_v<T>
     inline constexpr Qu_s(T val)
     {
-        // this current implementation is involving customed QuMode and OfMode, will be updated in the future
-        double shiftedVal = static_cast<double>(val) * std::pow(2, fracB);
-
-        constexpr auto maxRes = ArbiInt<1 + intB + fracB>::allOnes();
-        constexpr auto minRes = isS ? ArbiInt<1 + intB + fracB>::allZeros() : ArbiInt<1 + intB + fracB>();
-
-        constexpr double maxVal = maxRes.toDouble();
-        constexpr double minVal = isS ? minRes.toDouble() : 0;
-
-        if (shiftedVal > maxVal)
+        if constexpr (1 + intB + fracB > 64)
         {
-            data = maxRes;
-        }
-        else if (shiftedVal < minVal)
-        {
-            data = minRes;
-        }
-        else
-        {
-            data = ArbiInt<1 + intB + fracB>(shiftedVal);
+            data.data.fill(0);
+
+            uint64_t sourceBits = reinterpret_cast<uint64_t &>(val);
+            // std::cout << "sourceBits: " << std::bitset<64>(sourceBits) << std::endl;
+
+            constexpr uint64_t leadingOne = (uint64_t)1 << 52;
+
+            uint64_t sign = sourceBits >> 63; // 1 bit
+            // std::cout << "sign: " << sign << std::endl;
+            uint64_t exp = (sourceBits << 1) >> 53; // 11 bits
+            // std::cout << "exp: " << std::bitset<11>(exp) <<  " " << exp << std::endl;
+            uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF) | leadingOne; // 53 bits
+            // std::cout << "frac: " << std::bitset<53>(frac) <<  " " << frac << std::endl;
+
+            if (exp >= 1023)
+            {
+                int delta = exp - 1023 + fracB;
+                int p = delta / 64;
+                int r = delta % 64;
+                if (r <= 52)
+                    if (p < data.num_words)
+                        data.data[p] = frac >> (52 - r);
+                    else if (p < data.num_words)
+                        data.data[p] = frac << (r - 52);
+                if (p && r <= 52 && p - 1 < data.num_words)
+                    data.data[p - 1] = frac << (r + 12);
+            }
+            else
+            {
+                int delta = 52 - (exp - 1023) - fracB;
+                int p = -delta / 64 + 1;
+                int r = delta + p * 64;
+                if (delta >= 0)
+                    data.data[0] = frac >> delta;
+                else
+                {
+                    data.data[p] = frac >> r;
+                    data.data[p - 1] = frac << (64 - r);
+                }
+            }
+
+            if (sign)
+            {
+                for (size_t i = 0; i < data.num_words; i++)
+                {
+                    data.data[i] = ~data.data[i];
+                }
+                data.data[0]++;
+            }
         }
     }
 
