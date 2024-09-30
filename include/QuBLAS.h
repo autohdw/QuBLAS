@@ -426,6 +426,11 @@ public:
         const int64_t effectivePos = exponent + fracB;
  
         data = mantissa >> (52 - effectivePos);
+
+        if (sign)
+        {
+            data = -data;
+        }
     }
 
 
@@ -1778,17 +1783,9 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 {
     inline static constexpr auto convert(auto val)
     {
-        if constexpr (fromFrac <= toFrac)
-        {
-            return staticShiftLeft<toFrac - fromFrac>(val);
-        }
-        else {
+        constexpr auto one = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
 
-            return staticShiftRight<fromFrac - toFrac>(val);
- 
-        }
-
-         
+        return staticShiftRight<fromFrac - toFrac>(val + one);
     }
 };
 
