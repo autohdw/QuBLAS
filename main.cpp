@@ -9,16 +9,11 @@ using namespace QuBLAS;
 
 int main()
 {
-    using from_t = Qu<intBits<3>, fracBits<5>>;
- 
-    using target_t = Qu<intBits<3>, fracBits<2>, QuMode<RND::CONV>>;
+    using type = Qu<intBits<3>, fracBits<100>>;
 
-    from_t from = 1.59375;
-    from.display("HighToTargetNegative");
+    type a = 2.1231;
 
-    target_t target = from;
-
-    target.display("target");
+    a.display();
  
     return 0;
 }

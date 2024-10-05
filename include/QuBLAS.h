@@ -702,7 +702,7 @@ public:
         data[0] = other.data;
 
         // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(data[0] >> 63);
+        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[0]) >> 63);
         for (size_t i = 1; i < num_words; ++i)
         {
             data[i] = sign_extension;
@@ -715,10 +715,10 @@ public:
     {
         constexpr size_t copyLen = std::min(ArbiInt<M>::num_words, ArbiInt<N>::num_words);
 
-        std::memcpy(data.data(), other.data.data(), sizeof(uint64_t) * copyLen);
+        std::copy(other.data.begin(), other.data.begin() + copyLen, data.begin());
 
         // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(data[copyLen - 1] >> 63);
+        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[copyLen - 1]) >> 63);
         for (size_t i = copyLen; i < num_words; ++i)
         {
             data[i] = sign_extension;
@@ -1402,7 +1402,8 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     ArbiInt<N + shift> result;
 
     // directly copy
-    std::memcpy(result.data.data() + shift / 64, x.data.data(), sizeof(uint64_t) * ArbiInt<N>::num_words);
+    // std::memcpy(result.data.data() + shift / 64, x.data.data(), sizeof(uint64_t) * ArbiInt<N>::num_words);
+    std::copy(x.data.begin(), x.data.end(), result.data.begin() + shift / 64);
 
     return result;
 }
@@ -1987,10 +1988,9 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
             constexpr auto mask = ArbiInt<fromFrac - toFrac>::allZeros();
             auto floor_raw = val & mask;
 
-
             auto ceil = floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
             ArbiInt<N + 1> floor = floor_raw;
-            if( floor + ceil == staticShiftLeft<1>(val))
+            if (floor + ceil == staticShiftLeft<1>(val))
             {
                 constexpr auto mask2 = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
 
@@ -2003,8 +2003,8 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
                     return staticShiftRight<fromFrac - toFrac>(floor);
                 }
             }
- 
-            return (val - floor) < (ceil - val) ?  staticShiftRight<fromFrac - toFrac>(floor) : staticShiftRight<fromFrac - toFrac>(ceil);
+
+            return (val - floor) < (ceil - val) ? staticShiftRight<fromFrac - toFrac>(floor) : staticShiftRight<fromFrac - toFrac>(ceil);
         }
     }
 };
@@ -2073,34 +2073,19 @@ template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
 {
     template <size_t N>
-        requires(N <= 64)
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        using innerType = ArbiInt<N>::data_t;
+        constexpr auto floor = ArbiInt<N>(ArbiInt<toInt + toFrac>::allOnes());
 
-        constexpr innerType maxVal = ((innerType)1 << (toInt + toFrac)) - 1;
-        std::cout << "maxVal: " << maxVal << std::endl;
-        constexpr innerType minVal = toIsSigned ? -maxVal : 0;
-        std::cout << "minVal: " << minVal << std::endl;
+        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::allZeros()) : ArbiInt<N>(0);
 
-        return ArbiInt<N>(std::clamp(val.data, minVal, maxVal));
-    }
-
-    template <size_t N>
-        requires(N > 64)
-    inline static constexpr auto convert(ArbiInt<N> val)
-    {
-        // the maxVal should be all 1 in the last toInt + toFrac bits
-        constexpr auto maxVal = ArbiInt<1 + toInt + toFrac>::allOnes();
-        constexpr auto minVal = toIsSigned ? -maxVal : 0;
-
-        if (val < minVal)
+        if (val > floor)
         {
-            return ArbiInt<N>(minVal);
+            return floor;
         }
-        else if (val > maxVal)
+        else if (val < ceil)
         {
-            return ArbiInt<N>(maxVal);
+            return ceil;
         }
         else
         {
@@ -2112,18 +2097,50 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
-        return 0;
+        constexpr auto floor = ArbiInt<toInt + toFrac>::allOnes();
+        constexpr auto ceil = toIsSigned ? ArbiInt<toInt + toFrac>::allZeros() : ArbiInt<N>(0);
+
+        constexpr auto zeroRes = ArbiInt<N>(0);
+
+        if (val > floor)
+        {
+            return zeroRes;
+        }
+        else if (val < ceil)
+        {
+            return zeroRes;
+        }
+        else
+        {
+            return val;
+        }
     }
 };
 
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
-        return 0;
+        constexpr auto floor = ArbiInt<N>(ArbiInt<toInt + toFrac>::allOnes());
+        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::allZeros() + ArbiInt<1>(1)) : ArbiInt<N>(0);
+
+        if (val > floor)
+        {
+            return floor;
+        }
+        else if (val < ceil)
+        {
+            return ceil;
+        }
+        else
+        {
+            return val;
+        }
     }
 };
 
@@ -2133,7 +2150,29 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 
     inline static constexpr auto convert(auto val)
     {
-        return 0;
+        if constexpr (toIsSigned)
+        {
+            constexpr auto mask = ArbiInt<toInt + toFrac + 1>::allOnes();
+
+            auto maskedVal = val & mask;
+
+            if (staticShiftRight<toFrac + toInt>(maskedVal))
+            {
+                constexpr auto mask2 = ~mask;
+
+                return maskedVal | mask2;
+            }
+            else
+            {
+                return maskedVal;
+            }
+        }
+        else
+        {
+            constexpr auto mask = ArbiInt<toInt + toFrac>::allOnes();
+
+            return val & mask;
+        }
     }
 };
 
@@ -2142,7 +2181,8 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
 {
     inline static constexpr auto convert(auto val)
     {
-        return 0;
+        // not implemented
+        return val;
     }
 };
 
@@ -2187,10 +2227,10 @@ public:
 
     inline constexpr Qu_s(double val)
     {
-        static ArbiInt<1025 + fracB> buffer;
-        buffer.template loadFromDouble<fracB>(val);
+        static ArbiInt<1200 + 1200> buffer;
+        buffer.template loadFromDouble<1200 + fracB>(val);
 
-        data = buffer;
+        data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<1200 + fracB, fracB, QuMode<QuM_t>>::convert(buffer));
     }
 
     inline constexpr Qu_s() : data() {}
@@ -2205,9 +2245,9 @@ public:
         }
         else
         {
-            // data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data));
+            data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data));
 
-            data = fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data);
+            // data = fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data);
         }
     }
 
