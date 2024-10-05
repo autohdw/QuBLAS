@@ -5,6 +5,7 @@
 #include <bitset>
 #include <cmath>
 #include <complex>
+#include <csignal>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -403,37 +404,67 @@ public:
         data = other.data[0];
     }
 
- 
     constexpr ArbiInt(double val)
     {
         loadFromDouble<0>(val);
     }
 
-    template< int fracB>
+    template <int fracB>
     constexpr void loadFromDouble(double val)
     {
-        if (val == 0.0)
+        if (val == 0.0 || std::isnan(val) || std::isinf(val))
         {
             data = 0;
             return;
         }
 
+        // Extract the sign, exponent, and mantissa from the double
         const uint64_t doubleAsUint64 = std::bit_cast<uint64_t>(val);
-        const uint64_t sign = doubleAsUint64 >> 63;
+        const bool sign = (doubleAsUint64 >> 63) != 0;
         const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
-        const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
+        uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull; // Add the implicit leading 1
 
-        const int64_t effectivePos = exponent + fracB;
- 
-        data = mantissa >> (52 - effectivePos);
+        // Calculate the total shift required
+        const int64_t shift = exponent + fracB - 52;
 
+        // Initialize data
+        int64_t result = 0;
+
+        if (shift >= 0)
+        {
+            if (shift < 64)
+            {
+                uint64_t shiftedMantissa = mantissa << shift;
+                result = static_cast<int64_t>(shiftedMantissa);
+            }
+            else
+            {
+                // Shift too large, result becomes zero or overflows
+                result = 0;
+            }
+        }
+        else // shift < 0
+        {
+            if (-shift < 64)
+            {
+                uint64_t shiftedMantissa = mantissa >> (-shift);
+                result = static_cast<int64_t>(shiftedMantissa);
+            }
+            else
+            {
+                // Shift too large, result becomes zero
+                result = 0;
+            }
+        }
+
+        // Apply the sign
         if (sign)
         {
-            data = -data;
+            result = -result;
         }
+
+        data = result;
     }
-
-
 
     // Assignment from string
     ArbiInt(const std::string &str)
@@ -448,6 +479,12 @@ public:
             // Mask to N bits while preserving the sign
             data = static_cast<data_t>((static_cast<int64_t>(data) << (64 - N)) >> (64 - N));
         }
+    }
+
+    // operator bool
+    constexpr operator bool() const
+    {
+        return data != 0;
     }
 
     auto fill()
@@ -552,59 +589,96 @@ public:
         }
     }
 
-
     constexpr ArbiInt(double val)
     {
         loadFromDouble<0>(val);
     }
 
-    template< int fracB>
+    template <int fracB>
     constexpr void loadFromDouble(double val)
     {
+        for (auto &word : data)
+            word = 0;
+
+        // Handle zero, NaN, and infinity
+        if (val == 0.0 || std::isnan(val) || std::isinf(val))
+            return;
+
         const uint64_t doubleAsUint64 = std::bit_cast<uint64_t>(val);
         const uint64_t sign = doubleAsUint64 >> 63;
         const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
         const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
 
-        const int64_t effectivePos = exponent + fracB;
-        if (effectivePos >= 0)
+        // Calculate the total shift required
+        int64_t shift = exponent + fracB - 52;
+
+        if (shift >= 0)
         {
-            int p = effectivePos >> 6; 
-            int r = effectivePos & 0x3F;
+            // Left shift the mantissa
+            int64_t wordShift = shift / 64;
+            int64_t bitShift = shift % 64;
 
-            const uint64_t m1 = (mantissa >> (52 - r)) & ((uint64_t(1) << (64 - r)) - 1);
-            const uint64_t m2 = (mantissa << (r + 12)) & 0xFFFFFFFFFFFFFFFFull;
+            if (wordShift < num_words)
+            {
+                data[wordShift] |= mantissa << bitShift;
 
-            if (p < num_words) data[p] |= m1;
-            if (r <= 12 && (p - 1) < num_words) data[p - 1] |= m2;
+                if (bitShift != 0 && (wordShift + 1) < num_words)
+                {
+                    data[wordShift + 1] |= mantissa >> (64 - bitShift);
+                }
+            }
         }
         else
         {
-            const int64_t adjustedDelta = 52 - effectivePos;
-            const uint64_t m3 = (mantissa >> adjustedDelta) & 0xFFFFFFFFFFFFFFFFull;
+            int64_t totalShift = -shift;
 
-            if (adjustedDelta >= 0)
+            if (totalShift < 64)
             {
-                data[0] |= m3;
+                data[0] = mantissa >> totalShift;
             }
-            else
+            else if (totalShift < 64 * num_words)
             {
-                int p = (-adjustedDelta) >> 6; 
-                int r = (-adjustedDelta) & 0x3F; 
+                int64_t wordShift = totalShift / 64;
+                int64_t bitShift = totalShift % 64;
 
-                const uint64_t m4 = (mantissa >> r) & 0xFFFFFFFFFFFFFFFFull;
-                const uint64_t m5 = (mantissa << (64 - r)) & 0xFFFFFFFFFFFFFFFFull;
-
-                if (p < num_words) data[p] |= m4;
-                if ((p - 1) < num_words) data[p - 1] |= m5;
+                if (bitShift == 0)
+                {
+                    if (wordShift < num_words)
+                    {
+                        data[wordShift] = mantissa;
+                    }
+                }
+                else
+                {
+                    if (wordShift < num_words)
+                    {
+                        data[wordShift] |= mantissa >> bitShift;
+                    }
+                    if ((wordShift + 1) < num_words)
+                    {
+                        data[wordShift + 1] |= mantissa << (64 - bitShift);
+                    }
+                }
             }
         }
 
         if (sign)
         {
-            for (auto& word : data) word = ~word;
-            auto p = data.begin();
-            while (p != data.end() && !*p++) ++p;
+            // Invert the bits
+            for (auto &word : data)
+            {
+                word = ~word;
+            }
+
+            uint64_t carry = 1;
+            for (size_t i = 0; i < num_words; ++i)
+            {
+                uint64_t sum = data[i] + carry;
+                carry = (sum < data[i]) ? 1 : 0;
+                data[i] = sum;
+                if (!carry)
+                    break;
+            }
         }
     }
 
@@ -636,7 +710,7 @@ public:
     }
 
     template <size_t M>
-        requires(M > 64)
+        requires(M > 64 && ArbiInt<M>::num_words != num_words)
     constexpr ArbiInt(const ArbiInt<M> &other)
     {
         constexpr size_t copyLen = std::min(ArbiInt<M>::num_words, ArbiInt<N>::num_words);
@@ -649,6 +723,12 @@ public:
         {
             data[i] = sign_extension;
         }
+    }
+
+    // operator bool
+    constexpr operator bool() const
+    {
+        return !std::all_of(data.begin(), data.end(), [](uint64_t w) { return w == 0; });
     }
 
     auto fill()
@@ -1453,13 +1533,12 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 
         uint64_t right = x.data[i + shift_words];
 
-        __uint128_t temp = (static_cast<__uint128_t>(left) << 64 ) | static_cast<__uint128_t>(right);  
-        
-        result.data[i] = static_cast<uint64_t>(temp >> shift_bits);
+        __uint128_t temp = (static_cast<__uint128_t>(left) << 64) | static_cast<__uint128_t>(right);
 
+        result.data[i] = static_cast<uint64_t>(temp >> shift_bits);
     }
 
-    result.data[num_output_words - 1] = static_cast<__int128_t>((static_cast<__uint128_t>(sign_extension) << 64 ) | static_cast<__uint128_t>(x.data[num_input_words - 1]))>> shift_bits;
+    result.data[num_output_words - 1] = static_cast<__int128_t>((static_cast<__uint128_t>(sign_extension) << 64) | static_cast<__uint128_t>(x.data[num_input_words - 1])) >> shift_bits;
 
     return result;
 }
@@ -1477,8 +1556,6 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     return x;
 }
-
-// comparison operators
 
 template <size_t N, size_t M>
     requires(N <= 64 && M <= 64)
@@ -1770,61 +1847,167 @@ struct TRN
     struct TCPL{inline static constexpr int value = 5;};
     struct SMGN{inline static constexpr int value = 6;};
 };
-
-
+// clang-format on
 
 template <int fromFrac, int toFrac, typename QuMode>
 struct fracConvert;
 
-
-
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto one = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+        if constexpr (fromFrac <= toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else
+        {
 
-        return staticShiftRight<fromFrac - toFrac>(val + one);
+            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
+
+            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
+
+            auto Xl = val & mask;
+
+            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
+
+            bool flag = Xl >= T;
+
+            auto oneOrZero = ArbiInt<1>(flag);
+
+            return Xh + oneOrZero;
+        }
     }
 };
 
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::NEG_INF>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
-        return 0;
+        if constexpr (fromFrac <= toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else
+        {
+
+            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
+
+            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
+
+            auto Xl = val & mask;
+
+            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
+
+            bool flag = Xl > T;
+
+            auto oneOrZero = ArbiInt<1>(flag);
+
+            return Xh + oneOrZero;
+        }
     }
 };
 
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::ZERO>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
-        return 0;
+        if constexpr (fromFrac <= toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else
+        {
+
+            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
+
+            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
+
+            auto Xl = val & mask;
+
+            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
+
+            bool flag = Xl > T || (Xl == T && (val.isNegative()));
+
+            auto oneOrZero = ArbiInt<1>(flag);
+
+            return Xh + oneOrZero;
+        }
     }
 };
 
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::INF>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
-        return 0;
+        if constexpr (fromFrac <= toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else
+        {
+
+            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
+
+            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
+
+            auto Xl = val & mask;
+
+            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
+
+            bool flag = Xl > T || (Xl == T && (val.isPositive()));
+
+            auto oneOrZero = ArbiInt<1>(flag);
+
+            return Xh + oneOrZero;
+        }
     }
 };
 
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
+        if constexpr (fromFrac <= toFrac)
+        {
+            return staticShiftLeft<toFrac - fromFrac>(val);
+        }
+        else
+        {
+            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allZeros();
+            auto floor_raw = val & mask;
 
+
+            auto ceil = floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+            ArbiInt<N + 1> floor = floor_raw;
+            if( floor + ceil == staticShiftLeft<1>(val))
+            {
+                constexpr auto mask2 = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+
+                if (floor & mask2)
+                {
+                    return staticShiftRight<fromFrac - toFrac>(ceil);
+                }
+                else
+                {
+                    return staticShiftRight<fromFrac - toFrac>(floor);
+                }
+            }
+ 
+            return (val - floor) < (ceil - val) ?  staticShiftRight<fromFrac - toFrac>(floor) : staticShiftRight<fromFrac - toFrac>(ceil);
+        }
     }
 };
-
 
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
@@ -1835,11 +2018,11 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::TCPL>>
     }
 };
 
-
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 {
-    inline static constexpr auto convert(auto val)
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
     {
         if constexpr (fromFrac <= toFrac)
         {
@@ -1848,12 +2031,16 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         else
         {
             constexpr auto one = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
-            constexpr auto zero = ArbiInt<fromFrac - toFrac + 1>(0);
 
-            auto oneOrZero = val.isNegative() ? one : zero;
-
-            return staticShiftRight<fromFrac - toFrac>(val + oneOrZero);
-    
+            if (val.isNegative())
+            {
+                return staticShiftRight<fromFrac - toFrac>(val + one);
+            }
+            else
+            {
+                ArbiInt<N + 1> temp = val;
+                return staticShiftRight<fromFrac - toFrac>(temp);
+            }
         }
     }
 };
@@ -2000,8 +2187,8 @@ public:
 
     inline constexpr Qu_s(double val)
     {
-        static ArbiInt<1025> buffer;
-        buffer.loadFromDouble<fracB>(val);
+        static ArbiInt<1025 + fracB> buffer;
+        buffer.template loadFromDouble<fracB>(val);
 
         data = buffer;
     }
@@ -2037,7 +2224,7 @@ public:
         }
 
         std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << std::endl;
-        std::cout << "Binary: " << this->data.toBinary() << std::endl;
+        std::cout << "Binary: " << this->data.toBinary() << " " << this->data.toString() << std::endl;
         std::cout << "Decimal: " << this->toDouble() << std::endl;
     }
 };

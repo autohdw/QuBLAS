@@ -4,11 +4,11 @@
 
 using namespace QuBLAS;
 
-using High_t = Qu<intBits<70>, fracBits<70>, isSigned<true>, QuMode<RND::POS_INF>>;
-using Mid_t = Qu<intBits<30>, fracBits<30>, isSigned<true>, QuMode<RND::POS_INF>>;
-using Low_t = Qu<intBits<10>, fracBits<10>, isSigned<true>, QuMode<RND::POS_INF>>;
+using High_t = Qu<intBits<70>, fracBits<70>, isSigned<true>, QuMode<RND::INF>>;
+using Mid_t = Qu<intBits<30>, fracBits<30>, isSigned<true>, QuMode<RND::INF>>;
+using Low_t = Qu<intBits<10>, fracBits<10>, isSigned<true>, QuMode<RND::INF>>;
 
-using target_t = Qu<intBits<1>, fracBits<1>, isSigned<true>, QuMode<RND::POS_INF>>;
+using target_t = Qu<intBits<1>, fracBits<1>, isSigned<true>, QuMode<RND::INF>>;
 
 TEST(SMGN, HighToTargetPositive)
 {
@@ -25,7 +25,7 @@ TEST(SMGN, HighToTargetNegative)
     target_t target = high;
     double targetDouble = target.toDouble();
 
-    EXPECT_DOUBLE_EQ(targetDouble, -1.0);
+    EXPECT_DOUBLE_EQ(targetDouble, -1.5);
 }
 
 TEST(SMGN, MidToTargetPositive)
@@ -43,7 +43,7 @@ TEST(SMGN, MidToTargetNegative)
     target_t target = mid;
     double targetDouble = target.toDouble();
 
-    EXPECT_DOUBLE_EQ(targetDouble, -1.0);
+    EXPECT_DOUBLE_EQ(targetDouble, -1.5);
 }
 
 TEST(SMGN, LowToTargetPositive)
@@ -61,7 +61,7 @@ TEST(SMGN, LowToTargetNegative)
     target_t target = low;
     double targetDouble = target.toDouble();
 
-    EXPECT_DOUBLE_EQ(targetDouble, -1.0);
+    EXPECT_DOUBLE_EQ(targetDouble, -1.5);
 }
 
  
