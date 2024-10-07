@@ -9,13 +9,27 @@ using namespace QuBLAS;
 
 int main()
 {
-    using type = Qu<intBits<3>, fracBits<100>>;
+    using type1 = Qu<intBits<3>, fracBits<20>>;
 
-    type a = 2.1231;
+    type1 a = 2.12431;
 
     a.display();
+
+    using type2 = Qu<intBits<3>, fracBits<30>>;
+    type2 b = -3.523531;
+
+    b.display();
+
+    auto c = Qsub<intBits<10>, fracBits<100>>(a, b);
+
+    c.display();
  
     return 0;
+
+ 
+
+ 
 }
+
 
  
