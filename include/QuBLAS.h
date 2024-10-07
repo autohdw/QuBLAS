@@ -1520,38 +1520,42 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires (shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
+constexpr auto staticShiftRight(const ArbiInt<N>& x)
 {
-    constexpr size_t shift_words = shift / 64; // 计算完整的64位块的右移数量
-    constexpr size_t shift_bits = shift % 64;  // 计算剩余的位右移数量
+    constexpr size_t shift_words = shift / 64; // Number of complete 64-bit blocks to shift right
+    constexpr size_t shift_bits = shift % 64;  // Remaining bits to shift right
     constexpr size_t num_input_words = ArbiInt<N>::num_words;
     constexpr size_t num_output_words = ArbiInt<N - shift>::num_words;
     ArbiInt<N - shift> result;
 
-    // sign extension
-    int64_t sign_extension = static_cast<int64_t>(x.data[num_input_words - 1]) >> shift_bits;
+    // Determine the sign extension word based on the sign of x
+    bool is_negative = static_cast<int64_t>(x.data[num_input_words - 1]) < 0;
+    uint64_t sign_extension_word = is_negative ? ~uint64_t(0) : uint64_t(0);
 
-    for (size_t i = 0; i < num_output_words - 1; ++i)
+    for (size_t i = 0; i < num_output_words; ++i)
     {
-        uint64_t left = x.data[i + shift_words + 1];
+        // Get the source words with proper sign extension
+        uint64_t low_word = 0;
+        uint64_t high_word = 0;
 
-        uint64_t right = x.data[i + shift_words];
+        size_t low_index = i + shift_words;
+        size_t high_index = i + shift_words + 1;
 
-        __uint128_t temp = (static_cast<__uint128_t>(left) << 64) | static_cast<__uint128_t>(right);
+        // Retrieve low_word, or sign extension if out of bounds
+        if (low_index < num_input_words)
+            low_word = x.data[low_index];
+        else
+            low_word = sign_extension_word;
 
-        result.data[i] = static_cast<uint64_t>(temp >> shift_bits);
-    }
-    if (num_output_words + shift_words > num_input_words)
-    {
-        result.data[num_output_words - 1] = static_cast<__int128_t>((static_cast<__uint128_t>(sign_extension) << 64) | static_cast<__uint128_t>(x.data[num_input_words - 1])) >> shift_bits;
-    }
-    else
-    {
-        uint64_t left = x.data[num_input_words - 1];
-        uint64_t right = x.data[num_input_words - 2];
-        __uint128_t temp = (static_cast<__uint128_t>(left) << 64) | static_cast<__uint128_t>(right);
-        result.data[num_output_words - 1] = static_cast<uint64_t>(temp >> shift_bits);
+        // Retrieve high_word, or sign extension if out of bounds
+        if (high_index < num_input_words)
+            high_word = x.data[high_index];
+        else
+            high_word = sign_extension_word;
+
+        // Perform the shift and combine the bits
+        result.data[i] = (low_word >> shift_bits) | (high_word << (64 - shift_bits));
     }
 
     return result;
@@ -2910,9 +2914,16 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 
         auto fullProduct = f1.data * f2.data;
 
+
+        f1.display("f1");
+        f2.display("f2");
+        fullProduct.display("fullProduct");
+
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
+        fracProduct.display("fracProduct");
 
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
+        intProduct.display("intProduct");
 
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intProduct;
