@@ -15,7 +15,6 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
-#include <string_view>
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <type_traits>
@@ -1520,8 +1519,8 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-requires (shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
-constexpr auto staticShiftRight(const ArbiInt<N>& x)
+    requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     constexpr size_t shift_words = shift / 64; // Number of complete 64-bit blocks to shift right
     constexpr size_t shift_bits = shift % 64;  // Remaining bits to shift right
@@ -2914,16 +2913,9 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 
         auto fullProduct = f1.data * f2.data;
 
-
-        f1.display("f1");
-        f2.display("f2");
-        fullProduct.display("fullProduct");
-
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
-        fracProduct.display("fracProduct");
 
         auto intProduct = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fracProduct);
-        intProduct.display("intProduct");
 
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intProduct;
