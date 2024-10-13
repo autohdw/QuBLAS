@@ -1,4 +1,3 @@
-
 #include "QuBLAS.h"
 #include <algorithm>
 #include <bitset>
@@ -29,11 +28,7 @@ int main()
 
     a.display();
  
-    return 0;
-
- 
-
- 
+    return 0; 
 }
 
 
