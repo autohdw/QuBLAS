@@ -1112,7 +1112,7 @@ template <size_t N, size_t M>
 constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<N + M> result;
-    result.data = lhs.data * rhs.data;
+    result.data = static_cast<ArbiInt<N + M>::data_t>(lhs.data) * static_cast<ArbiInt<N + M>::data_t>(rhs.data);
     return result;
 }
 
@@ -2911,7 +2911,13 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         // print the debug info
         // std::cout << "mul: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
 
+        f1.data.display("f1.data");
+        f2.data.display("f2.data");
+
         auto fullProduct = f1.data * f2.data;
+
+
+        fullProduct.display("fullProduct");
 
         auto fracProduct = fracConvert<fromFrac1 + fromFrac2, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullProduct);
 

@@ -9,35 +9,28 @@ using namespace QuBLAS;
 
  
 
-template <size_t shift, size_t val>
-bool check(const std::string &shifted, const std::string &raw)
-{
-    for (size_t i = 0; i < val - shift; i++)
-    {
-        if (shifted[shifted.size() - 1 - i] != raw[raw.size() - 1 - i - shift])
-        {
-            return false;
-        }
-    }
+using type1 = Qu<intBits<12>, fracBits<10>>;
+using type2 = Qu<intBits<0>, fracBits<20>>;
 
-    return true;
-}
+using rx_dmrs_descrambing_add_t = Qu<intBits<12>, fracBits<10>>;
 
 int main()
 {
+    type1 a;
 
-    ArbiInt<70> a;
+    a.data.data = 0x29db9;
 
-    a.fill();
+    a.display();
 
-    auto raw = a.toBinary();
+    type2 b;
 
-    auto shifted = staticShiftRight<10>(a).toBinary();
+    b.data.data = 0xb504f;
 
-    bool result = check<10, 70>(shifted, raw);
+    b.display();
 
-    std::cout << raw  << std::endl;
-    std::cout << shifted << std::endl;
-    std::cout << result << std::endl;
+    auto res = Qmul<rx_dmrs_descrambing_add_t>(a, b);
 
+    res.display();
+
+ 
 }
