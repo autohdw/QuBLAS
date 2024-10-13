@@ -1148,7 +1148,7 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 
     // Sign extraction
     bool lhs_negative = (lhs.data[lhs.num_words - 1] >> ((N - 1) % 64));
-    bool rhs_negative = (rhs.data >> 63) & 1;
+    bool rhs_negative = rhs.data < 0;
     bool result_negative = lhs_negative ^ rhs_negative;
 
     // Manage negativity upfront for rhs
