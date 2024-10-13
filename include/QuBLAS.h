@@ -506,6 +506,12 @@ public:
         return static_cast<double>(data);
     }
 
+    constexpr auto uToDouble() const
+    {
+        uint64_t tmp = (num_bits == 64 ? data : data & ((1ll << num_bits) -1));
+        return static_cast<double>(static_cast<unsigned long long> (tmp));
+    }
+
     constexpr auto toBinary() const
     {
         return std::bitset < N < 32 ? 32 : 64 > (data).to_string();
@@ -815,6 +821,35 @@ public:
 
         return result;
     }
+
+    constexpr double uToDouble() const //Unsigned conversion
+    {
+        // 计算绝对值（使用位操作优化）
+        std::array<uint64_t, num_words> mag = {};
+        mag = data;
+
+        // 找到最高非零字，以减少不必要的计算
+        std::size_t highest_non_zero_word = num_words;
+        while (highest_non_zero_word > 0 && mag[highest_non_zero_word - 1] == 0)
+        {
+            --highest_non_zero_word;
+        }
+
+        int zbits = num_bits % 64;
+        if(zbits) mag[highest_non_zero_word - 1] &= (1ll << zbits) - 1;
+
+
+        // 将绝对值转换为double（替代ldexp）
+        double result = 0.0;
+        constexpr double two_pow_64 = 18446744073709551616.0; // 2^64
+
+        for (std::size_t i = highest_non_zero_word; i-- > 0;)
+        {
+            result = result * two_pow_64 + static_cast<double>(mag[i]);
+        }
+
+        return result;
+    }    
 
     constexpr auto toBinary() const
     {
@@ -1574,6 +1609,38 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
     return x;
 }
 
+template <size_t N>
+auto dynamicShiftLeft(const ArbiInt<N> &x, int shift) //Size remain the same, shifting doesn't change size.
+{
+    ArbiInt<N> ret;
+    if constexpr (N <= 64) ret.data = x.data << shift;
+    else
+    {
+        for(int i = N/64 ; i >= 0 ; i--)
+        {
+            if((shift & 63) == 0) ret.data[i] = i >= shift/64 ? x.data[i - shift/64] : 0;
+            else ret.data[i] = ((i - shift/64 >= 0 ? x.data[i - shift/64] : 0) << (shift & 63)) | ((i - shift/64 - 1 >= 0 ? x.data[i - 1 - shift/64] : 0) >> (64 - (shift & 63)));
+        }
+    }
+    return ret;
+}
+
+template <size_t N>
+auto dynamicShiftRight(const ArbiInt<N> &x, int shift) //Size remain the same, shifting doesn't change size.
+{
+    ArbiInt<N> ret;
+    if constexpr (N <= 64) ret.data = x.data >> shift;
+    else
+    {
+        for(int i = 0 ; i <= N/64 ; i++)
+        {
+            if((shift & 63) == 0) ret.data[i] = i + shift/64 <= N/64 ? x.data[i + shift/64] : 0;
+            else ret.data[i] = ((i + shift/64 <= N/64 ? x.data[i + shift/64] : 0) >> (shift & 63)) | ((i + shift/64 + 1 <= N/64 ? x.data[i + 1 + shift/64] : 0) << (64 - (shift & 63)));
+        }
+    }
+    return ret;
+}
+
 template <size_t N, size_t M>
     requires(N <= 64 && M <= 64)
 constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
@@ -2208,6 +2275,12 @@ struct intBits;
 template <int Value>
 struct fracBits;
 
+template <int Value>
+struct expBits;
+
+template <int Value>
+struct valBits;
+
 template <bool Value>
 struct isSigned;
 
@@ -2316,17 +2389,28 @@ public:
     }
 };
 
+template<typename ... Args>
+struct containExp_s
+{
+    static constexpr bool value = (isA<Args, expBits<1>> || ...);
+};
+
+
 template <typename... Args>
 struct QuInputHelper
 {
+    static constexpr bool containExp = containExp_s<Args...>::value;
+
     inline static constexpr auto intB = tagExtractor<intBits<defaultIntBits>, Args...>::value;
     inline static constexpr auto fracB = tagExtractor<fracBits<defaultFracBits>, Args...>::value;
     inline static constexpr auto isS = tagExtractor<isSigned<defaultIsSigned>, Args...>::value;
+    inline static constexpr auto expB = tagExtractor<expBits<4>, Args...>::value;
+    inline static constexpr auto valB = tagExtractor<valBits<4>, Args...>::value;
 
     using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
     using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
 
-    using type = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>;
+    using type = std::conditional_t< containExp, Qu_s<expBits<expB>, valBits<valB>, QuMode<QuM>, OfMode<OfM>>, Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> >;
 };
 
 template <typename... Args>
@@ -2335,7 +2419,149 @@ struct QuInputHelper<Qu_s<Args...>> : QuInputHelper<Args...>
 
 template <typename... Args>
 using Qu = typename QuInputHelper<Args...>::type;
+// ------------------- Float -------------------
+template <int expBitsInput, int valBitsInput, typename QuModeInput, typename OfModeInput>
+class Qu_s<expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
+{
+public:
+    inline static constexpr int expB = expBitsInput;
+    inline static constexpr int valB = valBitsInput;
+  
+    using QuM_t = QuModeInput;
+    using OfM_t = OfModeInput;
+    inline static constexpr int QuM = QuModeInput::value;
+    inline static constexpr int OfM = OfModeInput::value;
 
+    inline static constexpr uint64_t maxVal = (1 << valB) - 1;
+    inline static constexpr uint64_t bias = (1 << expB - 1);
+
+
+    ArbiInt<expB> expData;
+    ArbiInt<valB> valData;
+    bool signData;
+
+    inline constexpr Qu_s() {}
+
+    inline void toQuFloat(double val)
+    {
+        uint64_t sourceBits = reinterpret_cast<uint64_t &>(val);
+        //std::cout << "sourceBits: " << std::bitset<64>(sourceBits) << std::endl;
+
+        constexpr uint64_t leadingOne = (uint64_t)1 << 52;
+
+        uint64_t sign = sourceBits >> 63;                            // 1 bit
+        //std::cout << "sign: " << sign << std::endl;
+        uint64_t exp = (sourceBits << 1) >> 53;                      // 11 bits
+        //std::cout << "exp: " << std::bitset<11>(exp) <<  " " << exp << std::endl;
+        uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF); // 52 bits
+        //std::cout << "frac: " << std::bitset<52>(frac) <<  " " << frac << std::endl;
+        
+        expData = exp + bias - 1023;
+        //std::printf("%d--\n",valB);
+        //expData.display();
+        
+        if constexpr(valB >= 52) valData = frac << (valB - 52);
+        else valData = frac >> (52 - valB);
+        //valData.display();
+
+        signData = (val < 0);
+    }
+
+    inline long double toDouble()
+    {
+        double ret = valData.uToDouble() * pow(0.5, valB) + 1;
+
+        double pw = expData.uToDouble() - bias;
+
+        return ret * std::pow(2, pw);
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    Qu_s(T val)
+    {
+        toQuFloat((double)val);
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    inline Qu_s& operator=(T val)
+    {
+        toQuFloat((double)val);
+        return *this;
+    }
+
+    template <typename... Args>
+    inline Qu_s& operator=(Qu_s<Args...> tval)
+    {
+        auto val = tval;
+        Qu<> zero = 0;
+        if (tval < zero) tval = -tval, signData = 1;
+        else signData = 0;
+        if constexpr (val.data.num_bits <= 64)
+        {
+            int pos = val.data.num_bits - 1;
+            while (((val.data.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
+            if (pos > 0)
+            {
+                expData = pos + bias - val.fracB; //Possible overflow
+                //std::printf("%d------\n",pos - valB);
+                if(val.data.num_bits >= valData.num_bits)
+                {
+                    if (pos >= valB) val.data = dynamicShiftRight(val.data , pos - valB);
+                    else val.data = dynamicShiftLeft(val.data , valB - pos); 
+                    valData = val.data;
+                }
+                else
+                {
+                    valData = val.data;
+                    if (pos >= valB) valData = dynamicShiftRight(valData , pos - valB);
+                    else valData = dynamicShiftLeft(valData , valB - pos); 
+                }
+
+            }
+            else
+            {
+                expData = 0;
+                valData = 0;
+            }
+        }
+        else
+        {
+            int pos1 = val.data.num_bits / 64, pos2 = 63;
+            while (val.data.data[pos1] == 0 && pos1 >= 0) pos1--;
+            if (pos1 >= 0)
+            {
+                while ((val.data.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
+                expData = 64 * pos1 + pos2 + bias - val.fracB; //Possible overflow
+                if(val.data.num_bits >= valData.num_bits)
+                {
+                    if (64 * pos1 + pos2 >= valB) val.data = dynamicShiftRight(val.data , 64 * pos1 + pos2 - valB);
+                    else val.data = dynamicShiftLeft(val.data , valB - (64 * pos1 + pos2));
+                    valData = val.data;
+                }
+                else
+                {
+                    valData = val.data;
+                    if (64 * pos1 + pos2 >= valB) valData = dynamicShiftRight(valData , 64 * pos1 + pos2 - valB);
+                    else valData = dynamicShiftLeft(valData , valB - (64 * pos1 + pos2));
+                }
+            }
+            else
+            {
+                expData = 0;
+                valData = 0;                
+            }
+        }
+        return *this;
+    }    
+    inline void display()
+    {
+        valData.display();
+        puts("");
+        printf("%Lf\n",toDouble());
+    }
+};
 // ------------------- Complex -------------------
 template <typename... realArgs, typename... imagArgs>
 class Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>

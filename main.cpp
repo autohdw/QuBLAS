@@ -9,20 +9,25 @@ using namespace QuBLAS;
 
 int main()
 {
-    using type1 = Qu<intBits<3>, fracBits<400>>;
 
-    type1 a = 2.12431;
+    ArbiInt<129> tt = 123;
 
-    a.display();
+    tt.display();
 
-    using type2 = Qu<intBits<3>, fracBits<200>>;
-    type2 b = 3.523531;
+    std::printf("%lf\n",tt.toDouble());
+
+    using type1 = Qu<expBits<23>, valBits<1000>>;
+    using type2 = Qu<intBits<66>, fracBits<66>>;
+
+    type2 b = 3.14159;
 
     b.display();
 
-    auto c = Qmul<intBits<10>, fracBits<100>>(a, b);
+    type1 a;
 
-    c.display();
+    a = b;
+
+    a.display();
  
     return 0;
 
