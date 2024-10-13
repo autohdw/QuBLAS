@@ -2486,9 +2486,6 @@ template <size_t... dims, typename Arg>
 class Qu_s<dim<dims...>, Arg>
 {
 public:
-    std::array<Arg, dim<dims...>::elemSize> data;
-
-    using size = dim<dims...>;
 
     template <typename First, typename... Rest>
     inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
@@ -2504,14 +2501,50 @@ public:
         }
     }
 
+    inline static constexpr bool onHeap = dim<dims...>::elemSize > 1000;
+
+    // when the size is too large, use std::vector instead of std::array
+    using storage_t = std::conditional_t<onHeap, std::vector<Arg>, std::array<Arg, dim<dims...>::elemSize>>;
+
+    storage_t data;
+
+    using size = dim<dims...>;
+
     // 构造函数
-    constexpr Qu_s() {}
-    constexpr Qu_s(auto... values) : data{values...} {}
+    constexpr Qu_s() {
+        if constexpr (onHeap)
+        {
+            data.resize(dim<dims...>::elemSize);
+        }
+    }
+
+    constexpr Qu_s(auto... values)
+    {
+        if constexpr (onHeap)
+        {
+            data.resize(dim<dims...>::elemSize);
+        }
+
+        if constexpr (sizeof...(values) == dim<dims...>::elemSize)
+        {
+            data = {values...};
+        }
+        else
+        {
+            throw std::invalid_argument("The number of values does not match the size of the Qu_s.");
+        }
+    }
+
 
     template <typename SquareBracketIndexableType>
         requires isSquareBracketIndexable<SquareBracketIndexableType>
     constexpr Qu_s(const SquareBracketIndexableType &val)
     {
+        if constexpr (onHeap)
+        {
+            data.resize(dim<dims...>::elemSize);
+        }
+        
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
             data[i] = val[i];
@@ -2519,22 +2552,42 @@ public:
     }
 
     // 拷贝构造函数
-    // 来自相同类型的Qu_s, 直接拷贝std::array
-    constexpr Qu_s(const Qu_s<dim<dims...>, Arg> &val) : data(val.data) {}
+    constexpr Qu_s(const Qu_s<dim<dims...>, Arg> &val)
+    {
+        if constexpr (onHeap)
+        {
+            data.resize(dim<dims...>::elemSize);
+        }
+
+        std::copy(val.data.begin(), val.data.end(), data.begin());
+    }
 
     // 来自不同类型的Qu_s，逐个元素转换
     template <typename fromArg>
     constexpr Qu_s(const Qu_s<dim<dims...>, fromArg> &val)
     {
+        if constexpr (onHeap)
+        {
+            data.resize(dim<dims...>::elemSize);
+        }
+
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
             data[i] = val.data[i];
         }
     }
 
+    // // 移动构造函数
+    // // 来自相同类型的Qu_s, 直接移动std::array
+    // constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val) : data(std::move(val.data)) {}
+
     // 移动构造函数
-    // 来自相同类型的Qu_s, 直接移动std::array
-    constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val) : data(std::move(val.data)) {}
+    // 来自相同类型的Qu_s, 直接移动std::array或者std::vector
+    constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val)
+    {
+        data = std::move(val.data);
+    }
+
 
     // 来自不同类型的Qu_s，逐个元素转换
     template <typename fromArg>
@@ -2542,15 +2595,15 @@ public:
     {
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
-            data[i] = std::move(val.data[i]);
+            data[i] = val.data[i];
         }
     }
 
     // 拷贝赋值运算符
-    // 来自相同类型的Qu_s, 直接拷贝std::array
+    // 来自相同类型的Qu_s, 直接拷贝std::array或者std::vector
     constexpr Qu_s &operator=(const Qu_s<dim<dims...>, Arg> &val)
     {
-        data = val.data;
+        std::copy(val.data.begin(), val.data.end(), data.begin());
         return *this;
     }
 
