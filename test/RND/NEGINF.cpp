@@ -10,7 +10,7 @@ using Low_t = Qu<intBits<10>, fracBits<10>, isSigned<true>, QuMode<RND::NEG_INF>
 
 using target_t = Qu<intBits<1>, fracBits<1>, isSigned<true>, QuMode<RND::NEG_INF>>;
 
-TEST(SMGN, HighToTargetPositive)
+TEST(NEGINF, HighToTargetPositive)
 {
     High_t high = 1.25;
     target_t target = high;
@@ -19,7 +19,7 @@ TEST(SMGN, HighToTargetPositive)
     EXPECT_DOUBLE_EQ(targetDouble, 1.0);
 }
 
-TEST(SMGN, HighToTargetNegative)
+TEST(NEGINF, HighToTargetNegative)
 {
     High_t high = -1.25;
     target_t target = high;
@@ -28,7 +28,7 @@ TEST(SMGN, HighToTargetNegative)
     EXPECT_DOUBLE_EQ(targetDouble, -1.5);
 }
 
-TEST(SMGN, MidToTargetPositive)
+TEST(NEGINF, MidToTargetPositive)
 {
     Mid_t mid = 1.25;
     target_t target = mid;
@@ -37,7 +37,7 @@ TEST(SMGN, MidToTargetPositive)
     EXPECT_DOUBLE_EQ(targetDouble, 1.0);
 }
 
-TEST(SMGN, MidToTargetNegative)
+TEST(NEGINF, MidToTargetNegative)
 {
     Mid_t mid = -1.25;
     target_t target = mid;
@@ -46,7 +46,7 @@ TEST(SMGN, MidToTargetNegative)
     EXPECT_DOUBLE_EQ(targetDouble, -1.5);
 }
 
-TEST(SMGN, LowToTargetPositive)
+TEST(NEGINF, LowToTargetPositive)
 {
     Low_t low = 1.25;
     target_t target = low;
@@ -55,7 +55,7 @@ TEST(SMGN, LowToTargetPositive)
     EXPECT_DOUBLE_EQ(targetDouble, 1.0);
 }
 
-TEST(SMGN, LowToTargetNegative)
+TEST(NEGINF, LowToTargetNegative)
 {
     Low_t low = -1.25;
     target_t target = low;

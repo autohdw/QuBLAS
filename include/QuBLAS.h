@@ -1384,7 +1384,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     // check if the shifted bits will occupy 2 uint64_t
     if ((N + shift) / 64 == shift / 64)
     {
-        result.data[shift / 64] = x.data << (shift % 64);
+        result.data[shift / 64] = static_cast<uint64_t>(x.data) << (shift % 64);
     }
     else
     {

@@ -7,29 +7,37 @@
 
 using namespace QuBLAS;
 
-int main()
+ 
+
+template <size_t shift, size_t val>
+bool check(const std::string &shifted, const std::string &raw)
 {
-    using type1 = Qu<intBits<3>, fracBits<400>>;
+    for (size_t i = 0; i < val - shift; i++)
+    {
+        if (shifted[shifted.size() - 1 - i] != raw[raw.size() - 1 - i - shift])
+        {
+            return false;
+        }
+    }
 
-    type1 a = 2.12431;
-
-    a.display();
-
-    using type2 = Qu<intBits<3>, fracBits<200>>;
-    type2 b = 3.523531;
-
-    b.display();
-
-    auto c = Qmul<intBits<10>, fracBits<100>>(a, b);
-
-    c.display();
- 
-    return 0;
-
- 
-
- 
+    return true;
 }
 
+int main()
+{
 
- 
+    ArbiInt<70> a;
+
+    a.fill();
+
+    auto raw = a.toBinary();
+
+    auto shifted = staticShiftRight<10>(a).toBinary();
+
+    bool result = check<10, 70>(shifted, raw);
+
+    std::cout << raw  << std::endl;
+    std::cout << shifted << std::endl;
+    std::cout << result << std::endl;
+
+}
