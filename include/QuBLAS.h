@@ -853,7 +853,7 @@ template <size_t N, size_t M>
 constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M) + 1> result; // the result may need one more bit
-    result.data = lhs.data + rhs.data;
+    result.data = static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(lhs.data) + static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(rhs.data);
     return result;
 }
 
@@ -952,7 +952,7 @@ template <size_t N, size_t M>
 constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M) + 1> result;
-    result.data = lhs.data - rhs.data;
+    result.data = static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(lhs.data) - static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(rhs.data);
     return result;
 }
 
