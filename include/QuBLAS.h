@@ -1147,29 +1147,45 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
     result.data.fill(0);
 
     // Sign extraction
-    bool lhs_negative = (lhs.data[lhs.num_words - 1] >> ((N - 1) % 64));
+    bool lhs_negative = (lhs.data[lhs.num_words - 1] >> ((N - 1) % 64)) & 1;
     bool rhs_negative = rhs.data < 0;
     bool result_negative = lhs_negative ^ rhs_negative;
 
-    // Manage negativity upfront for rhs
-    uint64_t rhs_abs = rhs_negative ? ~rhs.data + 1 : rhs.data;
+    // Compute absolute value of rhs
+    uint64_t rhs_abs = static_cast<uint64_t>(rhs.data);
+    if (rhs_negative)
+    {
+        rhs_abs = (~rhs_abs) + 1ULL;
+    }
 
     __uint128_t carry = 0;
+    uint64_t lhs_carry = lhs_negative ? 1ULL : 0ULL;
+
     for (size_t i = 0; i < lhs.num_words; ++i)
     {
-        // Adjust lhs value based on its sign
         uint64_t lhs_val = lhs.data[i];
         if (lhs_negative)
-            lhs_val = ~lhs_val + (i == 0); // Apply two's complement logic depending on the index
+        {
+            uint64_t temp = ~lhs_val + lhs_carry;
+            lhs_carry = (temp < lhs_carry) ? 1ULL : 0ULL;
+            lhs_val = temp;
+        }
 
         __uint128_t prod = (__uint128_t)lhs_val * rhs_abs + carry;
         result.data[i] = static_cast<uint64_t>(prod);
-        carry = prod >> 64; // Handle the carry for the next word
+        carry = prod >> 64;
     }
-    // Handle the final carry if there is room in the result space
-    if (lhs.num_words < result.num_words)
+
+    // Handle the final carry from multiplication
+    size_t result_size = result.num_words;
+    size_t next_index = lhs.num_words;
+    if (next_index < result_size)
     {
-        result.data[lhs.num_words] = static_cast<uint64_t>(carry);
+        result.data[next_index] = static_cast<uint64_t>(carry);
+    }
+    else if (carry != 0)
+    {
+        // Optional: Handle overflow (e.g., throw an exception or set an overflow flag)
     }
 
     // Convert result to two's complement if the resulting sign is negative
@@ -1178,13 +1194,15 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
         uint64_t carry = 1;
         for (size_t i = 0; i < result.num_words; ++i)
         {
-            result.data[i] = ~result.data[i] + carry;
-            carry = result.data[i] < carry; // Update carry for the next loop if there was an overflow
+            uint64_t temp = ~result.data[i] + carry;
+            carry = (temp < carry) ? 1ULL : 0ULL;
+            result.data[i] = temp;
         }
     }
 
     return result;
 }
+
 
 template <size_t N, size_t M>
     requires(N > 64 && M > 64)
@@ -1192,55 +1210,83 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t R = N + M;
     using ResultType = ArbiInt<R>;
-    ResultType result;
+    ResultType result{};
 
-    auto &lhs_data = lhs.data;
-    auto &rhs_data = rhs.data;
-
-    // 符号处理的优化：只计算一次最终符号，只在最后需要时执行补码
-    bool lhs_negative = (lhs_data[lhs.num_words - 1] >> ((N - 1) % 64));
-    bool rhs_negative = (rhs_data[rhs.num_words - 1] >> ((M - 1) % 64));
+    // Determine if the operands are negative
+    bool lhs_negative = (lhs.data[lhs.num_words - 1] >> ((N - 1) % 64)) & 1;
+    bool rhs_negative = (rhs.data[rhs.num_words - 1] >> ((M - 1) % 64)) & 1;
     bool result_negative = lhs_negative ^ rhs_negative;
 
-    // Direct multiplication of absolute values if not considering two's complement
-    // 假设数据已经为正值
+    // Variables to hold carry-over for lhs and rhs during two's complement conversion
+    uint64_t lhs_carry = lhs_negative ? 1 : 0;
+    uint64_t rhs_carry = rhs_negative ? 1 : 0;
+
+    // Perform multiplication
     for (size_t i = 0; i < lhs.num_words; ++i)
     {
-        uint64_t lhs_val = lhs_data[i];
+        // Compute lhs_val with inversion and carry, if negative
+        uint64_t lhs_val = lhs.data[i];
         if (lhs_negative)
-            lhs_val = ~lhs_val + (i == 0);
+        {
+            uint64_t temp = ~lhs_val + lhs_carry;
+            lhs_carry = (temp < lhs_carry) ? 1 : 0;
+            lhs_val = temp;
+        }
+
+        uint64_t inner_rhs_carry = rhs_negative ? 1 : 0;
         for (size_t j = 0; j < rhs.num_words; ++j)
         {
-            uint64_t rhs_val = rhs_data[j];
+            // Compute rhs_val with inversion and carry, if negative
+            uint64_t rhs_val = rhs.data[j];
             if (rhs_negative)
-                rhs_val = ~rhs_val + (j == 0);
+            {
+                uint64_t temp = ~rhs_val + inner_rhs_carry;
+                inner_rhs_carry = (temp < inner_rhs_carry) ? 1 : 0;
+                rhs_val = temp;
+            }
+
             __uint128_t product = __uint128_t(lhs_val) * rhs_val;
             size_t k = i + j;
             if (k < result.num_words)
             {
                 __uint128_t sum = product + result.data[k];
-                result.data[k] = sum; // Store low bits
-                if (k + 1 < result.num_words)
+                result.data[k] = static_cast<uint64_t>(sum);
+                __uint128_t carry = sum >> 64;
+
+                // Propagate carry
+                size_t m = k + 1;
+                while (carry && m < result.num_words)
                 {
-                    result.data[k + 1] += sum >> 64; // Carry to the next
+                    __uint128_t temp = result.data[m] + carry;
+                    result.data[m] = static_cast<uint64_t>(temp);
+                    carry = temp >> 64;
+                    ++m;
                 }
             }
         }
     }
 
-    // 仅在结果为负时转换
+    // Apply two's complement to the result if it should be negative
     if (result_negative)
     {
+        // Invert all bits
+        for (size_t i = 0; i < result.num_words; ++i)
+        {
+            result.data[i] = ~result.data[i];
+        }
+        // Add 1 and propagate carry
         uint64_t carry = 1;
         for (size_t i = 0; i < result.num_words; ++i)
         {
-            result.data[i] = ~result.data[i] + carry;
-            carry = result.data[i] < carry;
+            uint64_t temp = result.data[i] + carry;
+            carry = (temp < carry) ? 1 : 0;
+            result.data[i] = temp;
         }
     }
 
     return result;
 }
+
 
 // operator /
 template <size_t N, size_t M>
