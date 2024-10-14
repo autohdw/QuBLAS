@@ -1203,7 +1203,6 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
     return result;
 }
 
-
 template <size_t N, size_t M>
     requires(N > 64 && M > 64)
 constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
@@ -1286,7 +1285,6 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
     return result;
 }
-
 
 // operator /
 template <size_t N, size_t M>
@@ -2532,7 +2530,6 @@ template <size_t... dims, typename Arg>
 class Qu_s<dim<dims...>, Arg>
 {
 public:
-
     template <typename First, typename... Rest>
     inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
     {
@@ -2557,7 +2554,8 @@ public:
     using size = dim<dims...>;
 
     // 构造函数
-    constexpr Qu_s() {
+    constexpr Qu_s()
+    {
         if constexpr (onHeap)
         {
             data.resize(dim<dims...>::elemSize);
@@ -2581,7 +2579,6 @@ public:
         }
     }
 
-
     template <typename SquareBracketIndexableType>
         requires isSquareBracketIndexable<SquareBracketIndexableType>
     constexpr Qu_s(const SquareBracketIndexableType &val)
@@ -2590,7 +2587,7 @@ public:
         {
             data.resize(dim<dims...>::elemSize);
         }
-        
+
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
             data[i] = val[i];
@@ -2633,7 +2630,6 @@ public:
     {
         data = std::move(val.data);
     }
-
 
     // 来自不同类型的Qu_s，逐个元素转换
     template <typename fromArg>
@@ -3964,6 +3960,500 @@ template <typename... QuArgs>
 inline constexpr auto operator-(const Qu_s<QuArgs...> &f1)
 {
     return Qneg(f1);
+}
+
+// ------------------- Slice -------------------
+
+template <size_t... Args>
+struct sr;
+
+template <size_t targetDim, size_t lower, size_t upper>
+struct sr<targetDim, lower, upper>
+{
+    static constexpr size_t dim = targetDim;
+    static constexpr size_t start = lower;
+    static constexpr size_t end = upper;
+};
+
+template <size_t targetDim, size_t lower>
+struct sr<targetDim, lower>
+{
+    static constexpr size_t dim = targetDim;
+    static constexpr size_t start = lower;
+    static constexpr size_t end = lower + 1;
+};
+
+template <size_t I, auto toDimSize>
+struct IndexLoader
+{
+    static constexpr size_t count1 = std::accumulate(toDimSize.begin(), toDimSize.begin() + I, 0, [](size_t a, size_t b) { return a + (b == 1); });
+
+    inline static auto execute(auto... index)
+    {
+        return packIndex<I - count1>(index...);
+    }
+};
+
+template <size_t targetDimIndex, typename... srs>
+struct dimExtractor
+{
+};
+
+template <size_t targetDimIndex, typename sr1, typename... srs>
+    requires(sr1::dim == targetDimIndex)
+struct dimExtractor<targetDimIndex, sr1, srs...>
+{
+    inline static constexpr size_t start = sr1::start;
+    inline static constexpr size_t end = sr1::end;
+};
+
+template <size_t targetDimIndex, typename sr1, typename... srs>
+    requires(sr1::dim != targetDimIndex)
+struct dimExtractor<targetDimIndex, sr1, srs...> : dimExtractor<targetDimIndex, srs...>
+{
+};
+
+template <size_t targetDimIndex>
+struct dimExtractor<targetDimIndex>
+{
+    inline static constexpr size_t start = 0;
+    inline static constexpr size_t end = 0;
+};
+
+template <typename targetTensorT, typename... Args>
+struct dimArrayExtractor : dimArrayExtractor<std::make_index_sequence<targetTensorT::size::dimSize>, targetTensorT, Args...>
+{
+};
+
+template <size_t... I, typename targetTensorT, typename... Args>
+struct dimArrayExtractor<std::index_sequence<I...>, targetTensorT, Args...>
+{
+    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toLower = {dimExtractor<I, Args...>::start...};
+    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toUpper = {dimExtractor<I, Args...>::end == 0 ? targetTensorT::size::dimArray[I] : dimExtractor<I, Args...>::end...};
+    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toDimSize = {toUpper[I] - toLower[I]...};
+};
+
+template <typename... Args>
+class SliceExpression;
+
+// general case, try not to use this version for compile-time efficiency
+template <typename targetTensorT, typename... Args>
+    requires(targetTensorT::size::dimSize >= 3 && sizeof...(Args) >= 1)
+class SliceExpression<targetTensorT, Args...>
+{
+public:
+    // target tensor
+    const targetTensorT &targetTensor;
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    inline constexpr static auto fromDimSize = targetTensorT::size::dimSize;
+    inline constexpr static std::array<size_t, fromDimSize> toLower = dimArrayExtractor<targetTensorT, Args...>::toLower;
+    inline constexpr static std::array<size_t, fromDimSize> toUpper = dimArrayExtractor<targetTensorT, Args...>::toUpper;
+    inline constexpr static std::array<size_t, fromDimSize> toDimSize = dimArrayExtractor<targetTensorT, Args...>::toDimSize;
+
+    inline auto &operator[](auto... index)
+    {
+        return indexHelper(std::make_index_sequence<fromDimSize>{}, index...);
+    }
+
+    // const version []
+    inline auto &operator[](auto... index) const
+    {
+        return indexHelper(std::make_index_sequence<fromDimSize>{}, index...);
+    }
+
+    template <size_t... I>
+    inline auto &indexHelper(std::index_sequence<I...>, auto... index)
+    {
+        return targetTensor[toDimSize[I] == 1 ? toLower[I] : (toLower[I] + IndexLoader<I, toDimSize>::execute(index...))...];
+    }
+
+    inline auto &operator[](size_t index)
+    {
+        throw std::runtime_error("Not supported yet. Tell Niurx if you need this feature.");
+        return 0;
+    }
+
+    inline auto &operator[](size_t index) const
+    {
+        throw std::runtime_error("Not supported yet. Tell Niurx if you need this feature.");
+        return 0;
+    }
+};
+
+// slice a matrix to a vector
+template <typename targetTensorT, size_t... Args>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::start == sr<Args...>::end - 1)
+class SliceExpression<targetTensorT, sr<Args...>>
+{
+public:
+    using size = std::conditional_t<sr<Args...>::dim == 0, dim<1, targetTensorT::size::dimArray[1]>, dim<targetTensorT::size::dimArray[0]>>;
+
+    const targetTensorT &targetTensor;
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[sr<Args...>::start, index];
+        }
+        else
+        {
+            return targetTensor[index, sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t index) const
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[sr<Args...>::start, index];
+        }
+        else
+        {
+            return targetTensor[index, sr<Args...>::start];
+        }
+    }
+};
+
+template <typename targetTensorT, size_t... Args1, size_t... Args2>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::start == sr<Args2...>::end - 1)
+class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>> : public SliceExpression<targetTensorT, sr<Args2...>, sr<Args1...>>
+{
+};
+
+template <typename targetTensorT, size_t... Args1, size_t... Args2>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args1...>::start == sr<Args1...>::end - 1)
+class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
+{
+public:
+    using size = std::conditional_t<sr<Args1...>::dim == 0, dim<1, sr<Args2...>::end - sr<Args2...>::start>, dim<sr<Args2...>::end - sr<Args2...>::start>>;
+
+    const targetTensorT &targetTensor;
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        if constexpr (sr<Args1...>::dim == 0)
+        {
+            return targetTensor[sr<Args1...>::start, index + sr<Args2...>::start];
+        }
+        else
+        {
+            return targetTensor[index + sr<Args2...>::start, sr<Args1...>::start];
+        }
+    }
+
+    auto &operator[](size_t index) const
+    {
+        if constexpr (sr<Args1...>::dim == 0)
+        {
+            return targetTensor[sr<Args1...>::start, index + sr<Args2...>::start];
+        }
+        else
+        {
+            return targetTensor[index + sr<Args2...>::start, sr<Args1...>::start];
+        }
+    }
+};
+
+// slice a matrix to a matrix
+template <typename targetTensorT, size_t... Args>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::end - sr<Args...>::start > 1)
+class SliceExpression<targetTensorT, sr<Args...>>
+{
+public:
+    inline static constexpr size_t row = sr<Args...>::dim == 0 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[0];
+    inline static constexpr size_t col = sr<Args...>::dim == 1 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[1];
+    using size = dim<row, col>;
+
+    const targetTensorT &targetTensor;
+
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t index) const
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t i, size_t j)
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+
+    auto &operator[](size_t i, size_t j) const
+    {
+        if constexpr (sr<Args...>::dim == 0)
+        {
+            return targetTensor[i + sr<Args...>::start, j];
+        }
+        else
+        {
+            return targetTensor[i, j + sr<Args...>::start];
+        }
+    }
+};
+
+template <typename targetTensorT, size_t... Args1, size_t... Args2>
+    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::end - sr<Args2...>::start > 1 && sr<Args1...>::end - sr<Args1...>::start > 1)
+class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
+{
+public:
+    inline static constexpr size_t row = sr<Args1...>::dim == 0 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
+    inline static constexpr size_t col = sr<Args1...>::dim == 1 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
+    using size = dim<row, col>;
+
+    inline static constexpr size_t rowStart = sr<Args1...>::dim == 0 ? sr<Args1...>::start : sr<Args2...>::start;
+    inline static constexpr size_t colStart = sr<Args1...>::dim == 1 ? sr<Args1...>::start : sr<Args2...>::start;
+
+    const targetTensorT &targetTensor;
+
+    SliceExpression(const targetTensorT &targetTensor)
+        : targetTensor(targetTensor) {}
+
+    auto &operator[](size_t index)
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        return targetTensor[i + rowStart, j + colStart];
+    }
+
+    auto &operator[](size_t index) const
+    {
+        // transfer 1-d index to 2-d index, col-major
+        size_t j = index / row;
+        size_t i = index % row;
+
+        return targetTensor[i + rowStart, j + colStart];
+    }
+
+    auto &operator[](size_t i, size_t j)
+    {
+        return targetTensor[i + rowStart, j + colStart];
+    }
+
+    auto &operator[](size_t i, size_t j) const
+    {
+        return targetTensor[i + rowStart, j + colStart];
+    }
+};
+
+// Dynamic slice
+
+template <>
+struct sr<>
+{
+    size_t dim;
+    size_t start;
+    size_t end;
+
+    sr(size_t dim, size_t start, size_t end)
+        : dim(dim), start(start), end(end) {}
+
+    sr(size_t dim, size_t start)
+        : dim(dim), start(start), end(start + 1) {}
+
+    void display(std::string prefix = "")
+    {
+        std::cout << prefix << "dim: " << dim << " start: " << start << " end: " << end << std::endl;
+    }
+};
+
+using srd = sr<>;
+
+template <typename targetTensorT>
+class SliceExpression<targetTensorT>
+{
+public:
+    const targetTensorT &targetTensor;
+
+    std::array<size_t, targetTensorT::size::dimSize> toLower;
+    std::array<size_t, targetTensorT::size::dimSize> toUpper;
+    std::array<size_t, targetTensorT::size::dimSize> toDimSize;
+
+    SliceExpression(const targetTensorT &f, auto... srs)
+        : targetTensor(f)
+    {
+
+        static auto updateTargetDim = [srs..., this]<size_t... Is>(size_t index, std::index_sequence<Is...>) {
+            toLower[index] = (0 + ... + (index == srs.dim ? srs.start : 0));
+            toUpper[index] = (0 + ... + (index == srs.dim ? srs.end : 0));
+            if (toUpper[index] == 0)
+            {
+                toUpper[index] = targetTensorT::size::dimArray[index];
+            }
+        };
+
+        [this]<size_t... Is>(std::index_sequence<Is...>) {
+            (updateTargetDim(Is, std::make_index_sequence<sizeof...(srs)>{}), ...);
+        }(std::make_index_sequence<targetTensorT::size::dimSize>{});
+    }
+
+    inline auto &operator[](auto... index)
+    {
+    }
+};
+
+// ===================== BLAS =====================
+// ------------------- Reducer -------------------
+// it's not a standard BLAS operation, but tree-based reduction is a common operation in asic design
+
+template <typename... Args>
+struct Reducer
+{
+    template <bool condition, size_t layer>
+    struct ReducerTypeSelector;
+
+    // 递归展开的情况，满足条件
+    template <size_t layer>
+    struct ReducerTypeSelector<true, layer>
+    {
+        using type = TypeAt<layer >= sizeof...(Args) ? sizeof...(Args) - 1 : layer, TypeList<Args...>>;
+    };
+
+    // 基础情况，不满足计算条件的部分
+    template <size_t layer>
+    struct ReducerTypeSelector<false, layer>
+    {
+        using type = std::nullptr_t;
+    };
+
+    // version for arbitrary input, please avoid using this version for efficiency consideration
+    template <size_t layer, typename... Ts, size_t... I>
+    static inline auto reduce_impl(std::index_sequence<I...>,
+                                   const Ts... quants)
+    {
+        // (quants.display("layer " + std::to_string(layer)), ...);
+        if constexpr (sizeof...(quants) == 1)
+        {
+            return packIndex<0>(quants...);
+        }
+        else
+        {
+            using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+            if constexpr (sizeof...(quants) % 2 == 0)
+            {
+                return reduce_impl<layer + 1>(
+                    std::make_index_sequence<sizeof...(I) / 2>{},
+                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
+            }
+            else
+            {
+                auto res = reduce_impl<layer + 1>(
+                    std::make_index_sequence<sizeof...(I) / 2>{},
+                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
+
+                return Qadd<type>(res, packIndex<sizeof...(quants) - 1>(quants...));
+            }
+        }
+    }
+
+    template <typename... Ts>
+    static auto reduce(const Ts... quants)
+    {
+        return reduce_impl<0>(std::make_index_sequence<sizeof...(Ts) / 2>{}, quants...);
+    }
+
+    // version for a vec
+    template <size_t layer, size_t len, typename... fromArgs>
+    static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
+        // quants.display("layer " + std::to_string(layer));
+
+        static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
+        if constexpr (len == 1)
+        {
+            return quants.template get<0>();
+        }
+        else
+        {
+            [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
+                ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
+            }(std::make_index_sequence<len / 2>());
+
+            if constexpr (len % 2 != 0)
+            {
+                res.template get<(len + 1) / 2 - 1>() = quants.template get<len - 1>();
+            }
+
+            return reduce_impl<layer + 1>(res);
+        }
+    }
+
+    template <size_t len, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
+    {
+        return reduce_impl<0>(quants);
+    }
+
+    template <size_t... dims, typename... fromArgs>
+    static auto reduce(const Qu_s<dim<dims...>, fromArgs...> &quants)
+    {
+        static Qu_s<dim<dim<dims...>::elemSize>, fromArgs...> vec;
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            vec[i] = quants[i];
+        }
+        return reduce(vec);
+    }
+};
+
+template <typename... Args>
+struct ReducerInputHelper : public Reducer<Args...>
+{
+};
+
+template <typename... Args>
+struct ReducerInputHelper<TypeList<Args...>> : public Reducer<Args...>
+{
+};
+
+template <typename... Args, typename... Ts>
+inline auto constexpr Qreduce(const Ts... quants)
+{
+    return ReducerInputHelper<Args...>::reduce(quants...);
 }
 
 } // namespace QuBLAS

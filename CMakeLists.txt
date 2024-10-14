@@ -20,8 +20,8 @@ target_include_directories(QuBLAS INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     # Create an executable for informal testing or examples
-    add_executable(${PROJECT_NAME}_test main.cpp)
-    target_link_libraries(${PROJECT_NAME}_test PRIVATE QuBLAS)
+    add_executable(demo main.cpp)
+    target_link_libraries(demo PRIVATE QuBLAS)
 
     # Add FetchContent support for Google Test
     include(FetchContent)
