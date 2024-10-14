@@ -1,37 +1,36 @@
 
 #include "QuBLAS.h"
+#include <algorithm>
+#include <bitset>
+#include <iostream>
+#include <sys/types.h>
 
 using namespace QuBLAS;
 
+ 
+
+using type1 = Qu<intBits<12>, fracBits<10>>;
+using type2 = Qu<intBits<0>, fracBits<20>>;
+
+using rx_dmrs_descrambing_add_t = Qu<intBits<12>, fracBits<10>>;
+
 int main()
 {
+    type1 a;
 
-    using type1 = Qu<intBits<3>, fracBits<2>>;
-    using type2 = Qu<intBits<4>, fracBits<3>>;
-    using type3 = Qu<intBits<5>, fracBits<4>>;
-    using type4 = Qu<intBits<6>, fracBits<5>>;
-    using type5 = Qu<intBits<7>, fracBits<6>>;
-    using type6 = Qu<intBits<8>, fracBits<7>>;
-    using type7 = Qu<intBits<9>, fracBits<8>>;
-    using type8 = Qu<intBits<10>, fracBits<9>>;
+    a.data.data = 0x29db9;
 
-    using complex_t = Qu<type1, type2>;
+    a.display();
 
-    complex_t a = {1.123123, 2.123123};
+    type2 b;
 
-    auto b = Qmul<BasicComplexMul<
-        acT<intBits<11>>,
-        bdT<type2>,
-        adT<type3>,
-        // bcT<type4>,
-        acbdT<type5>,
-        adbcT<type6>>>(a, a);
+    b.data.data = 0xb504f;
 
-    auto c = Qmul<BasicComplexMul<
-        type5>>(a, a);
+    b.display();
 
+    auto res = Qmul<rx_dmrs_descrambing_add_t>(a, b);
 
-    auto d = Qadd<type8,type1>(a, a);
+    res.display();
 
-    d.display();
+ 
 }
