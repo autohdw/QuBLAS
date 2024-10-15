@@ -2128,6 +2128,84 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
     }
 };
 
+template <int toBits>
+struct fracConvertFloatval;
+
+template <int toBits>
+struct fracConvertFloatval
+{
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
+    {
+        ArbiInt<1200> buf; //might overflow???? 1200 not enough?
+        if(val.isNegative()) val = -val;
+        if constexpr (N <= 64)
+        {
+            int pos = N - 1;
+            while (((val.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
+            if (pos > 0)
+            {
+                //expData = pos + bias - val.fracB; //Possible overflow
+                buf = val;
+                if (pos >= toBits) buf = dynamicShiftRight(buf , pos - toBits);
+                else buf = dynamicShiftLeft(buf , toBits - pos); 
+            }
+            else buf = 0;
+        }
+        else
+        {
+            int pos1 = N / 64, pos2 = 63;
+            while (val.data[pos1] == 0 && pos1 >= 0) pos1--;
+            if (pos1 >= 0)
+            {
+                while ((val.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
+                //expData = 64 * pos1 + pos2 + bias - val.fracB; //Possible overflow
+                buf = val;
+                if (64 * pos1 + pos2 >= toBits) buf = dynamicShiftRight(buf , 64 * pos1 + pos2 - toBits);
+                else buf = dynamicShiftLeft(buf , toBits - (64 * pos1 + pos2));
+            }
+            else buf = 0;                
+        }
+        return buf;
+    }
+};
+
+template <int fromFrac, int toExpBits>
+struct fracConvertFloatexp;
+
+template <int fromFrac, int toExpBits>
+struct fracConvertFloatexp
+{
+    static constexpr ArbiInt<toExpBits> bias = staticShiftLeft<toExpBits - 1>(ArbiInt<1>(1));
+
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
+    {
+        //bias.display();
+        ArbiInt<1200> buf;
+        if(val.isNegative()) val = -val;
+        if constexpr (N <= 64)
+        {
+            int pos = N - 1;
+            while (((val.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
+            if (pos > 0) buf = bias + ArbiInt<64>(pos - fromFrac); //Possible overflow
+            else buf = 0;
+        }
+        else
+        {
+            int pos1 = N / 64, pos2 = 63;
+            while (val.data[pos1] == 0 && pos1 >= 0) pos1--;
+            while ((val.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
+            if (pos1 >= 0) buf = bias + ArbiInt<64>(64 * pos1 + pos2 - fromFrac); //Possible overflow
+            else buf = 0;
+            //buf.display();
+        }
+        return buf;
+    }
+};
+
+
+
 template <typename T>
 struct OfMode;
 
@@ -2494,72 +2572,15 @@ public:
     template <typename... Args>
     inline Qu_s& operator=(Qu_s<Args...> tval)
     {
-        auto val = tval;
-        Qu<> zero = 0;
-        if (tval < zero) tval = -tval, signData = 1;
-        else signData = 0;
-        if constexpr (val.data.num_bits <= 64)
-        {
-            int pos = val.data.num_bits - 1;
-            while (((val.data.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
-            if (pos > 0)
-            {
-                expData = pos + bias - val.fracB; //Possible overflow
-                //std::printf("%d------\n",pos - valB);
-                if(val.data.num_bits >= valData.num_bits)
-                {
-                    if (pos >= valB) val.data = dynamicShiftRight(val.data , pos - valB);
-                    else val.data = dynamicShiftLeft(val.data , valB - pos); 
-                    valData = val.data;
-                }
-                else
-                {
-                    valData = val.data;
-                    if (pos >= valB) valData = dynamicShiftRight(valData , pos - valB);
-                    else valData = dynamicShiftLeft(valData , valB - pos); 
-                }
-
-            }
-            else
-            {
-                expData = 0;
-                valData = 0;
-            }
-        }
-        else
-        {
-            int pos1 = val.data.num_bits / 64, pos2 = 63;
-            while (val.data.data[pos1] == 0 && pos1 >= 0) pos1--;
-            if (pos1 >= 0)
-            {
-                while ((val.data.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
-                expData = 64 * pos1 + pos2 + bias - val.fracB; //Possible overflow
-                if(val.data.num_bits >= valData.num_bits)
-                {
-                    if (64 * pos1 + pos2 >= valB) val.data = dynamicShiftRight(val.data , 64 * pos1 + pos2 - valB);
-                    else val.data = dynamicShiftLeft(val.data , valB - (64 * pos1 + pos2));
-                    valData = val.data;
-                }
-                else
-                {
-                    valData = val.data;
-                    if (64 * pos1 + pos2 >= valB) valData = dynamicShiftRight(valData , 64 * pos1 + pos2 - valB);
-                    else valData = dynamicShiftLeft(valData , valB - (64 * pos1 + pos2));
-                }
-            }
-            else
-            {
-                expData = 0;
-                valData = 0;                
-            }
-        }
+        valData = fracConvertFloatval<valB>::convert(tval.data);
+        expData = fracConvertFloatexp<tval.fracB, expB>::convert(tval.data);
+        signData = tval.data.isNegative();
         return *this;
     }    
     inline void display()
     {
         valData.display();
-        puts("");
-        printf("%Lf\n",toDouble());
+        printf("Decimal: %Lf\n",toDouble());
     }
 };
 // ------------------- Complex -------------------

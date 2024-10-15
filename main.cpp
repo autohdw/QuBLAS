@@ -15,7 +15,7 @@ int main()
 
     std::printf("%lf\n",tt.toDouble());
 
-    using type1 = Qu<expBits<23>, valBits<1000>>;
+    using type1 = Qu<expBits<23>, valBits<600>>;
     using type2 = Qu<intBits<66>, fracBits<66>>;
 
     type2 b = 3.14159;
