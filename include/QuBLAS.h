@@ -359,7 +359,27 @@ public:
     static constexpr ArbiInt<N> allOnes()
     {
         ArbiInt<N> result;
-        result.data = ~(~data_t(0) << N);
+        // result.data = ~(~data_t(0) << N);
+
+        if constexpr (N == 64 || N == 32)
+        {
+            result.data = -1;
+        }
+        else
+        {
+            result.data = ~(~data_t(0) << N);
+        }
+
+
+        return result;
+    }
+
+    // special constructor that return the minimum value of a ArbiInt<N>
+    static constexpr  ArbiInt<N> maximum()
+    {
+        ArbiInt<N> result;
+        // make the last N-1 bits 1
+        result.data = ~(~data_t(0) << (N - 1));
         return result;
     }
 
@@ -367,7 +387,23 @@ public:
     static constexpr ArbiInt<N> allZeros()
     {
         ArbiInt<N> result;
-        result.data = ~data_t(0) << N;
+        // result.data = ~data_t(0) << N;
+        if constexpr (N == 64 || N == 32)
+        {
+            result.data = 0;
+        }
+        else
+        {
+            result.data = ~data_t(0) << N;
+        }
+        return result;
+    }
+
+    // special constructor that return the minimum value of a ArbiInt<N>
+    static constexpr ArbiInt<N> minimum()
+    {
+        ArbiInt<N> result;
+        result.data =  ~data_t(0) << (N - 1);
         return result;
     }
 
@@ -547,12 +583,38 @@ public:
         return result;
     }
 
+    // special constructor that return the minimum value of a ArbiInt<N>
+    static constexpr ArbiInt<N> maximum()
+    {
+        ArbiInt<N> result;
+        result.data.fill(~uint64_t(0));
+
+        // how many last bits are set to 1 in the last uint64_t
+        size_t oneBits = N % 64 - 1;
+        result.data[num_words - 1] = (oneBits == 0) ? ~uint64_t(0) : ~ (~uint64_t(0) << oneBits);
+
+        return result;
+    }
+
     // special constructor that return a ArbiInt with the last N bits set to 0 adn and the rest set to 1
     static constexpr ArbiInt<N> allZeros()
     {
         ArbiInt<N> result;
         result.data.fill(0);
         result.data[num_words - 1] = ~uint64_t(0) << (N % 64);
+        return result;
+    }
+
+    // special constructor that return the minimum value of a ArbiInt<N>
+    static constexpr ArbiInt<N> minimum()
+    {
+        ArbiInt<N> result;
+        result.data.fill(0);
+
+        // how many last bits are set to 0 in the last uint64_t
+        size_t zeroBits = N % 64 - 1;
+        result.data[num_words - 1] = (zeroBits == 0) ? ~uint64_t(0) : ~ (~uint64_t(0) << zeroBits);
+         
         return result;
     }
 
@@ -2135,7 +2197,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto floor = ArbiInt<N>(ArbiInt<toInt + toFrac>::allOnes());
+        constexpr auto floor = ArbiInt<N>::maximum();
 
         constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::allZeros()) : ArbiInt<N>(0);
 
@@ -2160,8 +2222,8 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto floor = ArbiInt<toInt + toFrac>::allOnes();
-        constexpr auto ceil = toIsSigned ? ArbiInt<toInt + toFrac>::allZeros() : ArbiInt<N>(0);
+        constexpr auto floor = ArbiInt<toInt + toFrac>::maximum();
+        constexpr auto ceil = toIsSigned ? ArbiInt<toInt + toFrac>::minimum() : ArbiInt<N>(0);
 
         constexpr auto zeroRes = ArbiInt<N>(0);
 
@@ -2186,8 +2248,8 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto floor = ArbiInt<N>(ArbiInt<toInt + toFrac>::allOnes());
-        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::allZeros() + ArbiInt<1>(1)) : ArbiInt<N>(0);
+        constexpr auto floor = ArbiInt<N>::maximum();
+        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<N>(0);
 
         if (val > floor)
         {
@@ -2287,7 +2349,7 @@ public:
 
     inline constexpr Qu_s(double val)
     {
-        static ArbiInt<1200 + 1200> buffer;
+        ArbiInt<1200 + 1200> buffer;
         buffer.template loadFromDouble<1200 + fracB>(val);
 
         data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<1200 + fracB, fracB, QuMode<QuM_t>>::convert(buffer));
@@ -4334,6 +4396,84 @@ public:
     {
     }
 };
+
+// ------------------- Advanced Nonlinear Universal Subprograms -------------------
+// the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
+// note that the operations are not standard BLAS operations, use ANUS:: to get access to them
+
+namespace ANUS {
+
+// polynomial fitting
+template <auto... an>
+struct PolyImpl;
+
+template <typename anT, anT an>
+struct PolyImpl<an>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return Qadd<anT>(Qmul<anT>(prev, x), an);
+    }
+};
+
+template <typename a1T, a1T a1, typename... anT, anT... an>
+struct PolyImpl<a1, an...>
+{
+    static inline constexpr auto execute(const auto prev, const auto x)
+    {
+        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
+    }
+};
+
+template <auto a0, auto... an>
+    requires(sizeof...(an) > 0)
+struct Poly
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return PolyImpl<an...>::execute(a0, x);
+    }
+};
+
+// Approx
+
+template <auto... points>
+    requires(std::is_arithmetic_v<decltype(points)> && ...)
+struct segments;
+
+template <typename... polynomials>
+struct polys;
+
+template <typename... Args>
+struct Approx;
+
+template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
+struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
+{
+    template <typename T>
+    static inline constexpr T execute(const T x)
+    {
+        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
+        {
+            return T(firstPoly::execute(x));
+        }
+        else
+        {
+            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
+        }
+    }
+};
+
+template <typename polynominal>
+struct Approx<segments<>, polys<polynominal>>
+{
+    static inline constexpr auto execute(const auto x)
+    {
+        return polynominal::execute(x);
+    }
+};
+
+} // namespace ANUS
 
 // ===================== BLAS =====================
 // ------------------- Reducer -------------------
