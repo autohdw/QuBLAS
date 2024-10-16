@@ -613,7 +613,7 @@ public:
 
         // how many last bits are set to 0 in the last uint64_t
         size_t zeroBits = N % 64 - 1;
-        result.data[num_words - 1] = (zeroBits == 0) ? ~uint64_t(0) : ~ (~uint64_t(0) << zeroBits);
+        result.data[num_words - 1] = (zeroBits == 0) ? ~uint64_t(0) : ~uint64_t(0) << zeroBits;
          
         return result;
     }
@@ -2223,7 +2223,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         constexpr auto floor = ArbiInt<toInt + toFrac>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<toInt + toFrac>::minimum() : ArbiInt<N>(0);
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>::minimum() : ArbiInt<N>(0);
 
         constexpr auto zeroRes = ArbiInt<N>(0);
 
@@ -2249,7 +2249,13 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         constexpr auto floor = ArbiInt<N>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<N>(0);
+
+        floor.display("floor");
+
+        std::cout<<"toInt: "<<toInt<<" toFrac: "<<toFrac<<std::endl;
+        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<N>(0);
+
+        ceil.display("ceil");
 
         if (val > floor)
         {

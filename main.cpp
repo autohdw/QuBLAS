@@ -19,15 +19,12 @@ using namespace ANUS;
 
 int main()
 {
+    using type = Qu<intBits<0>, fracBits<15>, OfMode<SAT::SMGN>>;
+
+    type a =  -0.75;
+
+    a.display("a");
 
 
-    using type1 = Qu<intBits<32>, fracBits<32>>;
-    using type2 = Qu<intBits<20>, fracBits<0>>;
-
-    type2 b = 10000;
-
-
-    type1 a = b;
-
-    a.display();
+ 
 }
