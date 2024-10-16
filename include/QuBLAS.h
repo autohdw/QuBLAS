@@ -2249,13 +2249,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         constexpr auto floor = ArbiInt<N>::maximum();
-
-        floor.display("floor");
-
-        std::cout<<"toInt: "<<toInt<<" toFrac: "<<toFrac<<std::endl;
         constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<N>(0);
-
-        ceil.display("ceil");
 
         if (val > floor)
         {
