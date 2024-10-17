@@ -18,7 +18,7 @@ int main()
     using type1 = Qu<expBits<23>, valBits<600>>;
     using type2 = Qu<intBits<66>, fracBits<66>>;
 
-    type2 b = 3.14159;
+    type2 b = -34125.1414125259;
 
     b.display();
 

@@ -1931,6 +1931,11 @@ struct TRN
     struct TCPL{inline static constexpr int value = 5;};
     struct SMGN{inline static constexpr int value = 6;};
 };
+
+struct FLT
+{
+    struct DEFAULTFLT{inline static constexpr int value = 7;};
+};
 // clang-format on
 
 template <int fromFrac, int toFrac, typename QuMode>
@@ -2128,11 +2133,11 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
     }
 };
 
-template <int toBits>
+template <int toBits, typename QuMode>
 struct fracConvertFloatval;
 
 template <int toBits>
-struct fracConvertFloatval
+struct fracConvertFloatval<toBits, QuMode<FLT::DEFAULTFLT>>
 {
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
@@ -2170,11 +2175,11 @@ struct fracConvertFloatval
     }
 };
 
-template <int fromFrac, int toExpBits>
+template <int fromFrac, int toExpBits, typename QuMode>
 struct fracConvertFloatexp;
 
 template <int fromFrac, int toExpBits>
-struct fracConvertFloatexp
+struct fracConvertFloatexp<fromFrac, toExpBits,QuMode<FLT::DEFAULTFLT>>
 {
     static constexpr ArbiInt<toExpBits> bias = staticShiftLeft<toExpBits - 1>(ArbiInt<1>(1));
 
@@ -2226,6 +2231,8 @@ struct WRP
     struct TCPL_SAT{inline static constexpr auto value = 4;};
     // clang-format on
 };
+
+
 
 template <int toInt, int toFrac, bool toIsSigned, typename OfMode>
 struct intConvert;
@@ -2367,6 +2374,7 @@ constexpr int defaultFracBits = 8;
 constexpr bool defaultIsSigned = true;
 using defaultQuMode = TRN::TCPL;
 using defaultOfMode = SAT::TCPL;
+using defaultFloatMode = FLT::DEFAULTFLT;
 
 template <typename... Args>
 class Qu_s
@@ -2484,11 +2492,12 @@ struct QuInputHelper
     inline static constexpr auto isS = tagExtractor<isSigned<defaultIsSigned>, Args...>::value;
     inline static constexpr auto expB = tagExtractor<expBits<4>, Args...>::value;
     inline static constexpr auto valB = tagExtractor<valBits<4>, Args...>::value;
-
+    
     using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
     using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
+    using FM = tagExtractor<QuMode<defaultFloatMode>, Args...>::type;
 
-    using type = std::conditional_t< containExp, Qu_s<expBits<expB>, valBits<valB>, QuMode<QuM>, OfMode<OfM>>, Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> >;
+    using type = std::conditional_t< containExp, Qu_s<expBits<expB>, valBits<valB>, QuMode<FM>, OfMode<FM>>, Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> >;
 };
 
 template <typename... Args>
@@ -2551,6 +2560,8 @@ public:
 
         double pw = expData.uToDouble() - bias;
 
+        if(signData) ret = -ret;
+
         return ret * std::pow(2, pw);
     }
 
@@ -2572,8 +2583,8 @@ public:
     template <typename... Args>
     inline Qu_s& operator=(Qu_s<Args...> tval)
     {
-        valData = fracConvertFloatval<valB>::convert(tval.data);
-        expData = fracConvertFloatexp<tval.fracB, expB>::convert(tval.data);
+        valData = fracConvertFloatval<valB, QuMode<QuM_t>>::convert(tval.data);
+        expData = fracConvertFloatexp<tval.fracB, expB, QuMode<QuM_t>>::convert(tval.data);
         signData = tval.data.isNegative();
         return *this;
     }    
