@@ -2134,10 +2134,10 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 };
 
 template <int toBits, typename QuMode>
-struct fracConvertFloatval;
+struct fracConvert_FixedToFloatval;
 
 template <int toBits>
-struct fracConvertFloatval<toBits, QuMode<FLT::DEFAULTFLT>>
+struct fracConvert_FixedToFloatval<toBits, QuMode<FLT::DEFAULTFLT>>
 {
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
@@ -2176,10 +2176,10 @@ struct fracConvertFloatval<toBits, QuMode<FLT::DEFAULTFLT>>
 };
 
 template <int fromFrac, int toExpBits, typename QuMode>
-struct fracConvertFloatexp;
+struct fracConvert_FixedToFloatexp;
 
 template <int fromFrac, int toExpBits>
-struct fracConvertFloatexp<fromFrac, toExpBits,QuMode<FLT::DEFAULTFLT>>
+struct fracConvert_FixedToFloatexp<fromFrac, toExpBits,QuMode<FLT::DEFAULTFLT>>
 {
     static constexpr ArbiInt<toExpBits> bias = staticShiftLeft<toExpBits - 1>(ArbiInt<1>(1));
 
@@ -2209,7 +2209,21 @@ struct fracConvertFloatexp<fromFrac, toExpBits,QuMode<FLT::DEFAULTFLT>>
     }
 };
 
+template <int fromBits, int toBits>
+struct fracConvert_FloatToFloatval;
 
+template <int fromBits, int toBits>
+struct fracConvert_FloatToFloatval
+{
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
+    {
+        ArbiInt<1200> buf;
+        if constexpr(fromBits <= toBits) buf = staticShiftLeft<toBits - fromBits>(val);
+        else buf = staticShiftRight<fromBits - toBits>(val);
+        return buf;
+    }
+};
 
 template <typename T>
 struct OfMode;
@@ -2520,7 +2534,7 @@ public:
     inline static constexpr int OfM = OfModeInput::value;
 
     inline static constexpr uint64_t maxVal = (1 << valB) - 1;
-    inline static constexpr uint64_t bias = (1 << expB - 1);
+    inline static constexpr ArbiInt<expBitsInput> bias = staticShiftLeft<expBitsInput - 1>(ArbiInt<1>(1));
 
 
     ArbiInt<expB> expData;
@@ -2558,7 +2572,7 @@ public:
     {
         double ret = valData.uToDouble() * pow(0.5, valB) + 1;
 
-        double pw = expData.uToDouble() - bias;
+        double pw = (expData - bias).uToDouble();
 
         if(signData) ret = -ret;
 
@@ -2580,14 +2594,26 @@ public:
         return *this;
     }
 
-    template <typename... Args>
-    inline Qu_s& operator=(Qu_s<Args...> tval)
+
+    template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
+    inline Qu_s& operator=(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> val)
     {
-        valData = fracConvertFloatval<valB, QuMode<QuM_t>>::convert(tval.data);
-        expData = fracConvertFloatexp<tval.fracB, expB, QuMode<QuM_t>>::convert(tval.data);
-        signData = tval.data.isNegative();
+        valData = fracConvert_FixedToFloatval<valB, QuMode<QuM_t>>::convert(val.data);
+        expData = fracConvert_FixedToFloatexp<val.fracB, expB, QuMode<QuM_t>>::convert(val.data);
+        //(expData - bias).display();
+        signData = val.data.isNegative();
         return *this;
-    }    
+    }
+    
+    template <int expBitsFrom, int valBitsFrom, typename QuModeFrom, typename OfModeFrom>
+    inline Qu_s& operator=(Qu_s<expBits<expBitsFrom>, valBits<valBitsFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> val)
+    {
+        valData = fracConvert_FloatToFloatval<val.valB, valB>::convert(val.valData);
+        expData = val.expData - val.bias + bias;
+        signData = val.signData;
+        return *this;
+    }
+
     inline void display()
     {
         valData.display();
