@@ -4403,18 +4403,16 @@ public:
 
 namespace ANUS {
 
-
-
-
+// polynomial fitting
 template<auto a0>
-inline constexpr auto Qpoly(auto x)
+inline static constexpr auto Qpoly(auto x)
 {
     return a0;
 }
 
 // return a0 + a1 * x + a2 * x^2 + ...
 template<auto a0, auto a1, auto... as>
-inline constexpr auto Qpoly(auto x)
+inline static constexpr auto Qpoly(auto x)
 {
     return Qadd<decltype(a0)>(
         a0,
@@ -4425,10 +4423,43 @@ inline constexpr auto Qpoly(auto x)
     );
 }
 
- 
 
 
+// segmented linear fitting
+template <double BreakPoint, auto... as>
+struct Segment {
+    static constexpr double breakpoint = BreakPoint;
+    
+    inline static constexpr auto func(auto x) {
+        return Qpoly<as...>(x);
+    }
+};
+
  
+
+template <typename Segment1, typename... Rest>
+constexpr auto Qapprox(auto x) {
+    if (x.toDouble() < Segment1::breakpoint) {
+        // return Segment1::func(x);
+        return decltype(x) {Segment1::func(x)};
+    } else {
+        if constexpr (sizeof...(Rest) > 0) {
+            return Qapprox< Rest...>(x);
+        } else {
+            // 如果超过最后一个分段点，使用最后一个函数
+            // return Segment1::func(x);
+            return decltype(x) {Segment1::func(x)};
+        }
+    }
+}
+ 
+
+template<typename...Args>
+struct Qapprox_s {
+    inline static constexpr auto execute(auto x) {
+        return Qapprox<Args...>(x);
+    }
+};
 
  
 
