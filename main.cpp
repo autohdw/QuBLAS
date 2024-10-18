@@ -19,11 +19,17 @@ using namespace ANUS;
 
 int main()
 {
-    using type = Qu<intBits<0>, fracBits<15>, OfMode<SAT::SMGN>>;
+    using type = Qu<intBits<8>, fracBits<8>, OfMode<SAT::SMGN>>;
 
-    type a =  -0.75;
+    constexpr type a =  2;
+    constexpr type b =  3;
+    constexpr type c =  4;
 
-    a.display("a");
+    type x = 10;
+
+    auto res = Poly<a,b,c>(x);
+
+    std::cout << res << std::endl;
 
 
  

@@ -4403,75 +4403,36 @@ public:
 
 namespace ANUS {
 
-// polynomial fitting
-template <auto... an>
-struct PolyImpl;
 
-template <typename anT, anT an>
-struct PolyImpl<an>
+
+
+template<auto a0>
+inline constexpr auto Qpoly(auto x)
 {
-    static inline constexpr auto execute(const auto prev, const auto x)
-    {
-        return Qadd<anT>(Qmul<anT>(prev, x), an);
-    }
-};
+    return a0;
+}
 
-template <typename a1T, a1T a1, typename... anT, anT... an>
-struct PolyImpl<a1, an...>
+// return a0 + a1 * x + a2 * x^2 + ...
+template<auto a0, auto a1, auto... as>
+inline constexpr auto Qpoly(auto x)
 {
-    static inline constexpr auto execute(const auto prev, const auto x)
-    {
-        return PolyImpl<an...>::execute(Qadd<a1T>(Qmul<a1T>(prev, x), a1), x);
-    }
-};
+    return Qadd<decltype(a0)>(
+        a0,
+        Qmul<decltype(a0)>(
+            x,
+            Qpoly<a1, as...>(x)
+        )
+    );
+}
 
-template <auto a0, auto... an>
-    requires(sizeof...(an) > 0)
-struct Poly
-{
-    static inline constexpr auto execute(const auto x)
-    {
-        return PolyImpl<an...>::execute(a0, x);
-    }
-};
+ 
 
-// Approx
 
-template <auto... points>
-    requires(std::is_arithmetic_v<decltype(points)> && ...)
-struct segments;
+ 
 
-template <typename... polynomials>
-struct polys;
+ 
 
-template <typename... Args>
-struct Approx;
-
-template <auto firstPoint, auto... points, typename firstPoly, typename... polynomials>
-struct Approx<segments<firstPoint, points...>, polys<firstPoly, polynomials...>>
-{
-    template <typename T>
-    static inline constexpr T execute(const T x)
-    {
-        if (x.toDouble() < (firstPoint - T::minVal) / (T::maxVal - T::minVal))
-        {
-            return T(firstPoly::execute(x));
-        }
-        else
-        {
-            return T(Approx<segments<points...>, polys<polynomials...>>::execute(x));
-        }
-    }
-};
-
-template <typename polynominal>
-struct Approx<segments<>, polys<polynominal>>
-{
-    static inline constexpr auto execute(const auto x)
-    {
-        return polynominal::execute(x);
-    }
-};
+ 
 
 } // namespace ANUS
 
