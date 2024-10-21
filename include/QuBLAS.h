@@ -1419,7 +1419,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     // check if the shifted bits will occupy 2 uint64_t
     if ((N + shift) / 64 == shift / 64)
     {
-        result.data[shift / 64] = x.data << (shift % 64);
+        result.data[shift / 64] = (long long)x.data << (shift % 64);
     }
     else
     {
@@ -1610,16 +1610,24 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <size_t N>
-auto dynamicShiftLeft(const ArbiInt<N> &x, int shift) //Size remain the same, shifting doesn't change size.
+auto dynamicShiftLeft(const ArbiInt<N> &x, int shift)
 {
-    ArbiInt<N> ret;
-    if constexpr (N <= 64) ret.data = x.data << shift;
+    ArbiInt<1200> ret = 0;
+    if constexpr (N <= 64)
+    {
+        for(int i = (N + shift)/64 ; i >= 0 ; i--)
+        {
+            if((shift & 63) == 0) ret.data[i] = i == shift/64 ? x.data: 0;
+            else ret.data[i] = ((i - shift/64 == 0 ? x.data : 0) << (shift & 63)) | ((i - shift/64 - 1 == 0 ? x.data : 0) >> (64 - (shift & 63)));
+        }
+    }
     else
     {
-        for(int i = N/64 ; i >= 0 ; i--)
+        for(int i = std::min((N + shift)/64, ret.num_words - 1) ; i >= 0 ; i--)
         {
-            if((shift & 63) == 0) ret.data[i] = i >= shift/64 ? x.data[i - shift/64] : 0;
-            else ret.data[i] = ((i - shift/64 >= 0 ? x.data[i - shift/64] : 0) << (shift & 63)) | ((i - shift/64 - 1 >= 0 ? x.data[i - 1 - shift/64] : 0) >> (64 - (shift & 63)));
+            int p = (i - shift/64);
+            if((shift & 63) == 0) ret.data[i] = p >= 0 && p < x.num_words ? x.data[p] : 0;
+            else ret.data[i] = ((p >= 0 && p < x.num_words ? x.data[p] : 0) << (shift & 63)) | ((p - 1 >= 0 && p - 1 < x.num_words ? x.data[p - 1] : 0) >> (64 - (shift & 63)));
         }
     }
     return ret;
@@ -2175,37 +2183,35 @@ struct fracConvert_FixedToFloatval<toBits, QuMode<FLT::DEFAULTFLT>>
     }
 };
 
-template <int fromFrac, int toExpBits, typename QuMode>
+template <int fromFrac, typename QuMode>
 struct fracConvert_FixedToFloatexp;
 
-template <int fromFrac, int toExpBits>
-struct fracConvert_FixedToFloatexp<fromFrac, toExpBits,QuMode<FLT::DEFAULTFLT>>
+template <int fromFrac>
+struct fracConvert_FixedToFloatexp<fromFrac , QuMode<FLT::DEFAULTFLT>>
 {
-    static constexpr ArbiInt<toExpBits> bias = staticShiftLeft<toExpBits - 1>(ArbiInt<1>(1));
-
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         //bias.display();
-        ArbiInt<1200> buf;
+        int ret = 0;
         if(val.isNegative()) val = -val;
         if constexpr (N <= 64)
         {
             int pos = N - 1;
             while (((val.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
-            if (pos > 0) buf = bias + ArbiInt<64>(pos - fromFrac); //Possible overflow
-            else buf = 0;
+            if (pos > 0) ret =  pos - fromFrac; //Possible overflow
+            else ret = 0;
         }
         else
         {
             int pos1 = N / 64, pos2 = 63;
             while (val.data[pos1] == 0 && pos1 >= 0) pos1--;
             while ((val.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
-            if (pos1 >= 0) buf = bias + ArbiInt<64>(64 * pos1 + pos2 - fromFrac); //Possible overflow
-            else buf = 0;
+            if (pos1 >= 0) ret = 64 * pos1 + pos2 - fromFrac; //Possible overflow
+            else ret = 0;
             //buf.display();
         }
-        return buf;
+        return ret;
     }
 };
 
@@ -2599,12 +2605,12 @@ public:
     inline Qu_s& operator=(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> val)
     {
         valData = fracConvert_FixedToFloatval<valB, QuMode<QuM_t>>::convert(val.data);
-        expData = fracConvert_FixedToFloatexp<val.fracB, expB, QuMode<QuM_t>>::convert(val.data);
+        expData = bias + ArbiInt<64>(fracConvert_FixedToFloatexp<val.fracB, QuMode<QuM_t>>::convert(val.data));
         //(expData - bias).display();
         signData = val.data.isNegative();
         return *this;
     }
-    
+
     template <int expBitsFrom, int valBitsFrom, typename QuModeFrom, typename OfModeFrom>
     inline Qu_s& operator=(Qu_s<expBits<expBitsFrom>, valBits<valBitsFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> val)
     {
@@ -3378,6 +3384,115 @@ struct Qcmp_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         return staticShiftLeft<shiftA>(f1.data) <=> staticShiftLeft<shiftB>(f2.data);
     }
 };
+// ------------------- Float Operations -------------------
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr bool fullPrecision = (std::is_same_v<FullPrec, toArgs> || ...);
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toExp = tagExtractor<expBits<fullPrecision ? std::max(fromExp1, fromExp2) + 1 : std::max(fromExp1, fromExp2)>, toArgs...>::value;
+    static inline constexpr auto toVal = tagExtractor<valBits<std::max(fromVal1, fromVal2)>, toArgs...>::value;
+    //static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<expBits<toExp>, valBits<toVal>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
+// both arguments are Float with the same sign
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
+
+
+    inline static constexpr auto add(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        ArbiInt<1200> buf1 = 0, buf2 = 0;
+        // print the requesting Quantization parameters for debugging
+        // std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+        auto& lhs = f1, rhs = f2;
+        if(f1.expData + f1.bias < f2.expData + f2.bias) swap(lhs,rhs);
+
+        std::copy(lhs.valData.data.begin(), lhs.valData.data.begin() + lhs.valData.num_words, buf1.data.begin());
+        std::copy(rhs.valData.data.begin(), rhs.valData.data.begin() + rhs.valData.num_words, buf2.data.begin());
+
+        buf1 = staticShiftLeft<1000>(ArbiInt<1>(1)) + DynamicShiftLeft(buf1, 1000 - lhs.valB);
+
+        int delta = max(((rhs.expData + rhs.bias) - (lhs.expData + lhs.bias)).toDouble(), -1e9); //negative
+        int shift = 1000 - rhs.valB + delta;
+        if(shift >= 0) buf2 = dynamicShiftLeft(buf2, shift);
+        else buf2 = dynamicShiftRight(buf2, -shift);
+
+        if(delta >= -1000) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), 1000 + delta);
+        
+        if(f1.expData + f1.bias == f2.expData + f2.bias && buf1 < buf2)
+            swap(lhs,rhs),buf1 = lhs.signData == rhs.signData? buf1 + buf2 : buf2 - buf1;
+        else buf1 = lhs.signData == rhs.signData? buf1 + buf2 : buf1 - buf2;
+        
+
+        merger res = 0;
+        res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+        int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+        res.expData = lhs.expData + res.bias - lhs.bias + ArbiInt<64>(tmp - 1000);
+        //(expData - bias).display();
+        res.signData = lhs.signData;
+
+        return res;
+    }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // ------------------- Complex Operations -------------------
 // Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i

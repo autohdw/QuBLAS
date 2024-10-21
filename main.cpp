@@ -19,7 +19,7 @@ int main()
     using type2 = Qu<intBits<66>, fracBits<66>>;
     using type3 = Qu<expBits<20>, valBits<10>>;
 
-    type2 b = -34125.1414125259;
+    type2 b = 34125.1414125259;
     type3 c;
 
     b.display();
@@ -33,6 +33,8 @@ int main()
     c = a;
 
     c.display();
+    
+    auto sum= Qadd_s<type1,type3>::add(a,b);
     
     return 0; 
 }
