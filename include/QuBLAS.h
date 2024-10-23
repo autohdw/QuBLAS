@@ -2197,9 +2197,8 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto floor = ArbiInt<N>::maximum();
-
-        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<toInt + toFrac>::allZeros()) : ArbiInt<N>(0);
+        constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>::minimum() : ArbiInt<1 + toInt + toFrac>(0);
 
         if (val > floor)
         {
@@ -2211,7 +2210,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
         }
         else
         {
-            return val;
+            return ArbiInt<1 + toInt + toFrac>(val);
         }
     }
 };
@@ -2222,10 +2221,10 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto floor = ArbiInt<toInt + toFrac>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>::minimum() : ArbiInt<N>(0);
+        constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>::minimum() : ArbiInt<1 + toInt + toFrac>(0);
 
-        constexpr auto zeroRes = ArbiInt<N>(0);
+        constexpr auto zeroRes = ArbiInt<1 + toInt + toFrac>(0);
 
         if (val > floor)
         {
@@ -2237,7 +2236,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::ZERO>>
         }
         else
         {
-            return val;
+            return ArbiInt<1 + toInt + toFrac>(val);
         }
     }
 };
@@ -2248,8 +2247,8 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr auto floor = ArbiInt<N>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<N>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<N>(0);
+        constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
 
         if (val > floor)
         {
@@ -2261,7 +2260,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
         }
         else
         {
-            return val;
+            return ArbiInt<1 + toInt + toFrac>(val);
         }
     }
 };
@@ -3078,6 +3077,9 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intProduct;
 
+        // debug info
+        // std::cout << f1.toDouble() << " * " << f2.toDouble() << " = " << result.toDouble() << std::endl;
+
         return result;
     }
 };
@@ -3107,6 +3109,9 @@ struct Qadd_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intSum;
+
+        // debug info
+        // std::cout << f1.toDouble() << " + " << f2.toDouble() << " = " << result.toDouble() << std::endl;
 
         return result;
     }
