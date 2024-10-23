@@ -2989,41 +2989,6 @@ struct isScalar_s<Qu_s<dim<dims...>, QuT>>
 template <typename T>
 inline constexpr bool isScalar = isScalar_s<T>::value;
 
-// ------------------- Qmonitor -------------------
-// the singletons class tracking computation consumption
-class Qmonitor
-{
-private:
-    Qmonitor() {}
-    double score = 0;
-
-public:
-    static Qmonitor &getInstance()
-    {
-        static Qmonitor instance;
-        return instance;
-    }
-
-    static void clear()
-    {
-        getInstance().score = 0;
-    }
-
-    static void addMul(auto... vals)
-    {
-        getInstance().score += (vals * ...);
-    }
-
-    static void addAdd(auto... vals)
-    {
-        getInstance().score += (vals + ...) / 2;
-    }
-
-    static auto get()
-    {
-        return getInstance().score;
-    }
-};
 
 // ------------------- Basic Operations -------------------
 struct FullPrec;
@@ -3113,8 +3078,6 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intProduct;
 
-        Qmonitor::addMul(fromInt1 + fromFrac1, fromInt2 + fromFrac2);
-
         return result;
     }
 };
@@ -3144,8 +3107,6 @@ struct Qadd_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intSum;
-
-        Qmonitor::addAdd(fromInt1 + fromFrac1, fromInt2 + fromFrac2);
 
         return result;
     }
@@ -3177,8 +3138,6 @@ struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intDiff;
-
-        Qmonitor::addAdd(fromInt1 + fromFrac1, fromInt2 + fromFrac2);
 
         return result;
     }
