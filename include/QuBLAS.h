@@ -1617,8 +1617,8 @@ auto dynamicShiftLeft(const ArbiInt<N> &x, int shift)
     {
         for(int i = (N + shift)/64 ; i >= 0 ; i--)
         {
-            if((shift & 63) == 0) ret.data[i] = i == shift/64 ? x.data: 0;
-            else ret.data[i] = ((i - shift/64 == 0 ? x.data : 0) << (shift & 63)) | ((i - shift/64 - 1 == 0 ? x.data : 0) >> (64 - (shift & 63)));
+            if((shift & 63) == 0) ret.data[i] = (i == shift/64 ? x.data: 0);
+            else ret.data[i] = ((i - shift/64 == 0 ? (long long)x.data : 0) << (shift & 63)) | ((i - shift/64 - 1 == 0 ? (long long)x.data : 0) >> (64 - (shift & 63)));
         }
     }
     else
@@ -2563,11 +2563,11 @@ public:
         uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF); // 52 bits
         //std::cout << "frac: " << std::bitset<52>(frac) <<  " " << frac << std::endl;
         
-        expData = exp + bias - 1023;
+        expData = ArbiInt<64>(exp) + bias - ArbiInt<64>(1023);
         //std::printf("%d--\n",valB);
         //expData.display();
         
-        if constexpr(valB >= 52) valData = frac << (valB - 52);
+        if constexpr(valB >= 52) valData = frac, valData = dynamicShiftLeft(valData , valB - 52);
         else valData = frac >> (52 - valB);
         //valData.display();
 
@@ -2578,7 +2578,7 @@ public:
     {
         double ret = valData.uToDouble() * pow(0.5, valB) + 1;
 
-        double pw = (expData - bias).uToDouble();
+        double pw = (expData - bias).toDouble();
 
         if(signData) ret = -ret;
 
@@ -2622,8 +2622,10 @@ public:
 
     inline void display()
     {
+        (expData - bias).display();
         valData.display();
         printf("Decimal: %Lf\n",toDouble());
+        puts("-------------\n");
     }
 };
 // ------------------- Complex -------------------
@@ -3107,6 +3109,13 @@ struct isScalar_s<Qu_s<intBits<intBitsInput>, fracBits<fracBitsInput>, isSigned<
     static inline constexpr bool value = true;
 };
 
+template <int expBitsInput, int valBitsInput, typename QuModeInput, typename OfModeInput>
+struct isScalar_s<Qu_s<expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>>
+{
+    static inline constexpr bool value = true;
+};
+
+
 template <typename... realArgs, typename... imagArgs>
 struct isScalar_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>>
 {
@@ -3402,44 +3411,73 @@ struct AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>,
     using resType = Qu_s<expBits<toExp>, valBits<toVal>, QuMode<toQuMode>, OfMode<toOfMode>>;
 };
 
+
 // both arguments are Float with the same sign
 template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
 struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
 {
-    using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
+    using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
 
 
     inline static constexpr auto add(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
         ArbiInt<1200> buf1 = 0, buf2 = 0;
+        merger res = 0;
         // print the requesting Quantization parameters for debugging
         // std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
-        auto& lhs = f1, rhs = f2;
-        if(f1.expData + f1.bias < f2.expData + f2.bias) swap(lhs,rhs);
+        if(f1.expData - f1.bias < f2.expData - f2.bias)
+        {
+            if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf1.data.begin());
+            else buf1.data[0] = f2.valData.data;
+            if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf2.data.begin());
+            else buf2.data[0] = f1.valData.data;
+            buf1 = staticShiftLeft<1000>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, 1000 - f2.valB);
+            //buf1.display();
 
-        std::copy(lhs.valData.data.begin(), lhs.valData.data.begin() + lhs.valData.num_words, buf1.data.begin());
-        std::copy(rhs.valData.data.begin(), rhs.valData.data.begin() + rhs.valData.num_words, buf2.data.begin());
+            int delta = std::max(((f1.expData - f1.bias) - (f2.expData - f2.bias)).toDouble(), -1e9); //negative
+            int shift = 1000 - f1.valB + delta;
+            if(shift >= 0) buf2 = dynamicShiftLeft(f1.valData, shift);
+            else buf2 = dynamicShiftRight(f1.valData, -shift);
 
-        buf1 = staticShiftLeft<1000>(ArbiInt<1>(1)) + DynamicShiftLeft(buf1, 1000 - lhs.valB);
+            if(delta >= -1000) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), 1000 + delta);
+                    
+            buf1 = f1.signData == f2.signData? buf1 + buf2 : buf1 - buf2;
 
-        int delta = max(((rhs.expData + rhs.bias) - (lhs.expData + lhs.bias)).toDouble(), -1e9); //negative
-        int shift = 1000 - rhs.valB + delta;
-        if(shift >= 0) buf2 = dynamicShiftLeft(buf2, shift);
-        else buf2 = dynamicShiftRight(buf2, -shift);
 
-        if(delta >= -1000) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), 1000 + delta);
-        
-        if(f1.expData + f1.bias == f2.expData + f2.bias && buf1 < buf2)
-            swap(lhs,rhs),buf1 = lhs.signData == rhs.signData? buf1 + buf2 : buf2 - buf1;
-        else buf1 = lhs.signData == rhs.signData? buf1 + buf2 : buf1 - buf2;
-        
+            res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+            int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+            res.expData = f2.expData + res.bias - f2.bias + ArbiInt<64>(tmp - 1000);
 
-        merger res = 0;
-        res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
-        int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
-        res.expData = lhs.expData + res.bias - lhs.bias + ArbiInt<64>(tmp - 1000);
-        //(expData - bias).display();
-        res.signData = lhs.signData;
+            res.signData = f2.signData;
+        }
+        else
+        {
+            if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
+            else buf1.data[0] = f1.valData.data;
+            if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
+            else buf2.data[0] = f2.valData.data;
+            buf1 = staticShiftLeft<1000>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, 1000 - f1.valB);
+
+            int delta = std::max(((f2.expData - f2.bias) - (f1.expData - f1.bias)).toDouble(), -1e9); //negative
+
+            int shift = 1000 - f2.valB + delta;
+            if(shift >= 0) buf2 = dynamicShiftLeft(f2.valData, shift);
+            else buf2 = dynamicShiftRight(f2.valData, -shift);
+
+            if(delta >= -1000) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), 1000 + delta);
+            
+            bool rGreater = (f1.expData - f1.bias == f2.expData - f2.bias && buf1 < buf2);
+
+            if(rGreater) buf1 = f1.signData == f2.signData? buf1 + buf2 : buf2 - buf1;
+            else buf1 = f1.signData == f2.signData? buf1 + buf2 : buf1 - buf2;
+            
+            res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+            int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+            res.expData = f1.expData + res.bias - f1.bias + ArbiInt<64>(tmp - 1000);
+            //(expData - bias).display();
+            res.signData = (rGreater)? f2.signData : f1.signData;
+        }
+
 
         return res;
     }

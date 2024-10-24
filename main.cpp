@@ -11,31 +11,19 @@ int main()
 
     ArbiInt<129> tt = 123;
 
-    tt.display();
 
-    std::printf("%lf\n",tt.toDouble());
+    using type1 = Qu<expBits<10>, valBits<336>>;
+    using type2 = Qu<expBits<20>, valBits<200>>;
 
-    using type1 = Qu<expBits<23>, valBits<600>>;
-    using type2 = Qu<intBits<66>, fracBits<66>>;
-    using type3 = Qu<expBits<20>, valBits<10>>;
 
-    type2 b = 34125.1414125259;
-    type3 c;
-
-    b.display();
-
-    type1 a;
-
-    a = b;
+    type1 a = -40003.032;
+    type2 b = 39678.15;
+    auto sum = a + b;
 
     a.display();
- 
-    c = a;
+    b.display();
 
-    c.display();
-    
-    auto sum= Qadd_s<type1,type3>::add(a,b);
-    
+    sum.display();  
     return 0; 
 }
 
