@@ -12,13 +12,15 @@ int main()
     ArbiInt<129> tt = 123;
 
 
-    using type1 = Qu<expBits<10>, valBits<336>>;
-    using type2 = Qu<expBits<20>, valBits<200>>;
+    using type1 = Qu<expBits<10>, valBits<100>>;
+    using type2 = Qu<expBits<20>, valBits<100>>;
 
+    using type3 = ArbiInt<128>;
 
-    type1 a = -40003.032;
-    type2 b = 39678.15;
-    auto sum = a + b;
+    type1 a = 34534.436;
+    type2 b = 24.5364;
+
+    auto sum = a / b;
 
     a.display();
     b.display();

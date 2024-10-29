@@ -1394,7 +1394,7 @@ auto operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
     std::string result = divideString(dividend, divisor);
 
-    return ArbiInt<N - M>(result);
+    return ArbiInt<N>(result);
 }
 
 // operator <<
@@ -2574,6 +2574,11 @@ public:
         signData = (val < 0);
     }
 
+    inline bool isZero()
+    {
+        return (expData == 0 && valData == 0);
+    }
+
     inline long double toDouble()
     {
         double ret = valData.uToDouble() * pow(0.5, valB) + 1;
@@ -2619,6 +2624,7 @@ public:
         signData = val.signData;
         return *this;
     }
+
 
     inline void display()
     {
@@ -3482,6 +3488,97 @@ struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
         return res;
     }
 };
+
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct MulMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr bool fullPrecision = (std::is_same_v<FullPrec, toArgs> || ...);
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toExp = tagExtractor<expBits<fullPrecision ? std::max(fromExp1, fromExp2) + 1 : std::max(fromExp1, fromExp2)>, toArgs...>::value;
+    static inline constexpr auto toVal = tagExtractor<valBits<std::max(fromVal1, fromVal2)>, toArgs...>::value;
+    //static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<expBits<toExp>, valBits<toVal>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct Qmul_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    using merger = MulMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
+    inline static constexpr auto mul(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        //puts("hahahahah");
+        ArbiInt<1200> buf1 = 0, buf2 = 0;
+        ArbiInt<2400> mRes = 0;
+        merger res = 0;
+
+        if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
+        else buf1.data[0] = f1.valData.data;
+        if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
+        else buf2.data[0] = f2.valData.data;
+        buf1 = staticShiftLeft<f1.valB>(ArbiInt<1>(1)) + buf1;
+        buf2 = staticShiftLeft<f2.valB>(ArbiInt<1>(1)) + buf2;
+        mRes = buf1 * buf2;
+        
+        res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(mRes);
+        res.expData = f1.expData - f1.bias + f2.expData - f2.bias + res.bias;
+        //res.expData.display();
+        int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(mRes);
+        if(tmp == f1.valB + f2.valB + 1) res.expData = res.expData + ArbiInt<1>(1);
+
+        res.signData = (f1.signData ^ f2.signData);
+
+        return res;
+    }
+};
+
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct Qdiv_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
+    inline static constexpr auto div(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        //puts("hahahahah");
+        ArbiInt<2400> buf1 = 0, buf2 = 0;
+        merger res = 0;
+
+        if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
+        else buf1.data[0] = f1.valData.data;
+        if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
+        else buf2.data[0] = f2.valData.data;
+
+        constexpr int vshift = f2.valB + res.valB - f1.valB + 20;
+        buf1 = staticShiftLeft<vshift + f1.valB>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, vshift);
+        buf2 = staticShiftLeft<f2.valB>(ArbiInt<1>(1)) + buf2;
+
+        buf1 = buf1 / buf2;
+
+        res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+        int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+        res.expData = f1.expData - f1.bias - f2.expData + f2.bias + res.bias;
+        if(tmp == vshift + f1.valB - f2.valB - 1) res.expData = res.expData - ArbiInt<1>(1);
+
+        res.signData = (f1.signData ^ f2.signData);
+
+        return res;
+    }
+};
+
+
+
+
+
+
+
+
+
+
+
 
 
 
