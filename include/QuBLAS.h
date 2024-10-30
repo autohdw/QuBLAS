@@ -2563,23 +2563,25 @@ public:
         uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF); // 52 bits
         //std::cout << "frac: " << std::bitset<52>(frac) <<  " " << frac << std::endl;
         
-        expData = ArbiInt<64>(exp) + bias - ArbiInt<64>(1023);
-        //std::printf("%d--\n",valB);
-        //expData.display();
-        
         if constexpr(valB >= 52) valData = frac, valData = dynamicShiftLeft(valData , valB - 52);
         else valData = frac >> (52 - valB);
         //valData.display();
 
+        if(exp != 0) expData = ArbiInt<64>(exp) + bias - ArbiInt<64>(1023);
+        else expData = 0;
+        //std::printf("%d--\n",valB);
+        //expData.display();
+        
+
         signData = (val < 0);
     }
 
-    inline bool isZero()
+    inline bool isZero() const
     {
         return (expData == 0 && valData == 0);
     }
 
-    inline long double toDouble()
+    inline long double toDouble() const
     {
         double ret = valData.uToDouble() * pow(0.5, valB) + 1;
 
@@ -2626,9 +2628,9 @@ public:
     }
 
 
-    inline void display()
+    inline void display() const
     {
-        (expData - bias).display();
+        expData.display();
         valData.display();
         printf("Decimal: %Lf\n",toDouble());
         puts("-------------\n");
@@ -3427,8 +3429,14 @@ struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
 
     inline static constexpr auto add(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
-        ArbiInt<1200> buf1 = 0, buf2 = 0;
         merger res = 0;
+
+        if(f1.isZero()) return res = f2;
+        if(f2.isZero()) return res = f1;
+
+        constexpr int bufSize = res.valB + 20;
+        ArbiInt<bufSize + 10> buf1 = 0, buf2 = 0;
+        
         // print the requesting Quantization parameters for debugging
         // std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
         if(f1.expData - f1.bias < f2.expData - f2.bias)
@@ -3437,22 +3445,22 @@ struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
             else buf1.data[0] = f2.valData.data;
             if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf2.data.begin());
             else buf2.data[0] = f1.valData.data;
-            buf1 = staticShiftLeft<1000>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, 1000 - f2.valB);
+            buf1 = staticShiftLeft<bufSize>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, bufSize - f2.valB);
             //buf1.display();
 
             int delta = std::max(((f1.expData - f1.bias) - (f2.expData - f2.bias)).toDouble(), -1e9); //negative
-            int shift = 1000 - f1.valB + delta;
+            int shift = bufSize - f1.valB + delta;
             if(shift >= 0) buf2 = dynamicShiftLeft(f1.valData, shift);
             else buf2 = dynamicShiftRight(f1.valData, -shift);
 
-            if(delta >= -1000) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), 1000 + delta);
+            if(delta >= -bufSize) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), bufSize + delta);
                     
             buf1 = f1.signData == f2.signData? buf1 + buf2 : buf1 - buf2;
 
 
             res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
             int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
-            res.expData = f2.expData + res.bias - f2.bias + ArbiInt<64>(tmp - 1000);
+            res.expData = f2.expData + res.bias - f2.bias + ArbiInt<64>(tmp - bufSize);
 
             res.signData = f2.signData;
         }
@@ -3462,15 +3470,15 @@ struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
             else buf1.data[0] = f1.valData.data;
             if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
             else buf2.data[0] = f2.valData.data;
-            buf1 = staticShiftLeft<1000>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, 1000 - f1.valB);
+            buf1 = staticShiftLeft<bufSize>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, bufSize - f1.valB);
 
             int delta = std::max(((f2.expData - f2.bias) - (f1.expData - f1.bias)).toDouble(), -1e9); //negative
 
-            int shift = 1000 - f2.valB + delta;
+            int shift = bufSize - f2.valB + delta;
             if(shift >= 0) buf2 = dynamicShiftLeft(f2.valData, shift);
             else buf2 = dynamicShiftRight(f2.valData, -shift);
 
-            if(delta >= -1000) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), 1000 + delta);
+            if(delta >= -bufSize) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), bufSize + delta);
             
             bool rGreater = (f1.expData - f1.bias == f2.expData - f2.bias && buf1 < buf2);
 
@@ -3479,7 +3487,7 @@ struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
             
             res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
             int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
-            res.expData = f1.expData + res.bias - f1.bias + ArbiInt<64>(tmp - 1000);
+            res.expData = f1.expData + res.bias - f1.bias + ArbiInt<64>(tmp - bufSize);
             //(expData - bias).display();
             res.signData = (rGreater)? f2.signData : f1.signData;
         }
@@ -3513,9 +3521,12 @@ struct Qmul_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
     inline static constexpr auto mul(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
         //puts("hahahahah");
-        ArbiInt<1200> buf1 = 0, buf2 = 0;
-        ArbiInt<2400> mRes = 0;
         merger res = 0;
+        if(f1.isZero() || f2.isZero()) return res;
+
+        ArbiInt<res.valB + 10> buf1 = 0, buf2 = 0;
+        ArbiInt<2 * (res.valB + 10)> mRes = 0;
+        
 
         if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
         else buf1.data[0] = f1.valData.data;
@@ -3543,16 +3554,17 @@ struct Qdiv_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, Of
     using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
     inline static constexpr auto div(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
-        //puts("hahahahah");
-        ArbiInt<2400> buf1 = 0, buf2 = 0;
         merger res = 0;
+        if(f1.isZero()) return res;
 
+        constexpr int vshift = f2.valB + res.valB - f1.valB + 20;
+        ArbiInt<vshift + f1.valB + 10> buf1 = 0, buf2 = 0;
+        
         if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
         else buf1.data[0] = f1.valData.data;
         if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
         else buf2.data[0] = f2.valData.data;
 
-        constexpr int vshift = f2.valB + res.valB - f1.valB + 20;
         buf1 = staticShiftLeft<vshift + f1.valB>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, vshift);
         buf2 = staticShiftLeft<f2.valB>(ArbiInt<1>(1)) + buf2;
 

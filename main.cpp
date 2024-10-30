@@ -18,9 +18,9 @@ int main()
     using type3 = ArbiInt<128>;
 
     type1 a = 34534.436;
-    type2 b = 24.5364;
+    type2 b = 0;
 
-    auto sum = a / b;
+    auto sum = a * b;
 
     a.display();
     b.display();
