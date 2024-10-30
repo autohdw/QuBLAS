@@ -3630,10 +3630,8 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
 template <typename... Args>
 struct sizeMerger;
 
-template <size_t... dims1, typename QuT1, size_t... dims2, typename QuT2>
-// requires QuT1::size == QuT2::size
-    requires std::is_same_v<typename QuT1::size, typename QuT2::size>
-struct sizeMerger<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims2...>, QuT2>>
+template <size_t... dims1, typename QuT1, typename QuT2>
+struct sizeMerger<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims1...>, QuT2>>
 {
     using size = dim<dims1...>;
 };
