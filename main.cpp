@@ -11,16 +11,18 @@ using namespace QuBLAS;
 
 int main()
 {
-    using input_t = Qu<intBits<10>, fracBits<10>>;
+    using real_t = Qu<intBits<35>,fracBits<-15>, OfMode<SAT::SMGN>>;
+ 
+    using from_t = Qu<intBits<13>,fracBits<27>, OfMode<SAT::SMGN>>;
 
-    using vec_t = Qu<dim<3>, input_t>;
+    real_t a = 0.5;
 
-    vec_t a = {1, 2, 3};
-    vec_t b = {4, 5, 6};
+    from_t b = 0.5;
 
-    auto c = a + b;
+    a = b;
 
-     
+    std::cout << a << std::endl;
+
 }
 
  

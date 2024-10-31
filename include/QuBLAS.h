@@ -1591,13 +1591,21 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 }
 
 // operator >>
-
 template <int shift, size_t N>
-    requires(shift > 0) && (N <= 64)
+    requires(shift > 0) && (N <= shift)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
-    static_assert(N >= shift, "Right shift out of range");
+    ArbiInt<1> result;
+    result.data = 0;
+    return result;
+}
 
+
+
+template <int shift, size_t N>
+    requires(shift > 0) && (N <= 64) && (N > shift)
+constexpr auto staticShiftRight(const ArbiInt<N> &x)
+{
     ArbiInt<N - shift> result;
 
     result.data = x.data >> shift;
@@ -1606,7 +1614,7 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N - shift <= 64)
+    requires(shift > 0) && (N > 64) && (N - shift <= 64) && (N > shift)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     // get the highest 128 bits and shift right
