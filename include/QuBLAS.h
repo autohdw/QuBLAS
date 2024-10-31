@@ -1118,7 +1118,18 @@ constexpr auto operator-(const ArbiInt<N> &x)
 }
 
 template <size_t N>
-    requires(N >= 64)
+    requires(N == 64)
+constexpr auto operator-(const ArbiInt<N> &x)
+{
+    ArbiInt<N + 1> result; // it will be promoted to 65 bits and occupy 2 uint64_t
+    __int128_t temp = -static_cast<__int128_t>(x.data);
+    result.data[0] = static_cast<uint64_t>(temp);
+    result.data[1] = static_cast<uint64_t>(temp >> 64);
+    return result;
+}
+
+template <size_t N>
+    requires(N > 64)
 constexpr auto operator-(const ArbiInt<N> &x)
 {
     ArbiInt<N + 1> result;
