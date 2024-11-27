@@ -283,7 +283,7 @@ constexpr void divide_by_uint64(const uint64_t *numerator, size_t num_words, uin
 }
 
 template <size_t num_words>
-constexpr std::string big_integer_to_string(const std::array<uint64_t, num_words> &value)
+constexpr auto big_integer_to_string(const std::array<uint64_t, num_words> &value)
 {
     bool is_negative = false;
     uint64_t highest_word = value[num_words - 1];
