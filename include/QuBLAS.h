@@ -2414,7 +2414,7 @@ public:
     inline constexpr auto toString() const
     {
         std::string originalBinary = this->data.toBinary();
-        std::string binary = originalBinary.substr(originalBinary.size() - 1 - intB - fracB, intB + fracB + 1);
+        std::string binary = originalBinary.substr(originalBinary.size() - isS - intB - fracB, intB + fracB + isS);
         return binary;
     }
 
