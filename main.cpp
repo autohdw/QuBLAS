@@ -15,9 +15,15 @@ int main()
  
     using from_t = Qu<intBits<13>,fracBits<27>, OfMode<SAT::SMGN>>;
 
+    using float_t = Qu<expBits<13>,fracBits<21>>;
+
     real_t a = 0.5;
 
     from_t b = 0.5;
+
+    float_t c = 0.5;
+
+    c.display();
 
     a = b;
 

@@ -542,6 +542,12 @@ public:
         return static_cast<double>(data);
     }
 
+    constexpr auto uToDouble() const
+    {
+        uint64_t tmp = (num_bits == 64 ? data : data & ((1ll << num_bits) -1));
+        return static_cast<double>(static_cast<unsigned long long> (tmp));
+    }
+
     constexpr auto toBinary() const
     {
         return std::bitset < N < 32 ? 32 : 64 > (data).to_string();
@@ -877,6 +883,36 @@ public:
 
         return result;
     }
+
+    constexpr double uToDouble() const //Unsigned conversion
+    {
+        // 计算绝对值（使用位操作优化）
+        std::array<uint64_t, num_words> mag = {};
+        mag = data;
+
+        // 找到最高非零字，以减少不必要的计算
+        std::size_t highest_non_zero_word = num_words;
+        while (highest_non_zero_word > 0 && mag[highest_non_zero_word - 1] == 0)
+        {
+            --highest_non_zero_word;
+        }
+
+        int zbits = num_bits % 64;
+        if(zbits) mag[highest_non_zero_word - 1] &= (1ll << zbits) - 1;
+
+
+        // 将绝对值转换为double（替代ldexp）
+        double result = 0.0;
+        constexpr double two_pow_64 = 18446744073709551616.0; // 2^64
+
+        for (std::size_t i = highest_non_zero_word; i-- > 0;)
+        {
+            result = result * two_pow_64 + static_cast<double>(mag[i]);
+        }
+
+        return result;
+    }    
+
 
     constexpr auto toBinary() const
     {
@@ -1699,6 +1735,46 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
     return x;
 }
 
+template <size_t N>
+auto dynamicShiftLeft(const ArbiInt<N> &x, int shift)
+{
+    ArbiInt<6400> ret = 0;
+    if constexpr (N <= 64)
+    {
+        for(int i = (N + shift)/64 ; i >= 0 ; i--)
+        {
+            if((shift & 63) == 0) ret.data[i] = (i == shift/64 ? x.data: 0);
+            else ret.data[i] = ((i - shift/64 == 0 ? (long long)x.data : 0) << (shift & 63)) | ((i - shift/64 - 1 == 0 ? (long long)x.data : 0) >> (64 - (shift & 63)));
+        }
+    }
+    else
+    {
+        for(int i = std::min((N + shift)/64, ret.num_words - 1) ; i >= 0 ; i--)
+        {
+            int p = (i - shift/64);
+            if((shift & 63) == 0) ret.data[i] = p >= 0 && p < x.num_words ? x.data[p] : 0;
+            else ret.data[i] = ((p >= 0 && p < x.num_words ? x.data[p] : 0) << (shift & 63)) | ((p - 1 >= 0 && p - 1 < x.num_words ? x.data[p - 1] : 0) >> (64 - (shift & 63)));
+        }
+    }
+    return ret;
+}
+
+template <size_t N>
+auto dynamicShiftRight(const ArbiInt<N> &x, int shift) //Size remain the same, shifting doesn't change size.
+{
+    ArbiInt<N> ret;
+    if constexpr (N <= 64) ret.data = x.data >> shift;
+    else
+    {
+        for(int i = 0 ; i <= N/64 ; i++)
+        {
+            if((shift & 63) == 0) ret.data[i] = i + shift/64 <= N/64 ? x.data[i + shift/64] : 0;
+            else ret.data[i] = ((i + shift/64 <= N/64 ? x.data[i + shift/64] : 0) >> (shift & 63)) | ((i + shift/64 + 1 <= N/64 ? x.data[i + 1 + shift/64] : 0) << (64 - (shift & 63)));
+        }
+    }
+    return ret;
+}
+
 template <size_t N, size_t M>
     requires(N <= 64 && M <= 64)
 constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
@@ -1989,6 +2065,13 @@ struct TRN
     struct TCPL{inline static constexpr int value = 5;};
     struct SMGN{inline static constexpr int value = 6;};
 };
+
+
+struct FLT
+{
+    struct DEFAULTFLT{inline static constexpr int value = 7;};
+};
+
 // clang-format on
 
 template <int fromFrac, int toFrac, typename QuMode>
@@ -2186,6 +2269,119 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
     }
 };
 
+template <int toBits, typename QuMode>
+struct fracConvert_FixedToFloatval;
+
+template <int toBits>
+struct fracConvert_FixedToFloatval<toBits, QuMode<FLT::DEFAULTFLT>>
+{
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
+    {
+        constexpr int bufSize = N > toBits + 20 ? N : toBits + 20;
+        ArbiInt<bufSize> buf; //might overflow???? 1200 not enough?
+        if(val.isNegative()) val = -val;
+        if constexpr (N <= 64)
+        {
+            int pos = N - 1;
+            while (((val.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
+            if (pos > 0)
+            {
+                //expData = pos + bias - val.fracB; //Possible overflow
+                buf = val;
+                buf = buf - dynamicShiftLeft(ArbiInt<1>(1),pos);
+                if (pos >= toBits) buf = dynamicShiftRight(buf , pos - toBits);
+                else buf = dynamicShiftLeft(buf , toBits - pos); 
+            }
+            else buf = 0;
+        }
+        else
+        {
+            int pos1 = N / 64, pos2 = 63;
+            while (val.data[pos1] == 0 && pos1 >= 0) pos1--;
+            if (pos1 >= 0)
+            {
+                while ((val.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
+                //expData = 64 * pos1 + pos2 + bias - val.fracB; //Possible overflow
+                buf = val;
+                buf = buf - dynamicShiftLeft(ArbiInt<1>(1),64 * pos1 + pos2);
+                if (64 * pos1 + pos2 >= toBits) buf = dynamicShiftRight(buf , 64 * pos1 + pos2 - toBits);
+                else buf = dynamicShiftLeft(buf , toBits - (64 * pos1 + pos2));
+            }
+            else buf = 0;                
+        }
+        return buf;
+    }
+};
+
+template <int fromFrac, typename QuMode>
+struct fracConvert_FixedToFloatexp;
+
+template <int fromFrac>
+struct fracConvert_FixedToFloatexp<fromFrac , QuMode<FLT::DEFAULTFLT>>
+{
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
+    {
+        //bias.display();
+        int ret = 0;
+        if(val.isNegative()) val = -val;
+        if constexpr (N <= 64)
+        {
+            int pos = N - 1;
+            while (((val.data >> pos) & 1) == 0 && pos >= 0) pos--; // Optimization available
+            if (pos > 0) ret =  pos - fromFrac; //Possible overflow
+            else ret = 0;
+        }
+        else
+        {
+            int pos1 = N / 64, pos2 = 63;
+            while (val.data[pos1] == 0 && pos1 >= 0) pos1--;
+            while ((val.data[pos1] >> pos2 & 1) == 0 && pos2 >= 0) pos2--;
+            if (pos1 >= 0) ret = 64 * pos1 + pos2 - fromFrac; //Possible overflow
+            else ret = 0;
+            //buf.display();
+        }
+        return ret;
+    }
+};
+
+template <int fromBits, int toBits>
+struct fracConvert_FloatToFloatval;
+
+template <int fromBits, int toBits>
+struct fracConvert_FloatToFloatval
+{
+    template <size_t N>
+    inline static constexpr auto convert(ArbiInt<N> val)
+    {
+        ArbiInt<2400> buf;
+        if constexpr(fromBits <= toBits) buf = staticShiftLeft<toBits - fromBits>(val);
+        else buf = staticShiftRight<fromBits - toBits>(val);
+        return buf;
+    }
+};
+
+template <int toFrac, typename QuMode>
+struct fracConvert_FloatToFixed;
+
+template <int toFrac>
+struct fracConvert_FloatToFixed<toFrac, QuMode<TRN::TCPL>>
+{
+    template <size_t fromExp, size_t fromVal>
+    inline static constexpr auto convert(ArbiInt<fromExp + 1> e, ArbiInt<fromVal> v, ArbiInt<fromExp> bias)
+    {
+        ArbiInt<2400> buf;
+        int ex = (e - bias).toDouble();
+        int delta = toFrac - fromVal + ex;
+        if(delta > 0) buf = dynamicShiftLeft(v,delta);
+        else buf = dynamicShiftRight(v,-delta);
+        buf = buf + dynamicShiftLeft(ArbiInt<1>(1),fromVal + delta);
+        return buf;
+    }
+};
+
+
 template <typename T>
 struct OfMode;
 
@@ -2332,6 +2528,12 @@ struct intBits;
 template <int Value>
 struct fracBits;
 
+template <int Value>
+struct expBits;
+
+template <int Value>
+struct valBits;
+
 template <bool Value>
 struct isSigned;
 
@@ -2340,6 +2542,7 @@ constexpr int defaultFracBits = 8;
 constexpr bool defaultIsSigned = true;
 using defaultQuMode = TRN::TCPL;
 using defaultOfMode = SAT::TCPL;
+using defaultFloatMode = FLT::DEFAULTFLT;
 
 template <typename... Args>
 class Qu_s
@@ -2440,18 +2643,31 @@ public:
     }
 };
 
+template<typename ... Args>
+struct containExp_s
+{
+    static constexpr bool value = (isA<Args, expBits<1>> || ...);
+};
+
+
 template <typename... Args>
 struct QuInputHelper
 {
+    static constexpr bool containExp = containExp_s<Args...>::value;
+
     inline static constexpr auto intB = tagExtractor<intBits<defaultIntBits>, Args...>::value;
     inline static constexpr auto fracB = tagExtractor<fracBits<defaultFracBits>, Args...>::value;
     inline static constexpr auto isS = tagExtractor<isSigned<defaultIsSigned>, Args...>::value;
-
+    inline static constexpr auto expB = tagExtractor<expBits<4>, Args...>::value;
+    inline static constexpr auto valB = tagExtractor<valBits<4>, Args...>::value;
+    
     using QuM = tagExtractor<QuMode<defaultQuMode>, Args...>::type;
     using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
+    using FM = tagExtractor<QuMode<defaultFloatMode>, Args...>::type;
 
-    using type = Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>>;
+    using type = std::conditional_t< containExp, Qu_s<expBits<expB>, valBits<valB>, QuMode<FM>, OfMode<FM>>, Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> >;
 };
+
 
 template <typename... Args>
 struct QuInputHelper<Qu_s<Args...>> : QuInputHelper<Args...>
@@ -2459,7 +2675,162 @@ struct QuInputHelper<Qu_s<Args...>> : QuInputHelper<Args...>
 
 template <typename... Args>
 using Qu = typename QuInputHelper<Args...>::type;
+// ------------------- Float -------------------
+template <int expBitsInput, int valBitsInput, typename QuModeInput, typename OfModeInput>
+class Qu_s<expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
+{
+public:
+    inline static constexpr int expB = expBitsInput + 1;
+    inline static constexpr int valB = valBitsInput;
+  
+    using QuM_t = QuModeInput;
+    using OfM_t = OfModeInput;
+    inline static constexpr int QuM = QuModeInput::value;
+    inline static constexpr int OfM = OfModeInput::value;
 
+    inline static constexpr uint64_t maxVal = (1 << valB) - 1;
+    inline static constexpr ArbiInt<expBitsInput> bias = staticShiftLeft<expBitsInput>(ArbiInt<1>(1));
+
+
+    ArbiInt<expB> expData;
+    ArbiInt<valB> valData;
+    bool signData;
+
+    inline constexpr Qu_s() {}
+
+    inline void toQuFloat(double val)
+    {
+        uint64_t sourceBits = reinterpret_cast<uint64_t &>(val);
+        //std::cout << "sourceBits: " << std::bitset<64>(sourceBits) << std::endl;
+
+        constexpr uint64_t leadingOne = (uint64_t)1 << 52;
+
+        uint64_t sign = sourceBits >> 63;                            // 1 bit
+        //std::cout << "sign: " << sign << std::endl;
+        uint64_t exp = (sourceBits << 1) >> 53;                      // 11 bits
+        //std::cout << "exp: " << std::bitset<11>(exp) <<  " " << exp << std::endl;
+        uint64_t frac = (sourceBits & 0xFFFFFFFFFFFFF); // 52 bits
+        //std::cout << "frac: " << std::bitset<52>(frac) <<  " " << frac << std::endl;
+        
+        if constexpr(valB >= 52) valData = frac, valData = dynamicShiftLeft(valData , valB - 52);
+        else valData = frac >> (52 - valB);
+        //valData.display();
+
+        if(exp != 0) expData = ArbiInt<64>(exp) + bias - ArbiInt<64>(1023);
+        else expData = 0;
+        //std::printf("%d--\n",valB);
+        //expData.display();
+        
+
+        signData = (val < 0);
+    }
+
+    inline bool isZero() const
+    {
+        return (expData == 0 && valData == 0);
+    }
+
+    inline long double toDouble() const
+    {
+        double ret = valData.uToDouble() * pow(0.5, valB) + 1;
+
+        double pw = (expData - bias).toDouble();
+
+        if(signData) ret = -ret;
+
+        return ret * std::pow(2, pw);
+    }
+
+    void overflowUpper()
+    {
+        if constexpr(OfM == 0) // TCPL
+            return;
+        if constexpr(OfM == 1) // ZERO
+        {
+            expData = 0;
+            valData = 0;
+            signData = 0;
+        }
+        if constexpr(OfM == 2) // SMGN
+        {
+            expData = staticShiftLeft<1>(bias) - ArbiInt<1>(1);
+            valData = 0;
+        }
+    }
+
+    void overflowLower()
+    {
+        if constexpr(OfM == 0) // TCPL
+            return;
+        if constexpr(OfM == 1) // ZERO
+        {
+            expData = 0;
+            valData = 0;
+            signData = 0;
+        }
+        if constexpr(OfM == 2) // SMGN
+        {
+            expData = 1;
+            valData = 0;            
+        }
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    Qu_s(T val)
+    {
+        toQuFloat((double)val);
+    }
+
+    template <typename T>
+        requires std::is_arithmetic_v<T>
+    inline Qu_s& operator=(T val)
+    {
+        toQuFloat((double)val);
+        return *this;
+    }
+
+
+    template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
+    inline Qu_s& operator=(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> val)
+    {
+        valData = fracConvert_FixedToFloatval<valB, QuMode<QuM_t>>::convert(val.data);
+        auto buf = bias + ArbiInt<64>(fracConvert_FixedToFloatexp<val.fracB, QuMode<QuM_t>>::convert(val.data));
+        expData = buf;
+        if(buf >= staticShiftLeft<1>(bias) - ArbiInt(1)) overflowUpper();
+        else if(buf < 0) overflowLower();
+        //(expData - bias).display();
+        signData = val.data.isNegative();
+        return *this;
+    }
+
+    template <int expBitsFrom, int valBitsFrom, typename QuModeFrom, typename OfModeFrom>
+    inline Qu_s& operator=(Qu_s<expBits<expBitsFrom>, valBits<valBitsFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> val)
+    {
+        valData = fracConvert_FloatToFloatval<val.valB, valB>::convert(val.valData);
+        auto buf = val.expData - val.bias + bias;
+        expData = buf;
+        if(buf >= staticShiftLeft<1>(bias) - ArbiInt(1)) overflowUpper();
+        else if(buf < 0) overflowLower();
+        signData = val.signData;
+        return *this;
+    }
+
+
+    inline void display() const
+    {
+        expData.display();
+        valData.display();
+        printf("Decimal: %Lf\n",toDouble());
+        puts("-------------\n");
+    }
+
+    inline void accurateDisplay() const
+    {
+        Qu<intBits<1000>,fracBits<1000>> q = *this;
+        q.display();
+    }
+};
 // ------------------- Complex -------------------
 template <typename... realArgs, typename... imagArgs>
 class Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>
@@ -3276,7 +3647,208 @@ struct Qcmp_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         return staticShiftLeft<shiftA>(f1.data) <=> staticShiftLeft<shiftB>(f2.data);
     }
 };
+// ------------------- Float Operations -------------------
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr bool fullPrecision = (std::is_same_v<FullPrec, toArgs> || ...);
 
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toExp = tagExtractor<expBits<fullPrecision ? std::max(fromExp1, fromExp2) + 1 : std::max(fromExp1, fromExp2)>, toArgs...>::value;
+    static inline constexpr auto toVal = tagExtractor<valBits<std::max(fromVal1, fromVal2)>, toArgs...>::value;
+    //static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<expBits<toExp>, valBits<toVal>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
+
+// both arguments are Float with the same sign
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct Qadd_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
+
+
+    inline static constexpr auto add(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        merger res = 0;
+
+        if(f1.isZero()) return res = f2;
+        if(f2.isZero()) return res = f1;
+
+        constexpr int bufSize = res.valB + 20;
+        ArbiInt<bufSize + 10> buf1 = 0, buf2 = 0;
+        
+        // print the requesting Quantization parameters for debugging
+        // std::cout << "add: " << merger::toInt << " " << merger::toFrac << " " << std::endl;
+        if(f1.expData - f1.bias < f2.expData - f2.bias)
+        {
+            if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf1.data.begin());
+            else buf1.data[0] = f2.valData.data;
+            if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf2.data.begin());
+            else buf2.data[0] = f1.valData.data;
+            buf1 = staticShiftLeft<bufSize>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, bufSize - f2.valB);
+            //buf1.display();
+
+            int delta = std::max(((f1.expData - f1.bias) - (f2.expData - f2.bias)).toDouble(), -1e9); //negative
+            int shift = bufSize - f1.valB + delta;
+            if(shift >= 0) buf2 = dynamicShiftLeft(f1.valData, shift);
+            else buf2 = dynamicShiftRight(f1.valData, -shift);
+
+            if(delta >= -bufSize) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), bufSize + delta);
+                    
+            buf1 = f1.signData == f2.signData? buf1 + buf2 : buf1 - buf2;
+
+
+            res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+            int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+            res.expData = f2.expData + res.bias - f2.bias + ArbiInt<64>(tmp - bufSize);
+
+            res.signData = f2.signData;
+        }
+        else
+        {
+            if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
+            else buf1.data[0] = f1.valData.data;
+            if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
+            else buf2.data[0] = f2.valData.data;
+            buf1 = staticShiftLeft<bufSize>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, bufSize - f1.valB);
+
+            int delta = std::max(((f2.expData - f2.bias) - (f1.expData - f1.bias)).toDouble(), -1e9); //negative
+
+            int shift = bufSize - f2.valB + delta;
+            if(shift >= 0) buf2 = dynamicShiftLeft(f2.valData, shift);
+            else buf2 = dynamicShiftRight(f2.valData, -shift);
+
+            if(delta >= -bufSize) buf2 = buf2 + dynamicShiftLeft(ArbiInt<1>(1), bufSize + delta);
+            
+            bool rGreater = (f1.expData - f1.bias == f2.expData - f2.bias && buf1 < buf2);
+
+            if(rGreater) buf1 = f1.signData == f2.signData? buf1 + buf2 : buf2 - buf1;
+            else buf1 = f1.signData == f2.signData? buf1 + buf2 : buf1 - buf2;
+            
+            res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+            int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+            res.expData = f1.expData + res.bias - f1.bias + ArbiInt<64>(tmp - bufSize);
+            //(expData - bias).display();
+            res.signData = (rGreater)? f2.signData : f1.signData;
+        }
+
+
+        return res;
+    }
+};
+
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct MulMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr bool fullPrecision = (std::is_same_v<FullPrec, toArgs> || ...);
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toExp = tagExtractor<expBits<fullPrecision ? std::max(fromExp1, fromExp2) + 1 : std::max(fromExp1, fromExp2)>, toArgs...>::value;
+    static inline constexpr auto toVal = tagExtractor<valBits<std::max(fromVal1, fromVal2)>, toArgs...>::value;
+    //static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<expBits<toExp>, valBits<toVal>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct Qmul_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    using merger = MulMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
+    inline static constexpr auto mul(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        //puts("hahahahah");
+        merger res = 0;
+        if(f1.isZero() || f2.isZero()) return res;
+
+        ArbiInt<res.valB + 10> buf1 = 0, buf2 = 0;
+        ArbiInt<2 * (res.valB + 10)> mRes = 0;
+        
+
+        if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
+        else buf1.data[0] = f1.valData.data;
+        if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
+        else buf2.data[0] = f2.valData.data;
+        buf1 = staticShiftLeft<f1.valB>(ArbiInt<1>(1)) + buf1;
+        buf2 = staticShiftLeft<f2.valB>(ArbiInt<1>(1)) + buf2;
+        mRes = buf1 * buf2;
+        
+        res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(mRes);
+        res.expData = f1.expData - f1.bias + f2.expData - f2.bias + res.bias;
+        //res.expData.display();
+        int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(mRes);
+        if(tmp == f1.valB + f2.valB + 1) res.expData = res.expData + ArbiInt<1>(1);
+
+        res.signData = (f1.signData ^ f2.signData);
+
+        return res;
+    }
+};
+
+template <typename... toArgs, int fromExp1, int fromVal1, typename fromQuMode1, typename fromOfMode1, int fromExp2, int fromVal2, typename fromQuMode2, typename fromOfMode2>
+struct Qdiv_s<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    using merger = AddMerger<Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>::resType;
+    inline static constexpr auto div(const Qu_s<expBits<fromExp1>, valBits<fromVal1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<expBits<fromExp2>, valBits<fromVal2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        merger res = 0;
+        if(f1.isZero()) return res;
+
+        constexpr int vshift = f2.valB + res.valB - f1.valB + 20;
+        ArbiInt<vshift + f1.valB + 10> buf1 = 0, buf2 = 0;
+        
+        if constexpr(f1.valData.num_bits > 64) std::copy(f1.valData.data.begin(), f1.valData.data.begin() + f1.valData.num_words, buf1.data.begin());
+        else buf1.data[0] = f1.valData.data;
+        if constexpr(f2.valData.num_bits > 64) std::copy(f2.valData.data.begin(), f2.valData.data.begin() + f2.valData.num_words, buf2.data.begin());
+        else buf2.data[0] = f2.valData.data;
+
+        buf1 = staticShiftLeft<vshift + f1.valB>(ArbiInt<1>(1)) + dynamicShiftLeft(buf1, vshift);
+        buf2 = staticShiftLeft<f2.valB>(ArbiInt<1>(1)) + buf2;
+
+        buf1 = buf1 / buf2;
+
+        res.valData = fracConvert_FixedToFloatval<res.valB, QuMode<defaultFloatMode>>::convert(buf1);
+        int tmp = fracConvert_FixedToFloatexp<0, QuMode<defaultFloatMode>>::convert(buf1);
+        res.expData = f1.expData - f1.bias - f2.expData + f2.bias + res.bias;
+        if(tmp == vshift + f1.valB - f2.valB - 1) res.expData = res.expData - ArbiInt<1>(1);
+
+        res.signData = (f1.signData ^ f2.signData);
+
+        return res;
+    }
+};
+
+template <typename... toArgs, int fromExp, int fromVal, typename fromQuMode, typename fromOfMode>
+struct Qneg_s<Qu_s<expBits<fromExp>, valBits<fromVal>, QuMode<fromQuMode>, OfMode<fromOfMode>>, TypeList<toArgs...>>
+{
+    inline static constexpr auto neg(const Qu_s<expBits<fromExp>, valBits<fromVal>, QuMode<fromQuMode>, OfMode<fromOfMode>> f)
+    {
+        Qu_s<expBits<fromExp>, valBits<fromVal>, QuMode<fromQuMode>, OfMode<fromOfMode>> result = f;
+        if(f.isZero()) return result;
+        f.signData ^= 1;
+        return result;
+    }
+};
+
+template <typename... toArgs, int fromExp, int fromVal, typename fromQuMode, typename fromOfMode>
+struct Qabs_s<Qu_s<expBits<fromExp>, valBits<fromVal>, QuMode<fromQuMode>, OfMode<fromOfMode>>, TypeList<toArgs...>>
+{
+    inline static constexpr auto abs(const Qu_s<expBits<fromExp>, valBits<fromVal>, QuMode<fromQuMode>, OfMode<fromOfMode>> f)
+    {
+        Qu_s<expBits<fromExp>, valBits<fromVal>, QuMode<fromQuMode>, OfMode<fromOfMode>> result = f;
+        f.signData = 0;
+        return result;
+    }
+};
 // ------------------- Complex Operations -------------------
 // Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i
 template <typename... Args>
