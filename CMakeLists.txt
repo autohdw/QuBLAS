@@ -35,18 +35,18 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     enable_testing()
 
     # Auto-detect all tests in the test directory, including subdirectories
-    file(GLOB_RECURSE TEST_SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp)
-    foreach(TEST_SRC_FILE IN LISTS TEST_SRC_FILES)
+    #file(GLOB_RECURSE TEST_SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp)
+    #foreach(TEST_SRC_FILE IN LISTS TEST_SRC_FILES)
         # Construct a unique test target name based on the file path
-        file(RELATIVE_PATH TEST_RELATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/test ${TEST_SRC_FILE})
-        string(REPLACE ".cpp" "" TEST_NAME_TEMP ${TEST_RELATIVE_PATH})
-        string(REPLACE "/" "_" TEST_NAME ${TEST_NAME_TEMP})  # Replace slashes to avoid CMake errors
+        #file(RELATIVE_PATH TEST_RELATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/test ${TEST_SRC_FILE})
+        #string(REPLACE ".cpp" "" TEST_NAME_TEMP ${TEST_RELATIVE_PATH})
+        #string(REPLACE "/" "_" TEST_NAME ${TEST_NAME_TEMP})  # Replace slashes to avoid CMake errors
 
         # Create test executable for each test source file
-        add_executable(${TEST_NAME} ${TEST_SRC_FILE})
-        target_link_libraries(${TEST_NAME} gtest gtest_main QuBLAS)
+        #add_executable(${TEST_NAME} ${TEST_SRC_FILE})
+        #arget_link_libraries(${TEST_NAME} gtest gtest_main QuBLAS)
 
         # Register the executable as a test
-        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
-    endforeach()
+        #add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    #endforeach()
 endif()

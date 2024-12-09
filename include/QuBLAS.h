@@ -2355,23 +2355,23 @@ struct fracConvert_FloatToFloatval
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        ArbiInt<2400> buf;
+        ArbiInt<toBits + 20> buf;
         if constexpr(fromBits <= toBits) buf = staticShiftLeft<toBits - fromBits>(val);
         else buf = staticShiftRight<fromBits - toBits>(val);
         return buf;
     }
 };
 
-template <int toFrac, typename QuMode>
+template <int toInt, int toFrac, typename QuMode>
 struct fracConvert_FloatToFixed;
 
-template <int toFrac>
-struct fracConvert_FloatToFixed<toFrac, QuMode<TRN::TCPL>>
+template <int toInt, int toFrac>
+struct fracConvert_FloatToFixed<toInt, toFrac, QuMode<TRN::TCPL>>
 {
     template <size_t fromExp, size_t fromVal>
-    inline static constexpr auto convert(ArbiInt<fromExp + 1> e, ArbiInt<fromVal> v, ArbiInt<fromExp> bias)
+    inline static constexpr auto convert(ArbiInt<fromExp> e, ArbiInt<fromVal> v, ArbiInt<fromExp> bias)
     {
-        ArbiInt<2400> buf;
+        ArbiInt<toInt + toFrac + 20> buf;
         int ex = (e - bias).toDouble();
         int delta = toFrac - fromVal + ex;
         if(delta > 0) buf = dynamicShiftLeft(v,delta);
@@ -2522,6 +2522,59 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
     }
 };
 
+template <int toExp, int toVal, typename OfMode>
+struct intConvertFloat;
+
+template <int toExp, int toVal>
+struct intConvertFloat<toExp, toVal, OfMode<SAT::TCPL>>
+{
+    inline static constexpr auto convert(auto expVal, auto valVal)
+    {
+        ArbiInt<toExp> retExp = expVal;
+        auto ret = std::make_pair(retExp,valVal);
+        return ret;
+    }
+};
+
+template <int toExp, int toVal>
+struct intConvertFloat<toExp, toVal, OfMode<SAT::ZERO>>
+{
+    inline static constexpr auto convert(auto expVal, auto valVal)
+    {
+        ArbiInt<toExp> retExp = expVal;
+        ArbiInt<toVal> retVal = valVal;
+        if((expVal > staticShiftLeft<toExp + 1>(ArbiInt<1>(1)) - ArbiInt<1>(1)) || expVal < 0)
+        {
+            retVal = 0;
+            retExp = 0;
+        }
+        auto ret = std::make_pair(retExp,retVal);
+        return ret;
+    }
+};
+
+template <int toExp, int toVal>
+struct intConvertFloat<toExp, toVal, OfMode<SAT::SMGN>>
+{
+    inline static constexpr auto convert(auto expVal, auto valVal)
+    {
+        ArbiInt<toExp> retExp = expVal;
+        ArbiInt<toVal> retVal = valVal;
+        if(expVal < 0)
+        {
+            retExp = 1;
+            //retVal change is not necessary
+        }
+        else if(retExp != expVal)
+        {
+            retExp = staticShiftLeft<toExp + 1>(1) - ArbiInt<1>(1);
+            //retVal change is not necessary
+        }
+        auto ret = std::make_pair(retExp,retVal);
+        return ret;
+    }
+};
+
 template <int Value>
 struct intBits;
 
@@ -2592,6 +2645,13 @@ public:
 
             // data = fracConvert<fracBitsFrom, fracBitsInput, QuMode<QuM_t>>::convert(val.data);
         }
+    }
+
+    template <int expBitsFrom, int valBitsFrom, typename QuModeFrom, typename OfModeFrom>
+    inline constexpr Qu_s(const Qu_s<expBits<expBitsFrom>, valBits<valBitsFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> f)
+    {
+        data = fracConvert_FloatToFixed<intB, fracB, QuMode<QuM_t>>::convert(f.expData,f.valData,f.bias);
+        if(f.signData) data = -data;
     }
 
     inline double toDouble() const
@@ -2665,7 +2725,7 @@ struct QuInputHelper
     using OfM = tagExtractor<OfMode<defaultOfMode>, Args...>::type;
     using FM = tagExtractor<QuMode<defaultFloatMode>, Args...>::type;
 
-    using type = std::conditional_t< containExp, Qu_s<expBits<expB>, valBits<valB>, QuMode<FM>, OfMode<FM>>, Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> >;
+    using type = std::conditional_t< containExp, Qu_s<expBits<expB>, valBits<valB>, QuMode<FM>, OfMode<OfM>>, Qu_s<intBits<intB>, fracBits<fracB>, isSigned<isS>, QuMode<QuM>, OfMode<OfM>> >;
 };
 
 
@@ -2680,7 +2740,7 @@ template <int expBitsInput, int valBitsInput, typename QuModeInput, typename OfM
 class Qu_s<expBits<expBitsInput>, valBits<valBitsInput>, QuMode<QuModeInput>, OfMode<OfModeInput>>
 {
 public:
-    inline static constexpr int expB = expBitsInput + 1;
+    inline static constexpr int expB = expBitsInput;
     inline static constexpr int valB = valBitsInput;
   
     using QuM_t = QuModeInput;
@@ -2740,7 +2800,7 @@ public:
 
         return ret * std::pow(2, pw);
     }
-
+    /*
     void overflowUpper()
     {
         if constexpr(OfM == 0) // TCPL
@@ -2773,7 +2833,7 @@ public:
             expData = 1;
             valData = 0;            
         }
-    }
+    }*/
 
     template <typename T>
         requires std::is_arithmetic_v<T>
@@ -2796,11 +2856,16 @@ public:
     {
         valData = fracConvert_FixedToFloatval<valB, QuMode<QuM_t>>::convert(val.data);
         auto buf = bias + ArbiInt<64>(fracConvert_FixedToFloatexp<val.fracB, QuMode<QuM_t>>::convert(val.data));
+        /*
         expData = buf;
         if(buf >= staticShiftLeft<1>(bias) - ArbiInt(1)) overflowUpper();
         else if(buf < 0) overflowLower();
-        //(expData - bias).display();
-        signData = val.data.isNegative();
+        //(expData - bias).display();*/
+        auto ret = intConvertFloat<expB,valB,OfMode<OfM_t>>::convert(buf,valData);
+        expData = ret.first;
+        valData = ret.second;
+        if(expData == 0 && valData == 0) signData = 0;
+        else signData = val.data.isNegative();
         return *this;
     }
 
@@ -2809,10 +2874,15 @@ public:
     {
         valData = fracConvert_FloatToFloatval<val.valB, valB>::convert(val.valData);
         auto buf = val.expData - val.bias + bias;
+        /*
         expData = buf;
         if(buf >= staticShiftLeft<1>(bias) - ArbiInt(1)) overflowUpper();
-        else if(buf < 0) overflowLower();
-        signData = val.signData;
+        else if(buf < 0) overflowLower();*/
+        auto ret = intConvertFloat<expB,valB,OfMode<OfM_t>>::convert(buf,valData);
+        expData = ret.first;
+        valData = ret.second;
+        if(expData == 0 && valData == 0) signData = 0;
+        else signData = val.signData;
         return *this;
     }
 
