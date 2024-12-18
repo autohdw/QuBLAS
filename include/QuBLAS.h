@@ -14,6 +14,7 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <ranges>
 #include <stdexcept>
 #include <sys/resource.h>
 #include <sys/types.h>
@@ -370,12 +371,11 @@ public:
             result.data = ~(~data_t(0) << N);
         }
 
-
         return result;
     }
 
-    // special constructor that return the minimum value of a ArbiInt<N>
-    static constexpr  ArbiInt<N> maximum()
+    // special constructor that return the maximum value of a ArbiInt<N>
+    static constexpr ArbiInt<N> maximum()
     {
         ArbiInt<N> result;
         // make the last N-1 bits 1
@@ -403,7 +403,7 @@ public:
     static constexpr ArbiInt<N> minimum()
     {
         ArbiInt<N> result;
-        result.data =  ~data_t(0) << (N - 1);
+        result.data = ~data_t(0) << (N - 1);
         return result;
     }
 
@@ -517,7 +517,7 @@ public:
     }
 
     // operator bool
-    constexpr operator bool() const
+    constexpr explicit operator bool() const
     {
         return data != 0;
     }
@@ -544,18 +544,18 @@ public:
 
     constexpr auto toBinary() const
     {
-        return std::bitset < N < 32 ? 32 : 64 > (data).to_string();
+        return std::bitset < N<32 ? 32 : 64>(data).to_string();
     }
 
-    void display(std::string name = "") const
+    void display(const std::string &name = "") const
     {
         if (!name.empty())
         {
-            std::cout << name << ":" << std::endl;
+            std::cout << name << ":" << '\n';
         }
-        std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
-        std::cout << "Decimal: " << data << std::endl;
-        std::cout << std::endl;
+        std::cout << "Binary:  " << std::bitset<N <= 32 ? 32 : 64>(data) << '\n';
+        std::cout << "Decimal: " << data << '\n';
+        std::cout << '\n';
     }
 };
 
@@ -583,7 +583,7 @@ public:
         return result;
     }
 
-    // special constructor that return the minimum value of a ArbiInt<N>
+    // special constructor that return the maximum value of a ArbiInt<N>
     static constexpr ArbiInt<N> maximum()
     {
         ArbiInt<N> result;
@@ -591,7 +591,7 @@ public:
 
         // how many last bits are set to 1 in the last uint64_t
         size_t oneBits = N % 64 - 1;
-        result.data[num_words - 1] = (oneBits == 0) ? ~uint64_t(0) : ~ (~uint64_t(0) << oneBits);
+        result.data[num_words - 1] = (oneBits == 0) ? ~uint64_t(0) : ~(~uint64_t(0) << oneBits);
 
         return result;
     }
@@ -614,7 +614,7 @@ public:
         // how many last bits are set to 0 in the last uint64_t
         size_t zeroBits = N % 64 - 1;
         result.data[num_words - 1] = (zeroBits == 0) ? ~uint64_t(0) : ~uint64_t(0) << zeroBits;
-         
+
         return result;
     }
 
@@ -745,9 +745,8 @@ public:
     }
 
     // Assignment from string
-    ArbiInt(const std::string &str)
+    ArbiInt(const std::string &str) : data(string_to_big_integer<num_words>(str))
     {
-        data = string_to_big_integer<num_words>(str);
     }
 
     template <size_t M>
@@ -764,7 +763,7 @@ public:
         data[0] = other.data;
 
         // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[0]) >> 63);
+        auto sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[0]) >> 63);
         for (size_t i = 1; i < num_words; ++i)
         {
             data[i] = sign_extension;
@@ -780,7 +779,7 @@ public:
         std::copy(other.data.begin(), other.data.begin() + copyLen, data.begin());
 
         // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[copyLen - 1]) >> 63);
+        auto sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[copyLen - 1]) >> 63);
         for (size_t i = copyLen; i < num_words; ++i)
         {
             data[i] = sign_extension;
@@ -788,7 +787,7 @@ public:
     }
 
     // operator bool
-    constexpr operator bool() const
+    constexpr explicit operator bool() const
     {
         return !std::all_of(data.begin(), data.end(), [](uint64_t w) { return w == 0; });
     }
@@ -888,11 +887,11 @@ public:
         return result;
     }
 
-    void display(std::string name = "") const
+    void display(const std::string &name = "") const
     {
         if (!name.empty())
         {
-            std::cout << name << ":" << std::endl;
+            std::cout << name << ":" << '\n';
         }
 
         std::cout << "Binary:  ";
@@ -900,10 +899,10 @@ public:
         {
             std::cout << std::bitset<64>(data[i]) << " ";
         }
-        std::cout << std::endl;
+        std::cout << '\n';
 
         std::cout << "Decimal: " << big_integer_to_string(data) << std::endl;
-        std::cout << std::endl;
+        std::cout << '\n';
     }
 };
 
@@ -924,7 +923,6 @@ template <size_t N, size_t M>
     requires(N <= 64 && M <= 64) && (N == 64 || M == 64)
 constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
-
     ArbiInt<65> result;
 
     // transform the 64-bit integer to 128-bit integer
@@ -1600,8 +1598,6 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
     return result;
 }
 
-
-
 template <int shift, size_t N>
     requires(shift > 0) && (N <= 64) && (N > shift)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
@@ -2267,7 +2263,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1 + toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
 
         if (val > floor)
         {
@@ -2357,10 +2353,12 @@ public:
     inline static constexpr int intB = intBitsInput;
     inline static constexpr int fracB = fracBitsInput;
     inline static constexpr bool isS = isSignedInput;
+    inline static constexpr int len = intB + fracB + static_cast<int>(isS);
     using QuM_t = QuModeInput;
     using OfM_t = OfModeInput;
     inline static constexpr int QuM = QuModeInput::value;
     inline static constexpr int OfM = OfModeInput::value;
+    inline static constexpr bool is_complex = false;
 
     // no matter whether the sign bit is commanded by the user, the actual implementation will always have a sign bit
     ArbiInt<1 + intB + fracB> data;
@@ -2396,19 +2394,19 @@ public:
         return data.toDouble() / std::pow(2, fracB);
     }
 
-    inline void display(std::string name = "") const
+    inline void display(const std::string &name = "") const
     {
         if (name != "")
         {
-            std::cout << name << " :" << std::endl;
+            std::cout << name << " :" << '\n';
         }
 
-        std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << std::endl;
+        std::cout << "intBits: " << intB << " fracBits: " << fracB << " isSigned: " << isS << '\n';
 
-        std::cout << "Binary: " << this->toString() << " " << this->data.toString() << std::endl;
+        std::cout << "Binary: " << this->toString() << " " << this->data.toString() << '\n';
 
-        std::cout << "Decimal: " << this->toDouble() << std::endl;
-        std::cout << std::endl;
+        std::cout << "Decimal: " << this->toDouble() << '\n';
+        std::cout << '\n';
     }
 
     inline constexpr auto toString() const
@@ -2467,11 +2465,16 @@ class Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>
 public:
     using realType = Qu_s<realArgs...>;
     using imagType = Qu_s<imagArgs...>;
+    inline static constexpr int realLen = realType::len;
+    inline static constexpr int imagLen = imagType::len;
+    inline static constexpr int len = realLen + imagLen;
+    inline static constexpr bool is_complex = true;
+
     realType real;
     imagType imag;
 
     // basic constructor
-    Qu_s() {}
+    Qu_s() = default;
 
     // use = {a, b} to initialize
     template <typename T1, typename T2>
@@ -2483,25 +2486,23 @@ public:
     {}
 
     template <typename fromRealType, typename fromImagType>
-    inline constexpr Qu_s(const Qu_s<fromRealType, fromImagType> &val)
+    inline constexpr Qu_s(const Qu_s<fromRealType, fromImagType> &val) : real(val.real), imag(val.imag)
     {
-        real = val.real;
-        imag = val.imag;
     }
 
     template <typename T>
     inline constexpr Qu_s(const std::complex<T> &val) : real(val.real()), imag(val.imag()) {}
 
-    void display(std::string name = "") const
+    void display(const std::string &name = "") const
     {
         if (name != "")
         {
             std::cout << name << " :";
         }
-        std::cout << std::endl;
-        std::cout << "Real part: " << std::endl;
+        std::cout << '\n';
+        std::cout << "Real part: " << '\n';
         real.display();
-        std::cout << "Imaginary part: " << std::endl;
+        std::cout << "Imaginary part: " << '\n';
         imag.display();
     }
 
@@ -2510,16 +2511,24 @@ public:
         return std::complex<double>(real.toDouble(), imag.toDouble());
     }
 
-    inline constexpr auto toString()
+    inline constexpr auto toString() const
     {
         return "(" + real.toString() + ", " + imag.toString() + ")";
     }
 
-    inline auto fill(auto... dis)
-        requires(sizeof...(dis) <= 1)
+    // NOTE: 将原先用约束写一个函数改为手动重载两个函数。因为clangd似乎有bug，
+    //       在此处用requires会导致之后代码的code highlighting显示错误
+    inline auto fill()
     {
-        real.fill(dis...);
-        imag.fill(dis...);
+        real.fill();
+        imag.fill();
+        return *this;
+    }
+
+    inline auto fill(auto dis)
+    {
+        real.fill(dis);
+        imag.fill(dis);
         return *this;
     }
 
@@ -2561,15 +2570,16 @@ struct dim
 
     static inline constexpr std::array<size_t, dimSize> dimArray = {dims...};
 
+    // NOTE: 将约束改为static_assert，原因同上，
+    //       在此处用requires会导致之后代码的code highlighting显示错误
     template <size_t index>
-        requires(index < dimSize)
     struct dimAt_s
     {
+        static_assert(index < dimSize, "dimension out of range!");
         static inline constexpr size_t value = dimArray[index];
     };
 
     template <size_t index>
-        requires(index < dimSize)
     static inline constexpr size_t dimAt = dimAt_s<index>::value;
 
     template <size_t index2>
@@ -2632,6 +2642,9 @@ public:
     storage_t data;
 
     using size = dim<dims...>;
+    static constexpr size_t elemSize = size::elemSize;
+    static constexpr size_t dimSize = size::dimSize;
+    using elem_t = Arg;
 
     // 构造函数
     constexpr Qu_s()
@@ -2825,7 +2838,7 @@ public:
         return result;
     }
 
-    void display(std::string name = "") const
+    void display(std::string const &name = "") const
     {
         if (name != "")
         {
@@ -2836,8 +2849,6 @@ public:
         {
             data[i].display();
         }
-
-        std::cout << std::endl;
     }
 
     // overload for std::cout
@@ -2885,7 +2896,7 @@ public:
 
                 if (i != row - 1)
                 {
-                    os << std::endl;
+                    os << '\n';
                 }
             }
         }
@@ -2948,7 +2959,7 @@ public:
 
                 if (i != row - 1)
                 {
-                    file << std::endl;
+                    file << '\n';
                 }
             }
         }
@@ -3006,7 +3017,6 @@ struct isScalar_s<Qu_s<dim<dims...>, QuT>>
 
 template <typename T>
 inline constexpr bool isScalar = isScalar_s<T>::value;
-
 
 // ------------------- Basic Operations -------------------
 struct FullPrec;
@@ -4373,15 +4383,15 @@ struct sr<>
     size_t start;
     size_t end;
 
-    sr(size_t dim, size_t start, size_t end)
-        : dim(dim), start(start), end(end) {}
+    sr(size_t _dim, size_t _start, size_t _end)
+        : dim(_dim), start(_start), end(_end) {}
 
-    sr(size_t dim, size_t start)
-        : dim(dim), start(start), end(start + 1) {}
+    sr(size_t _dim, size_t _start)
+        : dim(_dim), start(_start), end(_start + 1) {}
 
     void display(std::string prefix = "")
     {
-        std::cout << prefix << "dim: " << dim << " start: " << start << " end: " << end << std::endl;
+        std::cout << prefix << "dim: " << dim << " start: " << start << " end: " << end << '\n';
     }
 };
 
@@ -4420,6 +4430,304 @@ public:
     }
 };
 
+// ------------------- Basic tensor operations -------------------
+
+// convert string to single complex
+template <typename Qcomplex_t>
+    requires(Qcomplex_t::is_complex)
+Qcomplex_t str2Qcomplex(std::string const &str)
+{
+    Qcomplex_t res;
+    int real_decimal = std::stoi(str.substr(0, Qcomplex_t::realLen), nullptr, 2);
+    int imag_decimal = std::stoi(str.substr(Qcomplex_t::realLen, Qcomplex_t::len), nullptr, 2);
+    res.fill(real_decimal, imag_decimal);
+    return res;
+}
+
+// BitStream converter
+struct l2r
+{};
+
+template <size_t... in>
+    requires(sizeof...(in) <= 1)
+struct r2l;
+
+template <size_t in>
+struct r2l<in>
+{
+    inline static constexpr size_t index = in;
+};
+
+template <>
+struct r2l<> : r2l<1>
+{
+};
+
+// handle string to string
+template <typename... Args>
+struct SingleString_s;
+
+template <>
+struct SingleString_s<l2r>
+{
+    inline static constexpr auto convert(std::string_view str)
+    {
+        return std::string(str);
+    }
+
+    // from function, currently indentical to convert
+    inline static constexpr auto from(std::string_view str)
+    {
+        return convert(str);
+    }
+
+    // to function, currently indentical to convert
+    inline static constexpr auto to(std::string_view str)
+    {
+        return convert(str);
+    }
+};
+
+template <size_t... in>
+struct SingleString_s<r2l<in...>>
+{
+    inline static constexpr auto index = r2l<in...>::index;
+
+    inline static constexpr auto convert(std::string_view str)
+    {
+        if (str.size() % index != 0)
+        {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(index));
+        }
+
+        std::string res;
+        res.reserve(str.size());
+
+        // Reverse chunks of size Index directly
+        for (size_t i = str.size(); i >= index; i -= index)
+        {
+            res.append(str.data() + i - index, index);
+        }
+
+        return res;
+    }
+
+    // from function, currently indentical to convert
+    inline static constexpr auto from(std::string_view str)
+    {
+        return convert(str);
+    }
+
+    // to function, currently indentical to convert
+    inline static constexpr auto to(std::string_view str)
+    {
+        return convert(str);
+    }
+};
+
+template <typename... Args>
+struct TensorString_s;
+
+template <typename elemProcessT>
+struct TensorString_s<l2r, elemProcessT>
+{
+    // convert to std::array<std::string, size> with element string stored in l2r
+    // the input string is expected to be a single string containing all elements, each element has length of elemLength
+    template <typename QuTensorT>
+    inline static constexpr auto fromString(std::string_view str)
+    {
+        using QuT = typename QuTensorT::elem_t;
+        static constexpr auto elemLen = QuT::len;
+        static constexpr auto elemSize = QuTensorT::elemSize;
+        if (str.size() % elemLen != 0)
+        {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+        }
+
+        std::array<std::string, elemSize> res;
+        for (size_t i = 0; i < res.size(); i++)
+        {
+            res[i] = SingleString_s<elemProcessT>::convert(str.substr(i * elemLen, elemLen));
+        }
+
+        return res;
+    }
+
+    template <size_t arrSize>
+    inline static constexpr auto toString(std::array<std::string, arrSize> arr)
+    {
+        std::string res;
+        res.reserve(arr.size() * arr[0].size());
+
+        for (size_t i = 0; i < arr.size(); i++)
+        {
+            res.append(SingleString_s<elemProcessT>::to(arr[i]));
+        }
+
+        return res;
+    }
+
+    // from QuBLAS type to std::array<std::string, size>
+    template <size_t... dims, typename QuT>
+    inline static constexpr auto fromQu(Qu_s<dim<dims...>, QuT> const &tensor)
+    {
+        std::array<std::string, dim<dims...>::elemSize> res;
+
+        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        {
+            res[i] = SingleString_s<elemProcessT>::to(tensor[i].toString());
+        }
+        return res;
+    }
+
+    // from std::array<std::string, size> to QuBLAS type
+    template <typename QuTensorT>
+    inline static constexpr auto toQu(std::array<std::string, QuTensorT::elemSize> const &arr)
+    {
+        QuTensorT res;
+        using elem_t = QuTensorT::elem_t;
+
+        for (size_t i = 0; i < QuTensorT::elemSize; i++)
+        {
+            std::string str = SingleString_s<elemProcessT>::from(arr[i]);
+
+            // convert binary stored in str to integer
+            if constexpr (elem_t::is_complex)
+            {
+                res[i] = str2Qcomplex<elem_t>(str);
+            }
+            else
+            {
+                int decimal = std::stoi(str, nullptr, 2);
+                res[i].fill(decimal);
+            }
+        }
+
+        return res;
+    }
+};
+
+template <typename elemProcessT, size_t index>
+struct TensorString_s<r2l<index>, elemProcessT>
+{
+    template <typename QuTensorT>
+    inline static constexpr auto fromString(std::string_view str)
+    {
+        using QuT = typename QuTensorT::elem_t;
+        static constexpr auto elemLen = QuT::len;
+        static constexpr auto elemSize = QuTensorT::elemSize;
+        if (str.size() % elemLen != 0)
+        {
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+        }
+
+        std::array<std::string, elemSize> res;
+
+        // Reverse chunks of size Index directly
+        size_t in = 0;
+        for (size_t i = elemSize; i > 0; i = i - index)
+        {
+            for (size_t j = 0; j < index; j++)
+            {
+                res[in] = SingleString_s<elemProcessT>::convert(str.substr((i + j - index) * elemLen, elemLen));
+                in++;
+            }
+        }
+
+        return res;
+    }
+
+    template <size_t arrSize>
+    inline static constexpr auto toString(std::array<std::string, arrSize> arr)
+    {
+        std::string res;
+        res.reserve(arr.size() * arr[0].size());
+
+        // reverse the order of elements, with every Index elements as a chunk
+        for (size_t i = arr.size(); i > 0; i = i - index)
+        {
+            for (size_t j = 0; j < index; j++)
+            {
+                res.append(SingleString_s<elemProcessT>::to(arr[i + j - index]));
+            }
+        }
+        return res;
+    }
+};
+
+// scalar
+template <typename... Args>
+struct BitStream_s;
+
+template <typename... QuArgs, typename processT>
+struct BitStream_s<Qu_s<QuArgs...>, processT>
+{
+    inline static auto convert(std::string_view str)
+    {
+        using elem_t = Qu_s<QuArgs...>;
+        elem_t res;
+
+        auto is_bin_char = [](char ch) { return (ch == '0') || (ch == '1'); };
+        auto filtered_view = str | std::views::filter(is_bin_char);
+        std::string filtered_str(filtered_view.begin(), filtered_view.end());
+        std::string toStr = SingleString_s<processT>::from(filtered_str);
+
+        if constexpr (elem_t::is_complex)
+        {
+            res = str2Qcomplex<elem_t>(toStr);
+        }
+        else
+        {
+            int decimal = std::stoi(toStr, nullptr, 2);
+            res.fill(decimal);
+        }
+
+        return res;
+    }
+};
+
+template <typename processT>
+struct BitStream_s<processT>
+{
+    inline static auto convert(auto const &Qu)
+    {
+        return SingleString_s<processT>::to(Qu.toString());
+    }
+};
+
+// tensor
+template <typename QuT, size_t... dims, typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<Qu_s<dim<dims...>, QuT>, tensorProcessT, elemProcessT>
+{
+    inline static auto convert(std::string_view str)
+    {
+        // use TensorString_s
+        auto is_bin_char = [](char ch) { return (ch == '0') || (ch == '1'); };
+        auto filtered_view = str | std::views::filter(is_bin_char);
+        std::string filtered_str(filtered_view.begin(), filtered_view.end());
+
+        auto arr = TensorString_s<tensorProcessT, elemProcessT>::template fromString<Qu_s<dim<dims...>, QuT>>(filtered_str);
+        return TensorString_s<l2r, l2r>::template toQu<Qu_s<dim<dims...>, QuT>>(arr);
+    }
+};
+
+template <typename tensorProcessT, typename elemProcessT>
+struct BitStream_s<tensorProcessT, elemProcessT>
+{
+    template <typename... QuArgs>
+    inline static auto convert(Qu_s<QuArgs...> const &Qu)
+    {
+        auto arr = TensorString_s<l2r, l2r>::fromQu(Qu);
+        return TensorString_s<tensorProcessT, elemProcessT>::toString(arr);
+    }
+};
+
+template <typename... Args>
+inline auto BitStream(auto const &input)
+{
+    return BitStream_s<Args...>::convert(input);
+}
+
 // ------------------- Advanced Nonlinear Universal Subprograms -------------------
 // the operations like lookup table, linear/polynomial fitting, etc. used to implement the non-linear operation in asic
 // note that the operations are not standard BLAS operations, use ANUS:: to get access to them
@@ -4427,66 +4735,66 @@ public:
 namespace ANUS {
 
 // polynomial fitting
-template<auto a0>
+template <auto a0>
 inline static constexpr auto Qpoly(auto x)
 {
     return a0;
 }
 
 // return a0 + a1 * x + a2 * x^2 + ...
-template<auto a0, auto a1, auto... as>
+template <auto a0, auto a1, auto... as>
 inline static constexpr auto Qpoly(auto x)
 {
     return Qadd<decltype(a0)>(
         a0,
         Qmul<decltype(a0)>(
             x,
-            Qpoly<a1, as...>(x)
-        )
-    );
+            Qpoly<a1, as...>(x)));
 }
-
-
 
 // segmented linear fitting
 template <double BreakPoint, auto... as>
-struct Segment {
+struct Segment
+{
     static constexpr double breakpoint = BreakPoint;
-    
-    inline static constexpr auto func(auto x) {
+
+    inline static constexpr auto func(auto x)
+    {
         return Qpoly<as...>(x);
     }
 };
 
- 
-
 template <typename Segment1, typename... Rest>
-constexpr auto Qapprox(auto x) {
-    if (x.toDouble() < Segment1::breakpoint) {
+constexpr auto Qapprox(auto x)
+{
+    if (x.toDouble() < Segment1::breakpoint)
+    {
         // return Segment1::func(x);
-        return decltype(x) {Segment1::func(x)};
-    } else {
-        if constexpr (sizeof...(Rest) > 0) {
-            return Qapprox< Rest...>(x);
-        } else {
+        return decltype(x){Segment1::func(x)};
+    }
+    else
+    {
+        if constexpr (sizeof...(Rest) > 0)
+        {
+            return Qapprox<Rest...>(x);
+        }
+        else
+        {
             // 如果超过最后一个分段点，使用最后一个函数
             // return Segment1::func(x);
-            return decltype(x) {Segment1::func(x)};
+            return decltype(x){Segment1::func(x)};
         }
     }
 }
- 
 
-template<typename...Args>
-struct Qapprox_s {
-    inline static constexpr auto execute(auto x) {
+template <typename... Args>
+struct Qapprox_s
+{
+    inline static constexpr auto execute(auto x)
+    {
         return Qapprox<Args...>(x);
     }
 };
-
- 
-
- 
 
 } // namespace ANUS
 
