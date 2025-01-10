@@ -122,7 +122,8 @@ inline constexpr bool isA = isA_s<Args...>::value;
 // 能否方括号索引
 // ------------------- isSquareBracketIndexable -------------------
 template <typename T>
-concept isSquareBracketIndexable = requires(T a) {
+concept isSquareBracketIndexable = requires(T a)
+{
     a[0];
 };
 
@@ -186,6 +187,13 @@ template <typename Tag, typename Tag2, typename... Args>
 struct tagExtractor<Tag, Tag2, Args...> : tagExtractor<Tag, Args...>
 {
 };
+
+static long long count;
+
+inline void Qreset()
+{
+    count = 0;
+}
 
 // ------------------- pack indexer -------------------
 // which is in C++26, we cannot use it now, so we have to implement it in a ugly way
@@ -344,8 +352,7 @@ class ArbiInt;
 
 // Specialization for N in (0, 64], using a single integer
 template <size_t N>
-    requires(N > 0 && N <= 64)
-class ArbiInt<N>
+requires(N > 0 && N <= 64) class ArbiInt<N>
 {
 public:
     using data_t = std::conditional_t<(N <= 32), int32_t, int64_t>;
@@ -370,12 +377,11 @@ public:
             result.data = ~(~data_t(0) << N);
         }
 
-
         return result;
     }
 
     // special constructor that return the minimum value of a ArbiInt<N>
-    static constexpr  ArbiInt<N> maximum()
+    static constexpr ArbiInt<N> maximum()
     {
         ArbiInt<N> result;
         // make the last N-1 bits 1
@@ -403,7 +409,7 @@ public:
     static constexpr ArbiInt<N> minimum()
     {
         ArbiInt<N> result;
-        result.data =  ~data_t(0) << (N - 1);
+        result.data = ~data_t(0) << (N - 1);
         return result;
     }
 
@@ -426,15 +432,13 @@ public:
 
     // Constructor from another ArbiInt
     template <size_t M>
-        requires(M > 0 && M <= 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
+    requires(M > 0 && M <= 64) constexpr ArbiInt(const ArbiInt<M> &other)
     {
         data = other.data;
     }
 
     template <size_t M>
-        requires(M > 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
+    requires(M > 64) constexpr ArbiInt(const ArbiInt<M> &other)
     {
         data = other.data[0];
     }
@@ -560,8 +564,7 @@ public:
 };
 
 template <size_t N>
-    requires(N > 64)
-class ArbiInt<N>
+requires(N > 64) class ArbiInt<N>
 {
 public:
     static constexpr size_t num_bits = N;
@@ -615,6 +618,7 @@ public:
         size_t zeroBits = (N - 1) % 64;
         result.data[num_words - 1] = ~uint64_t(0) << (64 - zeroBits);
          
+
         return result;
     }
 
@@ -637,7 +641,7 @@ public:
 
     // Constructor from arithmetic types
     template <typename T>
-        requires std::is_integral_v<T>
+    requires std::is_integral_v<T>
     constexpr ArbiInt(T val)
     {
         data.fill(0);
@@ -751,15 +755,13 @@ public:
     }
 
     template <size_t M>
-        requires(ArbiInt<M>::num_words == num_words)
-    constexpr ArbiInt(const ArbiInt<M> &other)
+    requires(ArbiInt<M>::num_words == num_words) constexpr ArbiInt(const ArbiInt<M> &other)
     {
         std::copy(other.data.begin(), other.data.end(), data.begin());
     }
 
     template <size_t M>
-        requires(M > 0 && M <= 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
+    requires(M > 0 && M <= 64) constexpr ArbiInt(const ArbiInt<M> &other)
     {
         data[0] = other.data;
 
@@ -772,8 +774,7 @@ public:
     }
 
     template <size_t M>
-        requires(M > 64 && ArbiInt<M>::num_words != num_words)
-    constexpr ArbiInt(const ArbiInt<M> &other)
+    requires(M > 64 && ArbiInt<M>::num_words != num_words) constexpr ArbiInt(const ArbiInt<M> &other)
     {
         constexpr size_t copyLen = std::min(ArbiInt<M>::num_words, ArbiInt<N>::num_words);
 
@@ -911,8 +912,7 @@ public:
 
 // special case for each input smaller than 64 bits and the result is also smaller than 64 bits
 template <size_t N, size_t M>
-    requires(N < 64 && M < 64)
-constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N < 64 && M < 64) constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M) + 1> result; // the result may need one more bit
     result.data = static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(lhs.data) + static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(rhs.data);
@@ -921,8 +921,7 @@ constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 
 // super special case for a 64-bit integer promoted to 65-bit integer
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64) && (N == 64 || M == 64)
-constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) && (N == 64 || M == 64) constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
 
     ArbiInt<65> result;
@@ -939,8 +938,7 @@ constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 
 // general case for a integer larger than 64 bits with a integer smaller than 64 bits
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     constexpr size_t R = N + 1;
     ArbiInt<R> result;
@@ -968,15 +966,13 @@ constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 
 // general case for a integer smaller than 64 bits with a integer larger than 64 bits
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     return rhs + lhs;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     // The result may need one more bit to store potential overflow
     constexpr size_t R = std::max(N, M) + 1;
@@ -1010,8 +1006,7 @@ constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 // Special case for N < 64 and M < 64
 template <size_t N, size_t M>
-    requires(N < 64 && M < 64)
-constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N < 64 && M < 64) constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M) + 1> result;
     result.data = static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(lhs.data) - static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(rhs.data);
@@ -1020,8 +1015,7 @@ constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 
 // Special case when either N or M is exactly 64
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64) && (N == 64 || M == 64)
-constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) && (N == 64 || M == 64) constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<65> result;
     __int128_t diff = static_cast<__int128_t>(lhs.data) - static_cast<__int128_t>(rhs.data);
@@ -1032,8 +1026,7 @@ constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 
 // General case for N > 64 and M <= 64
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     constexpr size_t R = N + 1;
     ArbiInt<R> result;
@@ -1063,8 +1056,7 @@ constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 
 // General case for N <= 64 and M > 64
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t R = M + 1;
     ArbiInt<R> lhs_promoted = lhs; // Promote lhs to match the size of rhs
@@ -1073,8 +1065,7 @@ constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 
 // General case for N > 64 and M > 64
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t R = std::max(N, M) + 1;
     ArbiInt<R> result;
@@ -1109,8 +1100,7 @@ constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 // Unary minus operator for ArbiInt<N>
 template <size_t N>
-    requires(N < 64)
-constexpr auto operator-(const ArbiInt<N> &x)
+requires(N < 64) constexpr auto operator-(const ArbiInt<N> &x)
 {
     ArbiInt<N + 1> result;
     result.data = -static_cast<ArbiInt<N + 1>::data_t>(x.data);
@@ -1118,8 +1108,7 @@ constexpr auto operator-(const ArbiInt<N> &x)
 }
 
 template <size_t N>
-    requires(N == 64)
-constexpr auto operator-(const ArbiInt<N> &x)
+requires(N == 64) constexpr auto operator-(const ArbiInt<N> &x)
 {
     ArbiInt<N + 1> result; // it will be promoted to 65 bits and occupy 2 uint64_t
     __int128_t temp = -static_cast<__int128_t>(x.data);
@@ -1129,8 +1118,7 @@ constexpr auto operator-(const ArbiInt<N> &x)
 }
 
 template <size_t N>
-    requires(N > 64)
-constexpr auto operator-(const ArbiInt<N> &x)
+requires(N > 64) constexpr auto operator-(const ArbiInt<N> &x)
 {
     ArbiInt<N + 1> result;
 
@@ -1181,8 +1169,7 @@ constexpr auto operator-(const ArbiInt<N> &x)
 // operator*
 
 template <size_t N, size_t M>
-    requires(M + N <= 64)
-constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(M + N <= 64) constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<N + M> result;
     result.data = static_cast<ArbiInt<N + M>::data_t>(lhs.data) * static_cast<ArbiInt<N + M>::data_t>(rhs.data);
@@ -1190,8 +1177,7 @@ constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(M + N > 64 && (N <= 64 && M <= 64))
-constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(M + N > 64 && (N <= 64 && M <= 64)) constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<N + M> result;
 
@@ -1204,15 +1190,13 @@ constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     return rhs * lhs;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     constexpr size_t R = N + M;
     using ResultType = ArbiInt<R>;
@@ -1277,8 +1261,7 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t R = N + M;
     using ResultType = ArbiInt<R>;
@@ -1361,8 +1344,7 @@ constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 // operator /
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator/(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr auto operator/(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<64> result;
     result.data = lhs.data / rhs.data;
@@ -1467,9 +1449,10 @@ inline std::string divideString(const std::string &dividend, const std::string &
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 || M > 64)
-[[deprecated("Division for large integers is currently implemented using string conversion. It is not efficient and may be slow for large numbers.")]]
-auto operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 || M > 64)
+    //[[deprecated("Division for large integers is currently implemented using string conversion. It is not efficient and may be slow for large numbers.")]]
+    auto
+    operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     auto dividend = lhs.toString();
     auto divisor = rhs.toString();
@@ -1482,8 +1465,7 @@ auto operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 // operator <<
 // specially, the static shift left is designed for no overflow guaranteed
 template <int shift, size_t N>
-    requires(shift > 0) && (N + shift <= 64)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+requires(shift > 0) && (N + shift <= 64) constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
     ArbiInt<N + shift> result;
 
@@ -1493,8 +1475,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N + shift > 64) && (N <= 64)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+requires(shift > 0) && (N + shift > 64) && (N <= 64) constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
     ArbiInt<N + shift> result;
 
@@ -1514,8 +1495,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (shift % 64 == 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+requires(shift > 0) && (N > 64) && (shift % 64 == 0) constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
     ArbiInt<N + shift> result;
 
@@ -1526,8 +1506,7 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
     return result;
 }
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (shift % 64 != 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+requires(shift > 0) && (N > 64) && (shift % 64 != 0) constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
     constexpr size_t num_words_in = ArbiInt<N>::num_words;
     constexpr size_t num_words_out = ArbiInt<N + shift>::num_words;
@@ -1577,34 +1556,28 @@ constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift < 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+requires(shift < 0) constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
     return staticShiftRight<-shift>(x);
 }
 
 template <int shift, size_t N>
-    requires(shift == 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+requires(shift == 0) constexpr auto staticShiftLeft(const ArbiInt<N> &x)
 {
     return x;
 }
 
 // operator >>
 template <int shift, size_t N>
-    requires(shift > 0) && (N <= shift)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift > 0) && (N <= shift) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     ArbiInt<1> result;
     result.data = 0;
     return result;
 }
 
-
-
 template <int shift, size_t N>
-    requires(shift > 0) && (N <= 64) && (N > shift)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift > 0) && (N <= 64) && (N > shift) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     ArbiInt<N - shift> result;
 
@@ -1614,8 +1587,7 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N - shift <= 64) && (N > shift)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift > 0) && (N > 64) && (N - shift <= 64) && (N > shift) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     // get the highest 128 bits and shift right
     ArbiInt<N - shift> result;
@@ -1635,8 +1607,7 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 == 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 == 0) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     ArbiInt<N - shift> result;
     std::copy(x.data.begin() + shift / 64, x.data.end(), result.data.begin());
@@ -1644,8 +1615,7 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift > 0) && (N > 64) && (N - shift > 64) && (shift % 64 != 0) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     constexpr size_t shift_words = shift / 64; // Number of complete 64-bit blocks to shift right
     constexpr size_t shift_bits = shift % 64;  // Remaining bits to shift right
@@ -1686,43 +1656,37 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
 }
 
 template <int shift, size_t N>
-    requires(shift < 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift < 0) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     return staticShiftLeft<-shift>(x);
 }
 
 template <int shift, size_t N>
-    requires(shift == 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
+requires(shift == 0) constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     return x;
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     return lhs.data == rhs.data;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     return static_cast<int64_t>(lhs.data[0]) == static_cast<int64_t>(rhs.data);
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     return static_cast<int64_t>(lhs.data) == static_cast<int64_t>(rhs.data[0]);
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t num_words_N = ArbiInt<N>::num_words;
     constexpr size_t num_words_M = ArbiInt<M>::num_words;
@@ -1741,44 +1705,38 @@ constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr bool operator!=(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr bool operator!=(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     return !(lhs == rhs);
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     return !(lhs == rhs);
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr bool operator!=(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr bool operator!=(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     return !(lhs == rhs);
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     return !(lhs == rhs);
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     return lhs.data <=> rhs.data;
 }
 
 // For lhs > 64 bits and rhs <= 64 bits
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     int64_t rhs_ext = (rhs.data < 0) ? -1LL : 0LL; // 符号扩展rhs的值
     for (int i = ArbiInt<N>::num_words - 1; i > 0; --i)
@@ -1793,8 +1751,7 @@ constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 
 // For lhs <= 64 bits and rhs > 64 bits
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     int64_t lhs_ext = (lhs.data < 0) ? -1LL : 0LL; // 符号扩展lhs的值
     for (int i = ArbiInt<M>::num_words - 1; i > 0; --i)
@@ -1809,8 +1766,7 @@ constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 
 // For both lhs and rhs > 64 bits
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     int64_t lhs_ext = (lhs.data[ArbiInt<N>::num_words - 1] >> 63) ? -1LL : 0LL;
     int64_t rhs_ext = (rhs.data[ArbiInt<M>::num_words - 1] >> 63) ? -1LL : 0LL;
@@ -1827,8 +1783,7 @@ constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 // operator ^
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M)> result;
     result.data = lhs.data ^ rhs.data;
@@ -1836,8 +1791,7 @@ constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<N> result = lhs;
     result.data[0] ^= static_cast<uint64_t>(rhs.data);
@@ -1845,8 +1799,7 @@ constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<M> result = rhs;
     result.data[0] ^= static_cast<uint64_t>(lhs.data);
@@ -1854,8 +1807,7 @@ constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<std::max(N, M)> result = M > N ? rhs : lhs;
     for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
@@ -1868,8 +1820,7 @@ constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 // operator &
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M)> result;
     result.data = lhs.data & rhs.data;
@@ -1877,8 +1828,7 @@ constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<N> result;
     result.data[0] = lhs.data[0] & static_cast<uint64_t>(rhs.data);
@@ -1886,8 +1836,7 @@ constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<M> result;
     result.data[0] = static_cast<uint64_t>(lhs.data) & rhs.data[0];
@@ -1895,8 +1844,7 @@ constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<std::max(N, M)> result;
     for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
@@ -1909,8 +1857,7 @@ constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 // operator |
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+requires(N <= 64 && M <= 64) constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<std::max(N, M)> result;
     result.data = lhs.data | rhs.data;
@@ -1918,8 +1865,7 @@ constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
+requires(N > 64 && M <= 64) constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 {
     ArbiInt<N> result = lhs;
     result.data[0] |= static_cast<uint64_t>(rhs.data);
@@ -1927,8 +1873,7 @@ constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
+requires(N <= 64 && M > 64) constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<M> result = rhs;
     result.data[0] |= static_cast<uint64_t>(lhs.data);
@@ -1936,8 +1881,7 @@ constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+requires(N > 64 && M > 64) constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<std::max(N, M)> result = M > N ? rhs : lhs;
     for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
@@ -1949,8 +1893,7 @@ constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
 // operator ~
 template <size_t N>
-    requires(N <= 64)
-constexpr auto operator~(const ArbiInt<N> x)
+requires(N <= 64) constexpr auto operator~(const ArbiInt<N> x)
 {
     ArbiInt<N> result;
     result.data = ~x.data;
@@ -1958,8 +1901,7 @@ constexpr auto operator~(const ArbiInt<N> x)
 }
 
 template <size_t N>
-    requires(N > 64)
-constexpr auto operator~(const ArbiInt<N> &x)
+requires(N > 64) constexpr auto operator~(const ArbiInt<N> &x)
 {
     ArbiInt<N> result;
     for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
@@ -2267,7 +2209,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1 + toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
 
         if (val > floor)
         {
@@ -2515,8 +2457,7 @@ public:
         return "(" + real.toString() + ", " + imag.toString() + ")";
     }
 
-    inline auto fill(auto... dis)
-        requires(sizeof...(dis) <= 1)
+    inline auto fill(auto... dis) requires(sizeof...(dis) <= 1)
     {
         real.fill(dis...);
         imag.fill(dis...);
@@ -2562,15 +2503,13 @@ struct dim
     static inline constexpr std::array<size_t, dimSize> dimArray = {dims...};
 
     template <size_t index>
-        requires(index < dimSize)
-    struct dimAt_s
+    requires(index < dimSize) struct dimAt_s
     {
         static inline constexpr size_t value = dimArray[index];
     };
 
     template <size_t index>
-        requires(index < dimSize)
-    static inline constexpr size_t dimAt = dimAt_s<index>::value;
+    requires(index < dimSize) static inline constexpr size_t dimAt = dimAt_s<index>::value;
 
     template <size_t index2>
     struct elemSizeForIndexHead
@@ -2579,8 +2518,7 @@ struct dim
     };
 
     template <size_t... index>
-        requires(sizeof...(index) == dimSize)
-    struct absoluteIndex_s
+    requires(sizeof...(index) == dimSize) struct absoluteIndex_s
     {
         template <size_t loc, size_t... index2>
         struct compute;
@@ -2601,13 +2539,11 @@ struct dim
     };
 
     template <size_t... index>
-        requires(sizeof...(index) == dimSize)
-    using absoluteIndex = absoluteIndex_s<index...>::value;
+    requires(sizeof...(index) == dimSize) using absoluteIndex = absoluteIndex_s<index...>::value;
 };
 
 template <size_t... dims, typename Arg>
-    requires(isA<Arg, Qu_s<>>)
-class Qu_s<dim<dims...>, Arg>
+requires(isA<Arg, Qu_s<>>) class Qu_s<dim<dims...>, Arg>
 {
 public:
     template <typename First, typename... Rest>
@@ -2660,7 +2596,7 @@ public:
     }
 
     template <typename SquareBracketIndexableType>
-        requires isSquareBracketIndexable<SquareBracketIndexableType>
+    requires isSquareBracketIndexable<SquareBracketIndexableType>
     constexpr Qu_s(const SquareBracketIndexableType &val)
     {
         if constexpr (onHeap)
@@ -2793,8 +2729,7 @@ public:
     }
 
     // operator[]
-    inline constexpr auto &operator[](auto... index)
-        requires(sizeof...(index) == dim<dims...>::dimSize && sizeof...(index) > 1)
+    inline constexpr auto &operator[](auto... index) requires(sizeof...(index) == dim<dims...>::dimSize && sizeof...(index) > 1)
     {
         return data[calculateIndex(0, index...)];
     }
@@ -3007,7 +2942,6 @@ struct isScalar_s<Qu_s<dim<dims...>, QuT>>
 template <typename T>
 inline constexpr bool isScalar = isScalar_s<T>::value;
 
-
 // ------------------- Basic Operations -------------------
 struct FullPrec;
 
@@ -3099,6 +3033,8 @@ struct Qmul_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         // debug info
         // std::cout << f1.toDouble() << " * " << f2.toDouble() << " = " << result.toDouble() << std::endl;
 
+        count += (fromInt1 + fromFrac1) * (fromInt2 + fromFrac2);
+
         return result;
     }
 };
@@ -3132,6 +3068,8 @@ struct Qadd_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         // debug info
         // std::cout << f1.toDouble() << " + " << f2.toDouble() << " = " << result.toDouble() << std::endl;
 
+        count += (fromInt1 + fromFrac1) + (fromInt2 + fromFrac2);
+
         return result;
     }
 };
@@ -3141,8 +3079,7 @@ struct Qsub_s;
 
 // specialization for both inputs being static Qu_s
 template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-    requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
-struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>) struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
 {
     using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
 
@@ -3163,6 +3100,8 @@ struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intDiff;
 
+        count += (fromInt1 + fromFrac1) + (fromInt2 + fromFrac2);
+
         return result;
     }
 };
@@ -3172,8 +3111,7 @@ struct Qdiv_s;
 
 // specialization for both inputs being static Qu_s
 template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
-    requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
-struct Qdiv_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>) struct Qdiv_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
 {
     using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
 
@@ -3656,14 +3594,14 @@ struct sizeMerger<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims1...>, QuT2>>
 };
 
 template <size_t... dims1, typename QuT1, typename QuT2>
-    requires isScalar<QuT2>
+requires isScalar<QuT2>
 struct sizeMerger<Qu_s<dim<dims1...>, QuT1>, QuT2>
 {
     using size = dim<dims1...>;
 };
 
 template <size_t... dims2, typename QuT2, typename QuT1>
-    requires isScalar<QuT1>
+requires isScalar<QuT1>
 struct sizeMerger<QuT1, Qu_s<dim<dims2...>, QuT2>>
 {
     using size = dim<dims2...>;
@@ -3884,42 +3822,42 @@ struct QnegTensor_s<QuT, toArgs...>
 // scalar functions
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qmul(const QuT1 f1, const QuT2 f2)
 {
     return Qmul_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::mul(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qadd(const QuT1 f1, const QuT2 f2)
 {
     return Qadd_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::add(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qsub(const QuT1 f1, const QuT2 f2)
 {
     return Qsub_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::sub(f1, f2);
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+requires isScalar<QuT1> && isScalar<QuT2>
 inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
 {
     return Qdiv_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::div(f1, f2);
 }
 
 template <typename... toArgs, typename QuT>
-    requires isScalar<QuT>
+requires isScalar<QuT>
 inline constexpr auto Qabs(const QuT f)
 {
     return Qabs_s<QuT, MergerArgsWrapper<toArgs...>>::abs(f);
 }
 
 template <typename... toArgs, typename QuT>
-    requires isScalar<QuT>
+requires isScalar<QuT>
 inline constexpr auto Qneg(const QuT f)
 {
     return Qneg_s<QuT, MergerArgsWrapper<toArgs...>>::neg(f);
@@ -3927,42 +3865,42 @@ inline constexpr auto Qneg(const QuT f)
 
 // operator overloading
 template <typename... QuArgs1, typename... QuArgs2>
-    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
 inline constexpr auto operator*(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qmul(f1, f2);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
 inline constexpr auto operator+(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qadd(f1, f2);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
 inline constexpr auto operator-(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qsub(f1, f2);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
 inline constexpr auto operator/(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qdiv(f1, f2);
 }
 
 template <typename... QuArgs>
-    requires isScalar<Qu_s<QuArgs...>>
+requires isScalar<Qu_s<QuArgs...>>
 inline constexpr auto operator-(const Qu_s<QuArgs...> f1)
 {
     return Qneg(f1);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
 inline constexpr auto operator<=>(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qcmp_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, MergerArgsWrapper<>>::cmp(f1, f2);
@@ -3970,79 +3908,68 @@ inline constexpr auto operator<=>(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2.
 
 // tensor functions
 template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qmul(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto Qmul(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return QmulTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::mul(f1, f2);
 }
 
 template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qadd(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto Qadd(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return QaddTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::add(f1, f2);
 }
 
 template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qsub(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto Qsub(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return QsubTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::sub(f1, f2);
 }
 
 template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qdiv(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto Qdiv(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return QdivTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::div(f1, f2);
 }
 
 template <typename... toArgs, typename... QuArgs>
-    requires(!isScalar<Qu_s<QuArgs...>>)
-inline constexpr auto Qabs(const Qu_s<QuArgs...> &f)
+requires(!isScalar<Qu_s<QuArgs...>>) inline constexpr auto Qabs(const Qu_s<QuArgs...> &f)
 {
     return QabsTensor_s<Qu_s<QuArgs...>, toArgs...>::abs(f);
 }
 
 template <typename... toArgs, typename... QuArgs>
-    requires(!isScalar<Qu_s<QuArgs...>>)
-inline constexpr auto Qneg(const Qu_s<QuArgs...> &f)
+requires(!isScalar<Qu_s<QuArgs...>>) inline constexpr auto Qneg(const Qu_s<QuArgs...> &f)
 {
     return QnegTensor_s<Qu_s<QuArgs...>, toArgs...>::neg(f);
 }
 
 // operator overloading
 template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator*(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto operator*(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qmul(f1, f2);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator+(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto operator+(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qadd(f1, f2);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator-(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto operator-(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qsub(f1, f2);
 }
 
 template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator/(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)inline constexpr auto operator/(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
 {
     return Qdiv(f1, f2);
 }
 
 template <typename... QuArgs>
-    requires(!isScalar<Qu_s<QuArgs...>>)
-inline constexpr auto operator-(const Qu_s<QuArgs...> &f1)
+requires(!isScalar<Qu_s<QuArgs...>>) inline constexpr auto operator-(const Qu_s<QuArgs...> &f1)
 {
     return Qneg(f1);
 }
@@ -4085,16 +4012,14 @@ struct dimExtractor
 };
 
 template <size_t targetDimIndex, typename sr1, typename... srs>
-    requires(sr1::dim == targetDimIndex)
-struct dimExtractor<targetDimIndex, sr1, srs...>
+requires(sr1::dim == targetDimIndex) struct dimExtractor<targetDimIndex, sr1, srs...>
 {
     inline static constexpr size_t start = sr1::start;
     inline static constexpr size_t end = sr1::end;
 };
 
 template <size_t targetDimIndex, typename sr1, typename... srs>
-    requires(sr1::dim != targetDimIndex)
-struct dimExtractor<targetDimIndex, sr1, srs...> : dimExtractor<targetDimIndex, srs...>
+requires(sr1::dim != targetDimIndex) struct dimExtractor<targetDimIndex, sr1, srs...> : dimExtractor<targetDimIndex, srs...>
 {
 };
 
@@ -4123,8 +4048,7 @@ class SliceExpression;
 
 // general case, try not to use this version for compile-time efficiency
 template <typename targetTensorT, typename... Args>
-    requires(targetTensorT::size::dimSize >= 3 && sizeof...(Args) >= 1)
-class SliceExpression<targetTensorT, Args...>
+requires(targetTensorT::size::dimSize >= 3 && sizeof...(Args) >= 1) class SliceExpression<targetTensorT, Args...>
 {
 public:
     // target tensor
@@ -4169,8 +4093,7 @@ public:
 
 // slice a matrix to a vector
 template <typename targetTensorT, size_t... Args>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::start == sr<Args...>::end - 1)
-class SliceExpression<targetTensorT, sr<Args...>>
+requires(targetTensorT::size::dimSize == 2 && sr<Args...>::start == sr<Args...>::end - 1) class SliceExpression<targetTensorT, sr<Args...>>
 {
 public:
     using size = std::conditional_t<sr<Args...>::dim == 0, dim<1, targetTensorT::size::dimArray[1]>, dim<targetTensorT::size::dimArray[0]>>;
@@ -4205,14 +4128,12 @@ public:
 };
 
 template <typename targetTensorT, size_t... Args1, size_t... Args2>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::start == sr<Args2...>::end - 1)
-class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>> : public SliceExpression<targetTensorT, sr<Args2...>, sr<Args1...>>
+requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::start == sr<Args2...>::end - 1) class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>> : public SliceExpression<targetTensorT, sr<Args2...>, sr<Args1...>>
 {
 };
 
 template <typename targetTensorT, size_t... Args1, size_t... Args2>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args1...>::start == sr<Args1...>::end - 1)
-class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
+requires(targetTensorT::size::dimSize == 2 && sr<Args1...>::start == sr<Args1...>::end - 1) class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
 {
 public:
     using size = std::conditional_t<sr<Args1...>::dim == 0, dim<1, sr<Args2...>::end - sr<Args2...>::start>, dim<sr<Args2...>::end - sr<Args2...>::start>>;
@@ -4248,8 +4169,7 @@ public:
 
 // slice a matrix to a matrix
 template <typename targetTensorT, size_t... Args>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::end - sr<Args...>::start > 1)
-class SliceExpression<targetTensorT, sr<Args...>>
+requires(targetTensorT::size::dimSize == 2 && sr<Args...>::end - sr<Args...>::start > 1) class SliceExpression<targetTensorT, sr<Args...>>
 {
 public:
     inline static constexpr size_t row = sr<Args...>::dim == 0 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[0];
@@ -4319,8 +4239,7 @@ public:
 };
 
 template <typename targetTensorT, size_t... Args1, size_t... Args2>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::end - sr<Args2...>::start > 1 && sr<Args1...>::end - sr<Args1...>::start > 1)
-class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
+requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::end - sr<Args2...>::start > 1 && sr<Args1...>::end - sr<Args1...>::start > 1) class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
 {
 public:
     inline static constexpr size_t row = sr<Args1...>::dim == 0 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
@@ -4401,7 +4320,8 @@ public:
         : targetTensor(f)
     {
 
-        static auto updateTargetDim = [srs..., this]<size_t... Is>(size_t index, std::index_sequence<Is...>) {
+        static auto updateTargetDim = [ srs..., this ]<size_t... Is>(size_t index, std::index_sequence<Is...>)
+        {
             toLower[index] = (0 + ... + (index == srs.dim ? srs.start : 0));
             toUpper[index] = (0 + ... + (index == srs.dim ? srs.end : 0));
             if (toUpper[index] == 0)
@@ -4410,9 +4330,11 @@ public:
             }
         };
 
-        [this]<size_t... Is>(std::index_sequence<Is...>) {
+        [this]<size_t... Is>(std::index_sequence<Is...>)
+        {
             (updateTargetDim(Is, std::make_index_sequence<sizeof...(srs)>{}), ...);
-        }(std::make_index_sequence<targetTensorT::size::dimSize>{});
+        }
+        (std::make_index_sequence<targetTensorT::size::dimSize>{});
     }
 
     inline auto &operator[](auto... index)
@@ -4427,66 +4349,66 @@ public:
 namespace ANUS {
 
 // polynomial fitting
-template<auto a0>
+template <auto a0>
 inline static constexpr auto Qpoly(auto x)
 {
     return a0;
 }
 
 // return a0 + a1 * x + a2 * x^2 + ...
-template<auto a0, auto a1, auto... as>
+template <auto a0, auto a1, auto... as>
 inline static constexpr auto Qpoly(auto x)
 {
     return Qadd<decltype(a0)>(
         a0,
         Qmul<decltype(a0)>(
             x,
-            Qpoly<a1, as...>(x)
-        )
-    );
+            Qpoly<a1, as...>(x)));
 }
-
-
 
 // segmented linear fitting
 template <double BreakPoint, auto... as>
-struct Segment {
+struct Segment
+{
     static constexpr double breakpoint = BreakPoint;
-    
-    inline static constexpr auto func(auto x) {
+
+    inline static constexpr auto func(auto x)
+    {
         return Qpoly<as...>(x);
     }
 };
 
- 
-
 template <typename Segment1, typename... Rest>
-constexpr auto Qapprox(auto x) {
-    if (x.toDouble() < Segment1::breakpoint) {
+constexpr auto Qapprox(auto x)
+{
+    if (x.toDouble() < Segment1::breakpoint)
+    {
         // return Segment1::func(x);
-        return decltype(x) {Segment1::func(x)};
-    } else {
-        if constexpr (sizeof...(Rest) > 0) {
-            return Qapprox< Rest...>(x);
-        } else {
+        return decltype(x){Segment1::func(x)};
+    }
+    else
+    {
+        if constexpr (sizeof...(Rest) > 0)
+        {
+            return Qapprox<Rest...>(x);
+        }
+        else
+        {
             // 如果超过最后一个分段点，使用最后一个函数
             // return Segment1::func(x);
-            return decltype(x) {Segment1::func(x)};
+            return decltype(x){Segment1::func(x)};
         }
     }
 }
- 
 
-template<typename...Args>
-struct Qapprox_s {
-    inline static constexpr auto execute(auto x) {
+template <typename... Args>
+struct Qapprox_s
+{
+    inline static constexpr auto execute(auto x)
+    {
         return Qapprox<Args...>(x);
     }
 };
-
- 
-
- 
 
 } // namespace ANUS
 
@@ -4564,9 +4486,11 @@ struct Reducer
         }
         else
         {
-            [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
+            [&res = res, &quants = quants ]<size_t... I>(std::index_sequence<I...>)
+            {
                 ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
-            }(std::make_index_sequence<len / 2>());
+            }
+            (std::make_index_sequence<len / 2>());
 
             if constexpr (len % 2 != 0)
             {
