@@ -1,4 +1,3 @@
-
 #include "QuBLAS.h"
 #include <algorithm>
 #include <bitset>
@@ -7,22 +6,19 @@
 
 using namespace QuBLAS;
 
- 
 
 int main()
 {
-    using real_t = Qu<intBits<35>,fracBits<-15>, OfMode<SAT::SMGN>>;
- 
-    using from_t = Qu<intBits<13>,fracBits<27>, OfMode<SAT::SMGN>>;
 
-    real_t a = 0.5;
+    // using type1 = Qu< intBits<80>, fracBits<47>,OfMode<SAT::SMGN> >;
 
-    from_t b = 0.5;
+    // type1 a = 1.0;
 
-    a = b;
 
-    std::cout << a << std::endl;
+    constexpr auto max = ArbiInt<1 + 127 + 64>::maximum();
 
+    max.display();
+
+
+    
 }
-
- 

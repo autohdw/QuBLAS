@@ -583,15 +583,15 @@ public:
         return result;
     }
 
-    // special constructor that return the minimum value of a ArbiInt<N>
+    // special constructor that return the maximum value of a ArbiInt<N>
     static constexpr ArbiInt<N> maximum()
     {
         ArbiInt<N> result;
         result.data.fill(~uint64_t(0));
 
         // how many last bits are set to 1 in the last uint64_t
-        size_t oneBits = N % 64 - 1;
-        result.data[num_words - 1] = (oneBits == 0) ? ~uint64_t(0) : ~ (~uint64_t(0) << oneBits);
+        size_t oneBits = (N - 1) % 64;
+        result.data[num_words - 1] = ~uint64_t(0) >> (64 - oneBits);
 
         return result;
     }
@@ -612,8 +612,8 @@ public:
         result.data.fill(0);
 
         // how many last bits are set to 0 in the last uint64_t
-        size_t zeroBits = N % 64 - 1;
-        result.data[num_words - 1] = (zeroBits == 0) ? ~uint64_t(0) : ~uint64_t(0) << zeroBits;
+        size_t zeroBits = (N - 1) % 64;
+        result.data[num_words - 1] = ~uint64_t(0) << (64 - zeroBits);
          
         return result;
     }
