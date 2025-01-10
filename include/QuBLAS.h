@@ -593,8 +593,8 @@ public:
         result.data.fill(~uint64_t(0));
 
         // how many last bits are set to 1 in the last uint64_t
-        size_t oneBits = (N - 1) % 64;
-        result.data[num_words - 1] = ~uint64_t(0) >> (64 - oneBits);
+        size_t oneBits = (N - 1) % 64; // may be 0
+        result.data[num_words - 1] = ~(~uint64_t(0) << oneBits);
 
         return result;
     }
@@ -616,7 +616,7 @@ public:
 
         // how many last bits are set to 0 in the last uint64_t
         size_t zeroBits = (N - 1) % 64;
-        result.data[num_words - 1] = ~uint64_t(0) << (64 - zeroBits);
+        result.data[num_words - 1] = ~uint64_t(0) << zeroBits;
          
 
         return result;

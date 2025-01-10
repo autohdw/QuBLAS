@@ -15,7 +15,7 @@ int main()
     // type1 a = 1.0;
 
 
-    constexpr auto max = ArbiInt<1 + 127 + 64>::maximum();
+    constexpr auto max = ArbiInt<129>::maximum();
 
     max.display();
 
