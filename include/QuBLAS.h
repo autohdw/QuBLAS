@@ -1812,15 +1812,24 @@ template <size_t N, size_t M>
     requires(N > 64 && M > 64)
 constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    int64_t lhs_ext = (lhs.data[ArbiInt<N>::num_words - 1] >> 63) ? -1LL : 0LL;
-    int64_t rhs_ext = (rhs.data[ArbiInt<M>::num_words - 1] >> 63) ? -1LL : 0LL;
-    int max_words = std::max(ArbiInt<N>::num_words, ArbiInt<M>::num_words);
+    uint64_t lhs_ext = (lhs.data[ArbiInt<N>::num_words - 1] >> 63) ? -1ULL : 0ULL;
+    uint64_t rhs_ext = (rhs.data[ArbiInt<M>::num_words - 1] >> 63) ? -1ULL : 0ULL;
+
+    // Compare the most significant bits first, if they are different, return the result
+    if (lhs_ext != rhs_ext)
+        return rhs_ext <=> lhs_ext;
+
+    constexpr int max_words = std::max(ArbiInt<N>::num_words, ArbiInt<M>::num_words);
+
+
     for (int i = max_words - 1; i >= 0; --i)
     {
-        int64_t lhs_word = (i < ArbiInt<N>::num_words) ? lhs.data[i] : lhs_ext;
-        int64_t rhs_word = (i < ArbiInt<M>::num_words) ? rhs.data[i] : rhs_ext;
+        uint64_t lhs_word = (i < ArbiInt<N>::num_words) ? lhs.data[i] : lhs_ext;
+        uint64_t rhs_word = (i < ArbiInt<M>::num_words) ? rhs.data[i] : rhs_ext;
+
         if (lhs_word != rhs_word)
-            return lhs_word <=> rhs_word;
+            return  (lhs_word <=> rhs_word);
+  
     }
     return lhs_ext <=> rhs_ext;
 }
