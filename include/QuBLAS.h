@@ -2353,7 +2353,7 @@ public:
     inline static constexpr int intB = intBitsInput;
     inline static constexpr int fracB = fracBitsInput;
     inline static constexpr bool isS = isSignedInput;
-    inline static constexpr int len = intB + fracB + static_cast<int>(isS);
+    inline static constexpr int width = intB + fracB + static_cast<int>(isS);
     using QuM_t = QuModeInput;
     using OfM_t = OfModeInput;
     inline static constexpr int QuM = QuModeInput::value;
@@ -2465,9 +2465,9 @@ class Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>
 public:
     using realType = Qu_s<realArgs...>;
     using imagType = Qu_s<imagArgs...>;
-    inline static constexpr int realLen = realType::len;
-    inline static constexpr int imagLen = imagType::len;
-    inline static constexpr int len = realLen + imagLen;
+    inline static constexpr int realWidth = realType::width;
+    inline static constexpr int imagWidth = imagType::width;
+    inline static constexpr int width = realWidth + imagWidth;
     inline static constexpr bool is_complex = true;
 
     realType real;
@@ -4438,8 +4438,8 @@ template <typename Qcomplex_t>
 Qcomplex_t str2Qcomplex(std::string const &str)
 {
     Qcomplex_t res;
-    int real_decimal = std::stoi(str.substr(0, Qcomplex_t::realLen), nullptr, 2);
-    int imag_decimal = std::stoi(str.substr(Qcomplex_t::realLen, Qcomplex_t::len), nullptr, 2);
+    int real_decimal = std::stoi(str.substr(0, Qcomplex_t::realWidth), nullptr, 2);
+    int imag_decimal = std::stoi(str.substr(Qcomplex_t::realWidth, Qcomplex_t::imagWidth), nullptr, 2);
     res.fill(real_decimal, imag_decimal);
     return res;
 }
@@ -4532,22 +4532,22 @@ template <typename elemProcessT>
 struct TensorString_s<l2r, elemProcessT>
 {
     // convert to std::array<std::string, size> with element string stored in l2r
-    // the input string is expected to be a single string containing all elements, each element has length of elemLength
+    // the input string is expected to be a single string containing all elements, each element has length of elemWidth
     template <typename QuTensorT>
     inline static constexpr auto fromString(std::string_view str)
     {
         using QuT = typename QuTensorT::elem_t;
-        static constexpr auto elemLen = QuT::len;
+        static constexpr auto elemWidth = QuT::width;
         static constexpr auto elemSize = QuTensorT::elemSize;
-        if (str.size() % elemLen != 0)
+        if (str.size() % elemWidth != 0)
         {
-            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemWidth));
         }
 
         std::array<std::string, elemSize> res;
         for (size_t i = 0; i < res.size(); i++)
         {
-            res[i] = SingleString_s<elemProcessT>::convert(str.substr(i * elemLen, elemLen));
+            res[i] = SingleString_s<elemProcessT>::convert(str.substr(i * elemWidth, elemWidth));
         }
 
         return res;
@@ -4614,11 +4614,11 @@ struct TensorString_s<r2l<index>, elemProcessT>
     inline static constexpr auto fromString(std::string_view str)
     {
         using QuT = typename QuTensorT::elem_t;
-        static constexpr auto elemLen = QuT::len;
+        static constexpr auto elemWidth = QuT::width;
         static constexpr auto elemSize = QuTensorT::elemSize;
-        if (str.size() % elemLen != 0)
+        if (str.size() % elemWidth != 0)
         {
-            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemLen));
+            throw std::runtime_error("Invalid string length: Must be a multiple of " + std::to_string(elemWidth));
         }
 
         std::array<std::string, elemSize> res;
@@ -4629,7 +4629,7 @@ struct TensorString_s<r2l<index>, elemProcessT>
         {
             for (size_t j = 0; j < index; j++)
             {
-                res[in] = SingleString_s<elemProcessT>::convert(str.substr((i + j - index) * elemLen, elemLen));
+                res[in] = SingleString_s<elemProcessT>::convert(str.substr((i + j - index) * elemWidth, elemWidth));
                 in++;
             }
         }
