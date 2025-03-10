@@ -524,12 +524,19 @@ public:
 
     auto fill()
     {
-        // generate a random number with the full range of - 2^(N-1) to 2^(N-1) - 1
-        static std::uniform_int_distribution<__int128_t> dist(-(__int128_t(1) << (N - 1)), (__int128_t(1) << (N - 1)) - 1);
+        // randomly generate a number in the full range of int64_t
+        data = UniRand(gen);
 
-        data = static_cast<data_t>(dist(gen));
+        constexpr int64_t mask = (static_cast<int64_t>(1) << (N % 64)) - 1;
+
+        // get the sign bit
+        int64_t sign = data >> 63;
+
+        // mask the data to N bits
+        data = (data & mask) | (sign << (N % 64));
 
         return *this;
+
     }
 
     constexpr auto toString() const
