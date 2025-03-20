@@ -370,12 +370,11 @@ public:
             result.data = ~(~data_t(0) << N);
         }
 
-
         return result;
     }
 
     // special constructor that return the minimum value of a ArbiInt<N>
-    static constexpr  ArbiInt<N> maximum()
+    static constexpr ArbiInt<N> maximum()
     {
         ArbiInt<N> result;
         // make the last N-1 bits 1
@@ -403,7 +402,7 @@ public:
     static constexpr ArbiInt<N> minimum()
     {
         ArbiInt<N> result;
-        result.data =  ~data_t(0) << (N - 1);
+        result.data = ~data_t(0) << (N - 1);
         return result;
     }
 
@@ -536,7 +535,6 @@ public:
         data = (data & mask) | (sign << (N % 64));
 
         return *this;
-
     }
 
     constexpr auto toString() const
@@ -560,6 +558,7 @@ public:
         {
             std::cout << name << ":" << std::endl;
         }
+        std::cout << "N: " << N << std::endl;
         std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
         std::cout << "Decimal: " << data << std::endl;
         std::cout << std::endl;
@@ -621,7 +620,7 @@ public:
         // how many last bits are set to 0 in the last uint64_t
         size_t zeroBits = (N - 1) % 64;
         result.data[num_words - 1] = ~uint64_t(0) << zeroBits;
-         
+
         return result;
     }
 
@@ -902,6 +901,7 @@ public:
             std::cout << name << ":" << std::endl;
         }
 
+        std::cout << "N: " << N << std::endl;
         std::cout << "Binary:  ";
         for (int i = num_words - 1; i >= 0; --i)
         {
@@ -1607,8 +1607,6 @@ constexpr auto staticShiftRight(const ArbiInt<N> &x)
     return result;
 }
 
-
-
 template <int shift, size_t N>
     requires(shift > 0) && (N <= 64) && (N > shift)
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
@@ -1828,15 +1826,13 @@ constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
     constexpr int max_words = std::max(ArbiInt<N>::num_words, ArbiInt<M>::num_words);
 
-
     for (int i = max_words - 1; i >= 0; --i)
     {
         uint64_t lhs_word = (i < ArbiInt<N>::num_words) ? lhs.data[i] : lhs_ext;
         uint64_t rhs_word = (i < ArbiInt<M>::num_words) ? rhs.data[i] : rhs_ext;
 
         if (lhs_word != rhs_word)
-            return  (lhs_word <=> rhs_word);
-  
+            return (lhs_word <=> rhs_word);
     }
     return lhs_ext <=> rhs_ext;
 }
@@ -2181,22 +2177,25 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
+        constexpr size_t resN = (N + toFrac) < (1 + fromFrac) ? 1 : (N + (toFrac - fromFrac));
+        using resType = ArbiInt<resN>;
+
         if constexpr (fromFrac <= toFrac)
         {
-            return staticShiftLeft<toFrac - fromFrac>(val);
+            return resType(staticShiftLeft<toFrac - fromFrac>(val));
         }
         else
         {
-            constexpr auto one = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+            constexpr auto one = ArbiInt<1>::allOnes();
 
             if (val.isNegative())
             {
-                return staticShiftRight<fromFrac - toFrac>(val + one);
+                return resType(staticShiftRight<fromFrac - toFrac>(val) + one);
             }
             else
             {
-                ArbiInt<N + 1> temp = val;
-                return staticShiftRight<fromFrac - toFrac>(temp);
+                (staticShiftRight<fromFrac - toFrac>(val)).display();
+                return resType(staticShiftRight<fromFrac - toFrac>(val));
             }
         }
     }
@@ -2283,7 +2282,7 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::SMGN>>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
         constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
-        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1+ toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
+        constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>(ArbiInt<1 + toInt + toFrac>::minimum() + ArbiInt<1>(1)) : ArbiInt<1 + toInt + toFrac>(0);
 
         if (val > floor)
         {
@@ -3022,7 +3021,6 @@ struct isScalar_s<Qu_s<dim<dims...>, QuT>>
 
 template <typename T>
 inline constexpr bool isScalar = isScalar_s<T>::value;
-
 
 // ------------------- Basic Operations -------------------
 struct FullPrec;
@@ -4443,66 +4441,66 @@ public:
 namespace ANUS {
 
 // polynomial fitting
-template<auto a0>
+template <auto a0>
 inline static constexpr auto Qpoly(auto x)
 {
     return a0;
 }
 
 // return a0 + a1 * x + a2 * x^2 + ...
-template<auto a0, auto a1, auto... as>
+template <auto a0, auto a1, auto... as>
 inline static constexpr auto Qpoly(auto x)
 {
     return Qadd<decltype(a0)>(
         a0,
         Qmul<decltype(a0)>(
             x,
-            Qpoly<a1, as...>(x)
-        )
-    );
+            Qpoly<a1, as...>(x)));
 }
-
-
 
 // segmented linear fitting
 template <double BreakPoint, auto... as>
-struct Segment {
+struct Segment
+{
     static constexpr double breakpoint = BreakPoint;
-    
-    inline static constexpr auto func(auto x) {
+
+    inline static constexpr auto func(auto x)
+    {
         return Qpoly<as...>(x);
     }
 };
 
- 
-
 template <typename Segment1, typename... Rest>
-constexpr auto Qapprox(auto x) {
-    if (x.toDouble() < Segment1::breakpoint) {
+constexpr auto Qapprox(auto x)
+{
+    if (x.toDouble() < Segment1::breakpoint)
+    {
         // return Segment1::func(x);
-        return decltype(x) {Segment1::func(x)};
-    } else {
-        if constexpr (sizeof...(Rest) > 0) {
-            return Qapprox< Rest...>(x);
-        } else {
+        return decltype(x){Segment1::func(x)};
+    }
+    else
+    {
+        if constexpr (sizeof...(Rest) > 0)
+        {
+            return Qapprox<Rest...>(x);
+        }
+        else
+        {
             // 如果超过最后一个分段点，使用最后一个函数
             // return Segment1::func(x);
-            return decltype(x) {Segment1::func(x)};
+            return decltype(x){Segment1::func(x)};
         }
     }
 }
- 
 
-template<typename...Args>
-struct Qapprox_s {
-    inline static constexpr auto execute(auto x) {
+template <typename... Args>
+struct Qapprox_s
+{
+    inline static constexpr auto execute(auto x)
+    {
         return Qapprox<Args...>(x);
     }
 };
-
- 
-
- 
 
 } // namespace ANUS
 
