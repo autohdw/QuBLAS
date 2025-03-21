@@ -2141,7 +2141,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
             constexpr auto mask = ArbiInt<fromFrac - toFrac>::allZeros();
             auto floor_raw = val & mask;
 
-            auto ceil = floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+            auto ceil = ArbiInt<N + 1> (floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes()));
             ArbiInt<N + 1> floor = floor_raw;
             if (floor + ceil == staticShiftLeft<1>(val))
             {
