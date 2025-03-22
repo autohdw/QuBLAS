@@ -39,17 +39,16 @@ int main()
     // myfile.close();
     // return 0;
 
-    using type1 = Qu<intBits<-5>, fracBits<9>, isSigned<true>, QuMode<RND::CONV>, OfMode<WRP::TCPL>>; 
-    using type2 = Qu<intBits<2>, fracBits<2>, isSigned<true>, QuMode<RND::CONV>, OfMode<WRP::TCPL>>;
+    using type1 = Qu<intBits<-5>, fracBits<9>, isSigned<true>, QuMode<TRN::TCPL>, OfMode<WRP::TCPL>>; 
+    using type2 = Qu<intBits<2>, fracBits<2>, isSigned<true>, QuMode<TRN::TCPL>, OfMode<WRP::TCPL>>;
 
-    type1 a = 0.5;
+    type1 a;
+    a.data.data = -4;
     type2 b = 0.5;
 
-    // // clear all displayed in console
-    std::cout << "\033[2J\033[1;1H";
-
+    a.display();
     b=a;
-
+    b.display();
 
     
 }

@@ -1603,7 +1603,7 @@ template <int shift, size_t N>
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     ArbiInt<1> result;
-    result.data = 0;
+    result.data = x.isNegative() ? ~int64_t(0) : int64_t(0);
     return result;
 }
 
