@@ -2187,11 +2187,23 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 
             if (val.isNegative())
             {
-                return resType(staticShiftRight<fromFrac - toFrac>(val) + one);
+                // return resType(staticShiftRight<fromFrac - toFrac>(val) + one);
+
+                // check the highest bit of the shifted value
+                constexpr auto mask = staticShiftLeft<fromFrac - toFrac - 1>(one);
+                auto shiftedHighestBit = val & mask;
+                if (shiftedHighestBit.isZero())
+                {
+                    return resType(staticShiftRight<fromFrac - toFrac>(val));
+                }
+                else
+                {
+                    return resType(staticShiftRight<fromFrac - toFrac>(val) + one);
+                }
+
             }
             else
             {
-                (staticShiftRight<fromFrac - toFrac>(val)).display();
                 return resType(staticShiftRight<fromFrac - toFrac>(val));
             }
         }
