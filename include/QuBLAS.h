@@ -7,6 +7,7 @@
 #include <complex>
 #include <csignal>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -25,7 +26,7 @@ inline namespace QuBLAS {
 // ------------------- Random -------------------
 
 static std::random_device rd;
-static std::mt19937 gen(1);                                                                                                         // 1 is the seed
+static std::mt19937 gen(1);
 static std::uniform_int_distribution<uint64_t> UniRand(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max()); // 整数的全范围分布
 static std::normal_distribution<double> NormRand(0, 1);                                                                             // 正态分布
 
@@ -523,16 +524,12 @@ public:
 
     auto fill()
     {
-        // randomly generate a number in the full range of int64_t
-        data = UniRand(gen);
+        constexpr data_t min = ArbiInt<N>::minimum().data;
+        constexpr data_t max = ArbiInt<N>::maximum().data;
 
-        constexpr int64_t mask = (static_cast<int64_t>(1) << (N % 64)) - 1;
+        static std::uniform_int_distribution<data_t> dist(min, max);
 
-        // get the sign bit
-        int64_t sign = data >> 63;
-
-        // mask the data to N bits
-        data = (data & mask) | (sign << (N % 64));
+        data = dist(gen);
 
         return *this;
     }
