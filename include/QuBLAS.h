@@ -2192,7 +2192,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
                 // check the highest bit of the shifted value
                 constexpr auto mask = staticShiftLeft<fromFrac - toFrac - 1>(one);
                 auto shiftedHighestBit = val & mask;
-                if (shiftedHighestBit.isZero())
+                if (shiftedHighestBit.isZero() || resN==1) // keep the sign bit if only the sign bit will be left
                 {
                     return resType(staticShiftRight<fromFrac - toFrac>(val));
                 }
