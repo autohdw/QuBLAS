@@ -2186,28 +2186,12 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         else
         {
             constexpr auto one = ArbiInt<1>::allOnes();
+ 
 
-            if (val.isNegative())
-            {
-                // return resType(staticShiftRight<fromFrac - toFrac>(val) + one);
+            resType res;
+            res.data= ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
 
-                // check the highest bit of the shifted value
-                constexpr auto mask = staticShiftLeft<fromFrac - toFrac - 1>(one);
-                auto shiftedHighestBit = val & mask;
-                if (shiftedHighestBit.isZero() || resN==1) // keep the sign bit if only the sign bit will be left
-                {
-                    return resType(staticShiftRight<fromFrac - toFrac>(val));
-                }
-                else
-                {
-                    return resType(staticShiftRight<fromFrac - toFrac>(val) + one);
-                }
-
-            }
-            else
-            {
-                return resType(staticShiftRight<fromFrac - toFrac>(val));
-            }
+            return res;
         }
     }
 };
