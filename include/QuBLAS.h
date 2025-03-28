@@ -2174,7 +2174,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
-        constexpr int resN_ = N + (toFrac - fromFrac);
+        constexpr int resN_ = static_cast<int>(N) + (toFrac - fromFrac);
         constexpr size_t resN = (resN_ < 1) ? 1 : resN_;
 
         using resType = ArbiInt<resN>;
