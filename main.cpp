@@ -52,17 +52,12 @@ int main()
     // b.display();
 
      
-    using type1 = Qu<intBits<2>, fracBits<4>, isSigned<true>, QuMode<TRN::TCPL>, OfMode<SAT::ZERO>>; 
-    using type2 = Qu<intBits<-3>, fracBits<7>, isSigned<true>, QuMode<TRN::TCPL>, OfMode<SAT::ZERO>>; 
-
-    type1 a;
+    using type1 = Qu<intBits<12>, fracBits<4>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<SAT::ZERO>>; 
  
-    type2 b;
-    
-    
-     auto cmp = a==b;
-     auto cmp2 = a!=b;
 
+    type1 a =10;
+
+    a.display();
  
 
      

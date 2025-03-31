@@ -2188,8 +2188,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
             constexpr auto one = ArbiInt<1>::allOnes();
  
 
-            resType res;
-            res.data= ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
+            resType res= ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
 
             return res;
         }
