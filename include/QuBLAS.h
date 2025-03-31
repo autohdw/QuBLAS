@@ -3286,6 +3286,33 @@ struct Qcmp_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
     }
 };
 
+template <typename... Args>
+struct Qeq_s;
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct Qeq_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+
+    inline static constexpr auto eq(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        return staticShiftLeft<shiftA>(f1.data) == staticShiftLeft<shiftB>(f2.data);
+    }
+};
+
+
+// specialization for complex
+template <typename... toArgs, typename... realArgs, typename... imagArgs>
+struct Qeq_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, TypeList<toArgs...>>
+{
+    inline static auto eq(const Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>> f1, const Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>> f2)
+    {
+        return Qeq<toArgs...>(f1.real, f2.real) && Qeq<toArgs...>(f1.imag, f2.imag);
+    }
+};
+
+
+
 // ------------------- Complex Operations -------------------
 // Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i
 template <typename... Args>
@@ -3934,6 +3961,13 @@ inline constexpr auto Qneg(const QuT f)
     return Qneg_s<QuT, MergerArgsWrapper<toArgs...>>::neg(f);
 }
 
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto Qeq(const QuT1 f1, const QuT2 f2)
+{
+    return Qeq_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::eq(f1, f2);
+}
+
 // operator overloading
 template <typename... QuArgs1, typename... QuArgs2>
     requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
@@ -3975,6 +4009,13 @@ template <typename... QuArgs1, typename... QuArgs2>
 inline constexpr auto operator<=>(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qcmp_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, MergerArgsWrapper<>>::cmp(f1, f2);
+}
+
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator==(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
+{
+    return Qeq(f1, f2);
 }
 
 // tensor functions
