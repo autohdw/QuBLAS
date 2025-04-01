@@ -39,25 +39,18 @@ int main()
     // myfile.close();
     // return 0;
 
-    // using type1 = Qu<intBits<-3>, fracBits<7>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<WRP::TCPL>>; 
-    // using type2 = Qu<intBits<0>, fracBits<4>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<WRP::TCPL>>; 
+    using type1 = Qu<intBits<-5>, fracBits<9>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<WRP::TCPL>>; 
+    using type2 = Qu<intBits<2>, fracBits<2>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<WRP::TCPL>>; 
 
-    // type1 a;
-    // a.data.data = -7;
-    // type2 b;
-    // // b.data.data = -512;
-
-    // a.display();
-    // b=a;
-    // b.display();
-
-     
-    using type1 = Qu<intBits<12>, fracBits<4>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<SAT::ZERO>>; 
- 
-
-    type1 a =10;
+    type1 a;
+    a.data.data = 15;
+    type2 b;
+    // b.data.data = -512;
 
     a.display();
+    b=a;
+    b.display();
+
  
 
      

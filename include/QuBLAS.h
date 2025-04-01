@@ -2186,11 +2186,20 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         else
         {
             constexpr auto one = ArbiInt<1>::allOnes();
+  
+            if (val.isNegative())
+            {
+                resType res = ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
+
+                return res;
+            }
+            else
+            {
+                resType res = staticShiftRight<fromFrac - toFrac>(val);
+
+                return res;
+            }
  
-
-            resType res= ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
-
-            return res;
         }
     }
 };
