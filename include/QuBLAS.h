@@ -557,7 +557,7 @@ public:
             std::cout << name << ":" << '\n';
         }
         std::cout << "N: " << N << std::endl;
-        std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
+        std::cout << "Binary:  " << std::bitset<N <= 32 ? 32 : 64>(data) << std::endl;
         std::cout << "Decimal: " << data << std::endl;
         std::cout << std::endl;
     }
@@ -2137,7 +2137,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
             constexpr auto mask = ArbiInt<fromFrac - toFrac>::allZeros();
             auto floor_raw = val & mask;
 
-            auto ceil = ArbiInt<N + 1> (floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes()));
+            auto ceil = ArbiInt<N + 1>(floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes()));
             ArbiInt<N + 1> floor = floor_raw;
             if (floor + ceil == staticShiftLeft<1>(val))
             {
@@ -2185,7 +2185,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         else
         {
             constexpr auto one = ArbiInt<1>::allOnes();
-  
+
             if (val.isNegative())
             {
                 resType res = ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
@@ -2198,7 +2198,6 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
 
                 return res;
             }
- 
         }
     }
 };
@@ -3358,7 +3357,6 @@ struct Qeq_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1
     }
 };
 
-
 // specialization for complex
 template <typename... toArgs, typename... realArgs, typename... imagArgs>
 struct Qeq_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, TypeList<toArgs...>>
@@ -3368,8 +3366,6 @@ struct Qeq_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, Qu_s<Qu_s<realArgs...>,
         return Qeq<toArgs...>(f1.real, f2.real) && Qeq<toArgs...>(f1.imag, f2.imag);
     }
 };
-
-
 
 // ------------------- Complex Operations -------------------
 // Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i

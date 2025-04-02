@@ -3,6 +3,12 @@
 #include <string>
 using namespace QuBLAS;
 
+template <class Qutype>
+void test(Qutype var)
+{
+    int aaa = Qutype::intB;
+}
+
 int main()
 {
     // ------------ vector type ------------
