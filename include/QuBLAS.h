@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
-#include <cassert>
 #include <cmath>
 #include <complex>
 #include <csignal>
@@ -2223,8 +2222,6 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
         constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
         constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>::minimum() : ArbiInt<1 + toInt + toFrac>(0);
 
-        assert(val < floor); // TODO:
-        assert(val > ceil);
         if (val > floor)
         {
             return floor;
