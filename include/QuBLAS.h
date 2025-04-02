@@ -7,6 +7,7 @@
 #include <complex>
 #include <csignal>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -26,7 +27,7 @@ inline namespace QuBLAS {
 // ------------------- Random -------------------
 
 static std::random_device rd;
-static std::mt19937 gen(1);                                                                                                         // 1 is the seed
+static std::mt19937 gen(1);
 static std::uniform_int_distribution<uint64_t> UniRand(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max()); // 整数的全范围分布
 static std::normal_distribution<double> NormRand(0, 1);                                                                             // 正态分布
 
@@ -374,7 +375,7 @@ public:
         return result;
     }
 
-    // special constructor that return the maximum value of a ArbiInt<N>
+    // special constructor that return the minimum value of a ArbiInt<N>
     static constexpr ArbiInt<N> maximum()
     {
         ArbiInt<N> result;
@@ -524,10 +525,12 @@ public:
 
     auto fill()
     {
-        // generate a random number with the full range of - 2^(N-1) to 2^(N-1) - 1
-        static std::uniform_int_distribution<__int128_t> dist(-(__int128_t(1) << (N - 1)), (__int128_t(1) << (N - 1)) - 1);
+        constexpr data_t min = ArbiInt<N>::minimum().data;
+        constexpr data_t max = ArbiInt<N>::maximum().data;
 
-        data = static_cast<data_t>(dist(gen));
+        static std::uniform_int_distribution<data_t> dist(min, max);
+
+        data = dist(gen);
 
         return *this;
     }
@@ -553,9 +556,10 @@ public:
         {
             std::cout << name << ":" << '\n';
         }
-        std::cout << "Binary:  " << std::bitset<N <= 32 ? 32 : 64>(data) << '\n';
-        std::cout << "Decimal: " << data << '\n';
-        std::cout << '\n';
+        std::cout << "N: " << N << std::endl;
+        std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
+        std::cout << "Decimal: " << data << std::endl;
+        std::cout << std::endl;
     }
 };
 
@@ -894,6 +898,7 @@ public:
             std::cout << name << ":" << '\n';
         }
 
+        std::cout << "N: " << N << std::endl;
         std::cout << "Binary:  ";
         for (int i = num_words - 1; i >= 0; --i)
         {
@@ -1594,7 +1599,7 @@ template <int shift, size_t N>
 constexpr auto staticShiftRight(const ArbiInt<N> &x)
 {
     ArbiInt<1> result;
-    result.data = 0;
+    result.data = x.isNegative() ? ~int64_t(0) : int64_t(0);
     return result;
 }
 
@@ -2132,7 +2137,7 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
             constexpr auto mask = ArbiInt<fromFrac - toFrac>::allZeros();
             auto floor_raw = val & mask;
 
-            auto ceil = floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
+            auto ceil = ArbiInt<N + 1> (floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes()));
             ArbiInt<N + 1> floor = floor_raw;
             if (floor + ceil == staticShiftLeft<1>(val))
             {
@@ -2168,23 +2173,32 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
     template <size_t N>
     inline static constexpr auto convert(ArbiInt<N> val)
     {
+        constexpr int resN_ = static_cast<int>(N) + (toFrac - fromFrac);
+        constexpr size_t resN = (resN_ < 1) ? 1 : resN_;
+
+        using resType = ArbiInt<resN>;
+
         if constexpr (fromFrac <= toFrac)
         {
-            return staticShiftLeft<toFrac - fromFrac>(val);
+            return resType(staticShiftLeft<toFrac - fromFrac>(val));
         }
         else
         {
-            constexpr auto one = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
-
+            constexpr auto one = ArbiInt<1>::allOnes();
+  
             if (val.isNegative())
             {
-                return staticShiftRight<fromFrac - toFrac>(val + one);
+                resType res = ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
+
+                return res;
             }
             else
             {
-                ArbiInt<N + 1> temp = val;
-                return staticShiftRight<fromFrac - toFrac>(temp);
+                resType res = staticShiftRight<fromFrac - toFrac>(val);
+
+                return res;
             }
+ 
         }
     }
 };
@@ -2384,7 +2398,7 @@ public:
     template <int intBitsFrom, int fracBitsFrom, bool isSignedFrom, typename QuModeFrom, typename OfModeFrom>
     inline constexpr Qu_s(const Qu_s<intBits<intBitsFrom>, fracBits<fracBitsFrom>, isSigned<isSignedFrom>, QuMode<QuModeFrom>, OfMode<OfModeFrom>> &val)
     {
-        if constexpr (intBitsFrom == intBitsInput && fracBitsFrom == fracBitsInput && isSignedFrom == isSignedInput)
+        if constexpr (intBitsFrom == intBitsInput && fracBitsFrom == fracBitsInput && isSignedFrom == isSignedInput && std::is_same_v<QuModeFrom, QuModeInput> && std::is_same_v<OfModeFrom, OfModeInput>)
         {
             data = val.data;
         }
@@ -3330,6 +3344,33 @@ struct Qcmp_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
     }
 };
 
+template <typename... Args>
+struct Qeq_s;
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct Qeq_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
+    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+
+    inline static constexpr auto eq(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
+    {
+        return staticShiftLeft<shiftA>(f1.data) == staticShiftLeft<shiftB>(f2.data);
+    }
+};
+
+
+// specialization for complex
+template <typename... toArgs, typename... realArgs, typename... imagArgs>
+struct Qeq_s<Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>>, TypeList<toArgs...>>
+{
+    inline static auto eq(const Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>> f1, const Qu_s<Qu_s<realArgs...>, Qu_s<imagArgs...>> f2)
+    {
+        return Qeq<toArgs...>(f1.real, f2.real) && Qeq<toArgs...>(f1.imag, f2.imag);
+    }
+};
+
+
+
 // ------------------- Complex Operations -------------------
 // Basic complex multiplication, realized as (a+bi)(c+di) = (ac-bd) + (ad+bc)i
 template <typename... Args>
@@ -3978,6 +4019,13 @@ inline constexpr auto Qneg(const QuT f)
     return Qneg_s<QuT, MergerArgsWrapper<toArgs...>>::neg(f);
 }
 
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isScalar<QuT1> && isScalar<QuT2>
+inline constexpr auto Qeq(const QuT1 f1, const QuT2 f2)
+{
+    return Qeq_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::eq(f1, f2);
+}
+
 // operator overloading
 template <typename... QuArgs1, typename... QuArgs2>
     requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
@@ -4019,6 +4067,13 @@ template <typename... QuArgs1, typename... QuArgs2>
 inline constexpr auto operator<=>(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
 {
     return Qcmp_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, MergerArgsWrapper<>>::cmp(f1, f2);
+}
+
+template <typename... QuArgs1, typename... QuArgs2>
+    requires isScalar<Qu_s<QuArgs1...>> && isScalar<Qu_s<QuArgs2...>>
+inline constexpr auto operator==(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2...> f2)
+{
+    return Qeq(f1, f2);
 }
 
 // tensor functions
