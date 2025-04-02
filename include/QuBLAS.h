@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
+#include <cassert>
 #include <cmath>
 #include <complex>
 #include <csignal>
@@ -591,7 +592,7 @@ public:
 
         // how many last bits are set to 1 in the last uint64_t
         size_t oneBits = N % 64 - 1;
-        result.data[num_words - 1] = (oneBits == 0) ? ~uint64_t(0) : ~ (~uint64_t(0) << oneBits);
+        result.data[num_words - 1] = (oneBits == 0) ? ~uint64_t(0) : ~(~uint64_t(0) << oneBits);
 
         return result;
     }
@@ -614,7 +615,7 @@ public:
         // how many last bits are set to 0 in the last uint64_t
         size_t zeroBits = (N - 1) % 64;
         result.data[num_words - 1] = ~uint64_t(0) << zeroBits;
-         
+
         return result;
     }
 
@@ -1817,15 +1818,13 @@ constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 
     constexpr int max_words = std::max(ArbiInt<N>::num_words, ArbiInt<M>::num_words);
 
-
     for (int i = max_words - 1; i >= 0; --i)
     {
         uint64_t lhs_word = (i < ArbiInt<N>::num_words) ? lhs.data[i] : lhs_ext;
         uint64_t rhs_word = (i < ArbiInt<M>::num_words) ? rhs.data[i] : rhs_ext;
 
         if (lhs_word != rhs_word)
-            return  (lhs_word <=> rhs_word);
-  
+            return (lhs_word <=> rhs_word);
     }
     return lhs_ext <=> rhs_ext;
 }
@@ -2224,6 +2223,8 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
         constexpr auto floor = ArbiInt<1 + toInt + toFrac>::maximum();
         constexpr auto ceil = toIsSigned ? ArbiInt<1 + toInt + toFrac>::minimum() : ArbiInt<1 + toInt + toFrac>(0);
 
+        assert(val < floor); // TODO:
+        assert(val > ceil);
         if (val > floor)
         {
             return floor;
@@ -2445,6 +2446,24 @@ public:
         os << qu.toDouble();
         return os;
     }
+
+    Qu_s &operator+=(Qu_s const &other)
+    {
+        *this = Qadd(*this, other);
+        return *this;
+    }
+
+    Qu_s &operator-=(Qu_s const &other)
+    {
+        *this = Qsub(*this, other);
+        return *this;
+    }
+
+    Qu_s &operator*=(Qu_s const &other)
+    {
+        *this = Qmul(*this, other);
+        return *this;
+    }
 };
 
 template <typename... Args>
@@ -2553,6 +2572,24 @@ public:
     {
         os << val.toDouble();
         return os;
+    }
+
+    Qu_s &operator+=(Qu_s const &other)
+    {
+        *this = Qadd(*this, other);
+        return *this;
+    }
+
+    Qu_s &operator-=(Qu_s const &other)
+    {
+        *this = Qsub(*this, other);
+        return *this;
+    }
+
+    Qu_s &operator*=(Qu_s const &other)
+    {
+        *this = Qmul(*this, other);
+        return *this;
     }
 };
 

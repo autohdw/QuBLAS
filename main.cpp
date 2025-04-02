@@ -3,35 +3,42 @@
 #include <string>
 using namespace QuBLAS;
 
-
 int main()
 {
+    // ------------ vector type ------------
+    using fixed_type = Qu<intBits<5>, fracBits<0>>;
+    using vec_type = Qu<dim<2, 3>, fixed_type>;
+    using complex_vec_type = Qu<dim<3>, Qcomplex<fixed_type, fixed_type>>;
+    vec_type v = {1, 2, 3, 4, 5, 6};
 
-    // ArbiInt<80> a = -2565169217536;
+    std::string v_res = BitStream<r2l<1>, l2r>(v);
+    std::cout << v_res << '\n';
 
-    // a.display();
+    auto z = BitStream<complex_vec_type, l2r, l2r>(v_res);
+    std::cout << z << "\n";
 
-    // std::string str = "111111111111111110110011101101001100000010000000000000000000000000000000000000000";
+    // using fixed_t = Qu<intBits<5>, fracBits<0>>;
+    // fixed_t v1 = 4;
 
-    // // transform the last 64 bits of the string into a 64-bit integer
-    // uint64_t b_low = std::bitset<64>(str.substr(16)).to_ullong() * 2;
- 
+    // std::string v_res = BitStream<l2r>(v1);
+    // std::cout << v_res << '\n';
+    // auto z = BitStream<Qu<dim<2>, intBits<5>, fracBits<0>>, l2r, l2r>(v_res);
+    // std::cout << z << "\n\n";
 
-    // ArbiInt<80> b;
-    // b.data[0] = b_low;
-    // b.data[1] = -1;
+    // // ------------ complex vector type ------------
+    // using type1 = Qu<isSigned<true>, intBits<3>, fracBits<2>, OfMode<SAT::ZERO>>;
+    // using c_t = Qcomplex<type1, type1>;
+    // using complex_vec_t = Qu<dim<3>, c_t>;
 
-    // b.display();
+    // c_t complex1 = {1.5, 2};
+    // c_t complex2 = {5, 0};
+    // c_t complex3 = {3, 4};
 
+    // complex_vec_t complex_vec = {complex1, complex2, complex3};
+    // std::string c_res = BitStream<l2r, l2r>(complex_vec);
+    // std::cout << c_res << '\n';
+    // auto str2bit = BitStream<complex_vec_t, r2l<1>, l2r>(c_res);
+    // std::cout << str2bit << '\n';
 
-    // std::cout << "a > b: " << (a > b) << std::endl;
-
-    ArbiInt<80> a = -123;
-    ArbiInt<150> b = -1233;
-
-    a.display();
-    b.display();
-
-    std::cout << "a < b: " << (a < b) << std::endl;
-    
+    return 0;
 }

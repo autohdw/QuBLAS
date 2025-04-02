@@ -25,6 +25,9 @@ Checks: >
   -modernize-use-nodiscard,
   -boost-use-ranges,
   -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -google-explicit-constructor,
+  -hicpp-explicit-conversions,
 CheckOptions:
   readability-identifier-length.IgnoredVariableNames: n|ch|_|id|to|t|u|i|j|k
   readability-identifier-length.IgnoredParameterNames: n|ch|_|id|to|t|u|i|j|k
