@@ -4783,9 +4783,13 @@ struct BitStream_s<Qu_s<QuArgs...>, processT>
 template <typename processT>
 struct BitStream_s<processT>
 {
-    inline static auto convert(auto const &Qu)
+    inline static std::string convert(auto const &Qu)
     {
-        return SingleString_s<processT>::to(Qu.toString());
+        auto is_bin_char = [](char ch) { return (ch == '0') || (ch == '1'); };
+        auto filtered_view = Qu.toString() | std::views::filter(is_bin_char);
+        std::string filtered_str(filtered_view.begin(), filtered_view.end());
+
+        return SingleString_s<processT>::to(filtered_str);
     }
 };
 
@@ -4812,7 +4816,13 @@ struct BitStream_s<tensorProcessT, elemProcessT>
     inline static auto convert(Qu_s<QuArgs...> const &Qu)
     {
         auto arr = TensorString_s<l2r, l2r>::fromQu(Qu);
-        return TensorString_s<tensorProcessT, elemProcessT>::toString(arr);
+        std::string str_tmp = TensorString_s<tensorProcessT, elemProcessT>::toString(arr);
+
+        auto is_bin_char = [](char ch) { return (ch == '0') || (ch == '1'); };
+        auto filtered_view = str_tmp | std::views::filter(is_bin_char);
+        std::string filtered_str(filtered_view.begin(), filtered_view.end());
+
+        return filtered_str;
     }
 };
 
