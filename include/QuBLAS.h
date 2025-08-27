@@ -1866,7 +1866,16 @@ template <size_t N, size_t M>
     requires(N > 64 && M > 64)
 constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    ArbiInt<std::max(N, M)> result = M > N ? rhs : lhs;
+    ArbiInt<std::max(N, M)> result;
+    if constexpr (N > M)
+    {
+        result = lhs;
+    }
+    else
+    {
+        result = rhs;
+    }
+
     for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
     {
         result.data[i] = lhs.data[i] ^ rhs.data[i];
