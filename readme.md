@@ -9,127 +9,106 @@ QuBLAS is designed to mimic the behavior of fixed-point arithmetic as closely as
 
 ## Installation
 
-- QuBLAS is header-only and contains only one header file `QuBLAS.h`.
+Copy `include/QuBLAS.h` to use.
 
 ## Usage
 
-- Set the C++ standard to C++23 or higher in your project.
-
 ```cpp
-
 #include "QuBLAS.h"
+
+#include <format>
+#include <iostream>
 
 using namespace QuBLAS;
 
 int main()
 {
+    // standard usage
+    using old_q = Qu<OfMode<SAT::TCPL>, fracBits<4>, isSigned<true>,
+                     intBits<6>, QuMode<RND::CONV>>;
 
-       // Define a 17-bit fixed-point number with 8 integer bits, 8 fractional bits and a sign bit.
-    Qu<intBits<8>, fracBits<8>, isSigned<true>, QuMode<TRN::TCPL>, OfMode<SAT::ZERO>> a = 1.0;
+    // same number, fewer characters
+    using q = Q<6_i, 4_f, signed_, rnd::conv, sat::tcpl>;
+    using wide = Q<10_i, 4_f, signed_, rnd::conv, sat::tcpl>;
+    using strange = Q<6_i, -3_f, unsigned_, trn::smgn, wrp::tcpl>;
 
-    // Tags can be in any order and are all optional.
-    using type1 = Qu<isSigned<true>, intBits<6>, fracBits<3>, OfMode<SAT::ZERO>>;
-    type1 q1 = 1.0;
+    old_q old = 1.25;
+    strange perfectly_normal = 16; // negative frac bits. hardware happens.
 
-    // Negative width is also supported
-    using type2 = Qu<intBits<6>, fracBits<-3>>;
-    type2 q2 = 16;
+    // textual literals supported
+    constexpr q bits = "1101.101"_bq | to<q>;
+    constexpr q pi = "3.1415"_dq | to<q>;
 
-    // Use dim to create an any-dimensional tensor.
-    // dim should be the first template parameter.
-    using vecType = Qu<dim<4>, intBits<4>>;
-    vecType v1 = {1.0, 2.0, 3.0, 4.0};
+    auto a = Qadd<q>(bits, pi);
+    auto b = Qmul<wide>(a, q{2});
+    auto full = Qmul<FullPrec>(bits, pi);
+    auto c = Qabs(Qdiv<q>(Qsub<wide>(b, q{1}), q{2}));
 
-    using matType = Qu<dim<4, 4>, type1>;
-    matType m1 = {1.0, 2.0, 3.0, 4.0,
-                  5.0, 6.0, 7.0, 8.0,
-                  9.0, 10.0, 11.0, 12.0,
-                  13.0, 14.0, 15.0, 16.0};
+    // tensors
+    using matrix = Qu<dim<3, 4>, q>;
+    matrix m{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
-    using highDimType = Qu<dim<4, 1, 2>, type1>;
-    highDimType h1 = {1.0, 2.0, 3.0, 4.0,
-                      5.0, 6.0, 7.0, 8.0};
+    auto one = m[1, 2];
+    auto row = m[1, all];
+    auto block = m[slice<0, 2>, slice<1, 4>];
+    auto smaller = block[all, slice<0, 2>];
+    row[0] = q{42}; // views write through. convenient or alarming.
 
-    // index a tensor with [] operator
-    auto elem = m1[1, 2];
+    // lazy evaluation
+    auto lazy = Qabs((m + q{1}) * q{-2});
+    auto lazy_column = (m + q{1})[all, 2];
+    auto frozen = lazy.eval();
 
-    // Tree-based reduction operations
-    auto red1 = Qreduce<type2>(v1);
+    // tree reduction for ASICs
+    using layers = TypeList<q, wide>;
+    auto total = Qreduce<layers>(frozen);
+    auto another_total = Qreduce<wide>(bits, pi, one, q{1}, q{2});
 
-    // Per-layer quantization
-    using list = TypeList<type1, type2>;
-    auto red2 = Qreduce<list>(m1);
+    // python style einsum
+    using left_t = Qu<dim<2, 3>, q>;
+    using right_t = Qu<dim<3, 2>, q>;
+    left_t left{1, 4, 2, 5, 3, 6};
+    right_t right{7, 9, 11, 8, 10, 12};
 
-    // manully provide the input numbers, can be any type and any number of arguments
-    auto red3 = Qreduce<type1>(q1, q2, q1, q2);
+    auto product = einsum<"ij,jk->ik">(left, right).eval();
+    auto inferred = einsum<"ij,jk">(left, right);
+    auto trace = einsum<"ii->">(Qu<dim<2, 2>, q>{1, 3, 2, 4}).eval();
 
-    // use ANUS:: to get access to the LUTs, there are 3 predifined LUTs
+    // index notation
+    using namespace QuBLAS::indices;
+    auto same_product =
+        (ein[_i, _k] <<= ein[left, _i, _j] * ein[right, _j, _k]).eval();
 
-    // LUT for 1/sqrt(x)
-    auto lut1 = ANUS::Qtable<ANUS::rsqrtFunc>(q1);
+    // complex
+    using cq = Qcomplex<q, q>;
+    using same_cq = Qu<q, q>;
+    cq z{q{1}, q{2}};
+    same_cq also_z{q{3}, q{4}};
+    auto zz = Qmul(z, z);
 
-    // LUT for 1/x
-    auto lut2 = ANUS::Qtable<ANUS::reciprocalFunc>(q1);
+    // nonlinear things live in ANUS
+    constexpr q p0{1};
+    constexpr q p1{2};
+    auto line = ANUS::Qpoly<p0, p1>(pi);
+    using low = ANUS::Segment<0.0, p0, p1>;
+    using high = ANUS::Segment<100.0, p1, p0>;
+    auto approximately_something = ANUS::Qapprox<low, high>(pi);
 
-    // LUT for sqrt(x)
-    auto lut3 = ANUS::Qtable<ANUS::sqrtFunc>(q1);
+    // std::format
+    auto text = std::format("{:.4f} {:b} {:X} {:q}", pi, pi, pi, pi);
+    std::cout << text << '\n' << product << '\n';
 
-    // the method to define your own LUT
-    // inline static constexpr auto myLUT = [](double x) { return std::exp(x); };
-
-    // BLAS operations under development
-
-    matType m3;
-
-    Qgemul<QgemulAddArgs<list>,    // Tree-based reduction for dot product
-           QgemulMulArgs<type1>,   // Specify quantization mode for multiplication
-           QgemulTransposedA<true> // Tags in any order and are all optional as well
-           >(m3, m1, m1);
-
-    // create complex type
-    using c_t_1 = Qcomplex<type1, type2>;
-    using c_t_2 = Qu<type1, type2>; // identical to Qcomplex<type1, type2>
-
-    c_t_1 complex1 = {1, 2};
-    c_t_2 complex2 = {3, 4};
-
-    using complex_vec_t = Qu<dim<3>, c_t_1>;
-
-    complex_vec_t complex_vec = {a, a, a};
-
-    // complex mul
-    auto complex_vec_mul = Qmul<TFComplexMul< // calling the method for complex multiplication requireing 3 multipliers and 5 adders
-        abT<type2>,
-        cdT<type1>,
-        baT<type2>,
-        // abcT<type4>, // all tags are optional
-        // cdbT<type1>,
-        badT<type2>,
-        ABT<type2>,
-        BCT<type2>>>(complex_vec, complex_vec);
-
-    // BitStream
-
-    using vec_t_bits = Qu<dim<6>, type1>;
-
-    vec_t_bits vec_bits = {1.0, 2.0, 3.0, 4.0};
-
-    // vector to std::string
-    auto res = BitStream<r2l<3>, r2l<2>>(vec_bits);
-
-    std::cout << res << std::endl;
-
-    // std::string to vector, need to provide the target type
-    auto z = BitStream<vec_t_bits, r2l<3>, r2l<2>>(res);
-
-    z.display();
+    auto host_number = pi.toDouble();
+    auto bit_string = pi.toString();
+    auto raw = pi.data; // legal. Not stable.
 
     // more to come ...
-
-    return 0;
 }
 ```
 
-## Development Status
 
-The library is under active development and the API is subject to change.
+## Guarantees
+
+The `Qu`, `Q`, `Qadd`, `Qmul`, `Qsub`, `Qdiv`, and `Qreduce` spellings are the parts that try not to move.
+
+`ArbiInt<N>` and scalar `Qu_s::data` are public. Use them if you want. Nothing about them is stable.

@@ -1,58 +1,32 @@
 #include "QuBLAS.h"
-#include <algorithm>
-#include <bitset>
+
+#include <format>
 #include <iostream>
-#include <sys/types.h>
 
 using namespace QuBLAS;
-
+using namespace QuBLAS::indices;
 
 int main()
 {
-    // constexpr int input_in = 0;
-    // constexpr int input_fr = 1;
-    // constexpr int output_in = 0;
-    // constexpr int output_fr = 1;
+    using q = Q<4_i, 8_f, signed_, rnd::conv, sat::tcpl>;
 
-    // using input_t = Qu<intBits<input_in>, fracBits<input_fr>,isSigned<false>>;
-    // using output_t = Qu<intBits<output_in>, fracBits<output_fr>,isSigned<false>>;
+    constexpr auto pi = "3.1415"_dq | to<q>;
+    constexpr auto bits = "1101.101"_bq | to<q>;
 
-    // input_t input;
-    // output_t out;
+    std::cout << std::format("pi={:.6f}, bits={:b}, raw=0x{:X}\n",
+                             pi, bits, bits);
 
-    // std::ofstream myfile;
-    // myfile.open("sin.txt");
+    using left_t = Qu<dim<2, 3>, q>;
+    using right_t = Qu<dim<3, 2>, q>;
 
-    // for (int i = 0; i < (1<<(input_in+input_fr)); i++)
-    // {
-        
-    //     double input_double = input.toDouble();
-    //     double output_double = std::atan(input_double);
-    //     out = output_double;
+    left_t left{1, 4, 2, 5, 3, 6};
+    right_t right{7, 9, 11, 8, 10, 12};
 
+    auto middle = left[all, slice<1, 3>];
+    auto playful = Qabs((middle + q{1}) * q{-2}).eval();
+    auto product =
+        (ein[_i, _k] <<= ein[left, _i, _j] * ein[right, _j, _k]).eval();
 
-    //     myfile << input.toString() <<  ' ' << out.toString() << std::endl;
-    //     input.data.data++;
- 
-    // }
-
-    // myfile.close();
-    // return 0;
-
-    using type1 = Qu<intBits<-5>, fracBits<9>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<WRP::TCPL>>; 
-    using type2 = Qu<intBits<2>, fracBits<2>, isSigned<true>, QuMode<TRN::SMGN>, OfMode<WRP::TCPL>>; 
-
-    type1 a;
-    a.data.data = 15;
-    type2 b;
-    // b.data.data = -512;
-
-    a.display();
-    b=a;
-    b.display();
-
- 
-
-     
-
+    std::cout << "slice AST:\n" << playful << "\n\n";
+    std::cout << "einsum:\n" << product << '\n';
 }

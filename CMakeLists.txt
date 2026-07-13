@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.20.0 FATAL_ERROR)
 
 # project name
 set(PROJECT_NAME "QuBLAS")
@@ -17,6 +17,7 @@ endif()
 # 将include文件夹下所有头文件添加为接口库
 add_library(QuBLAS INTERFACE)
 target_include_directories(QuBLAS INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(QuBLAS INTERFACE cxx_std_23)
 
 if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     # Create an executable for informal testing or examples

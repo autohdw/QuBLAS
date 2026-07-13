@@ -2,33 +2,48 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <bitset>
 #include <cmath>
+#include <compare>
+#include <concepts>
 #include <complex>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <format>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <numeric>
 #include <random>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 inline namespace QuBLAS {
 
 // ------------------- Random -------------------
 
-static std::random_device rd;
-static std::mt19937 gen(1);
-static std::uniform_int_distribution<uint64_t> UniRand(std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max()); // 整数的全范围分布
-static std::normal_distribution<double> NormRand(0, 1);                                                                             // 正态分布
+// The engines and distributions are stateful.  Keeping one instance per
+// thread preserves the existing deterministic seed without introducing a
+// data race when independent tensors are filled or shuffled concurrently.
+inline thread_local std::random_device rd;
+inline thread_local std::mt19937 gen(1);
+inline thread_local std::uniform_int_distribution<uint64_t> UniRand(
+    std::numeric_limits<uint64_t>::min(), std::numeric_limits<uint64_t>::max());
+inline thread_local std::normal_distribution<double> NormRand(0, 1);
 
 // ------------------- TypeList -------------------
 
@@ -188,30 +203,6 @@ struct tagExtractor<Tag, Tag2, Args...> : tagExtractor<Tag, Args...>
 {
 };
 
-// ------------------- pack indexer -------------------
-// which is in C++26, we cannot use it now, so we have to implement it in a ugly way
-
-template <size_t IDX, typename T, typename... Ts>
-constexpr auto packIndex(T &&t, Ts &&...ts)
-{
-    static_assert(IDX <= sizeof...(ts), "Index out of bounds");
-    if constexpr (IDX > sizeof...(ts))
-    {
-        return 0;
-    }
-    else
-    {
-        if constexpr (IDX == 0)
-        {
-            return std::forward<T>(t);
-        }
-        else
-        {
-            return packIndex<IDX - 1>(std::forward<Ts>(ts)...);
-        }
-    }
-}
-
 template <size_t num_words>
 std::array<uint64_t, num_words> string_to_big_integer(const std::string &str)
 {
@@ -335,487 +326,229 @@ constexpr auto big_integer_to_string(const std::array<uint64_t, num_words> &valu
 }
 
 // ---------------------------- ArbiInt ----------------------------
-// This class template represents an arbitrary-precision integer with N bits.
-// The kernel of the implementation is a std::array of uint64_t, which stores the integer in little-endian order.
-// Actually a N-bit integer is stored with 64 * ceil(N / 64) bits, the overflow is algorithmically handled and will not happen in practice. So many operations are implemented with the assumption that the integer is not overflowed.
-
-// General template declaration
+// Fixed-capacity signed two's-complement integer. Every width uses the same
+// little-endian limb representation; N controls result-width algebra while the
+// unused part of the top limb carries the physical sign extension.
 template <size_t N>
-class ArbiInt;
-
-// Specialization for N in (0, 64], using a single integer
-template <size_t N>
-    requires(N > 0 && N <= 64)
-class ArbiInt<N>
-{
-public:
-    using data_t = std::conditional_t<(N <= 32), int32_t, int64_t>;
-    static constexpr size_t num_bits = N;
-    data_t data;
-
-    // Default constructor
-    constexpr ArbiInt() : data(0) {}
-
-    // special constructor that return a ArbiInt with the last N bits set to 1
-    static constexpr ArbiInt<N> allOnes()
-    {
-        ArbiInt<N> result;
-        // result.data = ~(~data_t(0) << N);
-
-        if constexpr (N == 64 || N == 32)
-        {
-            result.data = -1;
-        }
-        else
-        {
-            result.data = ~(~data_t(0) << N);
-        }
-
-        return result;
-    }
-
-    // special constructor that return the minimum value of a ArbiInt<N>
-    static constexpr ArbiInt<N> maximum()
-    {
-        ArbiInt<N> result;
-        // make the last N-1 bits 1
-        result.data = ~(~data_t(0) << (N - 1));
-        return result;
-    }
-
-    // special constructor that return a ArbiInt with the last N bits set to 0 adn and the rest set to 1
-    static constexpr ArbiInt<N> allZeros()
-    {
-        ArbiInt<N> result;
-        // result.data = ~data_t(0) << N;
-        if constexpr (N == 64 || N == 32)
-        {
-            result.data = 0;
-        }
-        else
-        {
-            result.data = ~data_t(0) << N;
-        }
-        return result;
-    }
-
-    // special constructor that return the minimum value of a ArbiInt<N>
-    static constexpr ArbiInt<N> minimum()
-    {
-        ArbiInt<N> result;
-        result.data = ~data_t(0) << (N - 1);
-        return result;
-    }
-
-    constexpr auto isZero() const
-    {
-        return data == 0;
-    }
-
-    constexpr auto isNegative() const
-    {
-        return data < 0;
-    }
-
-    constexpr auto isPositive() const
-    {
-        return data > 0;
-    }
-
-    // Constructor
-
-    // Constructor from another ArbiInt
-    template <size_t M>
-        requires(M > 0 && M <= 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        data = other.data;
-    }
-
-    template <size_t M>
-        requires(M > 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        data = other.data[0];
-    }
-
-    constexpr ArbiInt(double val)
-    {
-        loadFromDouble<0>(val);
-    }
-
-    template <int fracB>
-    constexpr void loadFromDouble(double val)
-    {
-        if (val == 0.0 || std::isnan(val) || std::isinf(val))
-        {
-            data = 0;
-            return;
-        }
-
-        // Extract the sign, exponent, and mantissa from the double
-        const uint64_t doubleAsUint64 = std::bit_cast<uint64_t>(val);
-        const bool sign = (doubleAsUint64 >> 63) != 0;
-        const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
-        uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull; // Add the implicit leading 1
-
-        // Calculate the total shift required
-        const int64_t shift = exponent + fracB - 52;
-
-        // Initialize data
-        int64_t result = 0;
-
-        if (shift >= 0)
-        {
-            if (shift < 64)
-            {
-                uint64_t shiftedMantissa = mantissa << shift;
-                result = static_cast<int64_t>(shiftedMantissa);
-            }
-            else
-            {
-                // Shift too large, result becomes zero or overflows
-                result = 0;
-            }
-        }
-        else // shift < 0
-        {
-            if (-shift < 64)
-            {
-                uint64_t shiftedMantissa = mantissa >> (-shift);
-                result = static_cast<int64_t>(shiftedMantissa);
-            }
-            else
-            {
-                // Shift too large, result becomes zero
-                result = 0;
-            }
-        }
-
-        // Apply the sign
-        if (sign)
-        {
-            result = -result;
-        }
-
-        data = result;
-    }
-
-    // Assignment from string
-    ArbiInt(const std::string &str)
-    {
-        // Convert string to int64_t
-        int64_t value = std::stoll(str);
-        data = static_cast<data_t>(value);
-
-        // Extend or mask to N bits
-        if constexpr (N < 64)
-        {
-            // Mask to N bits while preserving the sign
-            data = static_cast<data_t>((static_cast<int64_t>(data) << (64 - N)) >> (64 - N));
-        }
-    }
-
-    // operator bool
-    constexpr operator bool() const
-    {
-        return data != 0;
-    }
-
-    auto fill()
-    {
-        constexpr data_t min = ArbiInt<N>::minimum().data;
-        constexpr data_t max = ArbiInt<N>::maximum().data;
-
-        static std::uniform_int_distribution<data_t> dist(min, max);
-
-        data = dist(gen);
-
-        return *this;
-    }
-
-    constexpr auto toString() const
-    {
-        return std::to_string(data);
-    }
-
-    constexpr auto toDouble() const
-    {
-        return static_cast<double>(data);
-    }
-
-    constexpr auto toBinary() const
-    {
-        return std::bitset < N < 32 ? 32 : 64 > (data).to_string();
-    }
-
-    void display(std::string name = "") const
-    {
-        if (!name.empty())
-        {
-            std::cout << name << ":" << std::endl;
-        }
-        std::cout << "N: " << N << std::endl;
-        std::cout << "Binary:  " << std::bitset < N <= 32 ? 32 : 64 > (data) << std::endl;
-        std::cout << "Decimal: " << data << std::endl;
-        std::cout << std::endl;
-    }
-};
-
-template <size_t N>
-    requires(N > 64)
-class ArbiInt<N>
+    requires(N > 0)
+class ArbiInt
 {
 public:
     static constexpr size_t num_bits = N;
     static constexpr size_t num_words = (N + 63) / 64;
-    std::array<uint64_t, num_words> data;
+    static constexpr size_t top_bits = N % 64;
+    static constexpr uint64_t mask = top_bits == 0
+                                         ? std::numeric_limits<uint64_t>::max()
+                                         : (uint64_t{1} << top_bits) - 1;
 
-    // Default constructor
-    constexpr ArbiInt()
-    {
-        data.fill(0);
-    }
+    std::array<uint64_t, num_words> data{};
 
-    // special constructor that return a ArbiInt with the last N bits set to 1
-    static constexpr ArbiInt<N> allOnes()
+    constexpr ArbiInt() = default;
+
+    static constexpr ArbiInt allOnes()
     {
-        ArbiInt<N> result;
-        result.data.fill(~uint64_t(0));
-        result.data[num_words - 1] = ~uint64_t(0) >> (64 - N % 64);
+        ArbiInt result;
+        result.data.fill(std::numeric_limits<uint64_t>::max());
+        if constexpr (top_bits != 0)
+            result.data.back() = mask;
         return result;
     }
 
-    // special constructor that return the maximum value of a ArbiInt<N>
-    static constexpr ArbiInt<N> maximum()
+    static constexpr ArbiInt maximum()
     {
-        ArbiInt<N> result;
-        result.data.fill(~uint64_t(0));
-
-        // how many last bits are set to 1 in the last uint64_t
-        size_t oneBits = (N - 1) % 64; // may be 0
-        result.data[num_words - 1] = ~(~uint64_t(0) << oneBits);
-
+        ArbiInt result;
+        result.data.fill(std::numeric_limits<uint64_t>::max());
+        constexpr size_t sign_offset = (N - 1) % 64;
+        result.data.back() = sign_offset == 0
+                                 ? uint64_t{0}
+                                 : (uint64_t{1} << sign_offset) - 1;
         return result;
     }
 
-    // special constructor that return a ArbiInt with the last N bits set to 0 adn and the rest set to 1
-    static constexpr ArbiInt<N> allZeros()
+    static constexpr ArbiInt allZeros()
     {
-        ArbiInt<N> result;
-        result.data.fill(0);
-        result.data[num_words - 1] = ~uint64_t(0) << (N % 64);
+        ArbiInt result;
+        if constexpr (top_bits != 0)
+            result.data.back() = ~mask;
         return result;
     }
 
-    // special constructor that return the minimum value of a ArbiInt<N>
-    static constexpr ArbiInt<N> minimum()
+    static constexpr ArbiInt minimum()
     {
-        ArbiInt<N> result;
-        result.data.fill(0);
-
-        // how many last bits are set to 0 in the last uint64_t
-        size_t zeroBits = (N - 1) % 64;
-        result.data[num_words - 1] = ~uint64_t(0) << zeroBits;
-
+        ArbiInt result;
+        constexpr size_t sign_offset = (N - 1) % 64;
+        result.data.back() = std::numeric_limits<uint64_t>::max()
+                             << sign_offset;
         return result;
     }
 
-    constexpr auto isZero() const
+    constexpr bool isZero() const
     {
-        return std::all_of(data.begin(), data.end(), [](uint64_t w) { return w == 0; });
+        return std::all_of(data.begin(), data.end(),
+                           [](uint64_t word) { return word == 0; });
     }
 
     constexpr bool isNegative() const
     {
-        return data[num_words - 1] >> 63;
+        return (data.back() >> 63) != 0;
     }
 
     constexpr bool isPositive() const
     {
-        return data[num_words - 1] >> 63 == 0;
+        return !isNegative() && !isZero();
     }
 
-    static constexpr uint64_t mask = (static_cast<uint64_t>(1) << (N % 64)) - 1;
-
-    // Constructor from arithmetic types
-    template <typename T>
-        requires std::is_integral_v<T>
-    constexpr ArbiInt(T val)
+    // Canonicalize a value that has deliberately been truncated to N logical
+    // bits. Ordinary arithmetic does not call this: it widens first and keeps
+    // the exact carry, matching the fixed-point layer's historical contract.
+    constexpr void signExtendLogicalTop()
     {
-        data.fill(0);
-        data[0] = static_cast<uint64_t>(val);
-
-        // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[0]) >> 63);
-        for (size_t i = 1; i < num_words; ++i)
+        if constexpr (top_bits != 0)
         {
-            data[i] = sign_extension;
+            constexpr uint64_t sign_bit = uint64_t{1} << (top_bits - 1);
+            const uint64_t logical = data.back() & mask;
+            data.back() = (logical & sign_bit) != 0 ? logical | ~mask : logical;
         }
     }
 
-    constexpr ArbiInt(double val)
+    template <typename T>
+        requires std::is_integral_v<T>
+    constexpr ArbiInt(T value)
     {
-        loadFromDouble<0>(val);
+        if constexpr (N <= 32)
+        {
+            data[0] = static_cast<uint64_t>(
+                static_cast<int64_t>(static_cast<int32_t>(value)));
+        }
+        else if constexpr (N <= 64)
+        {
+            data[0] = static_cast<uint64_t>(static_cast<int64_t>(value));
+        }
+        else
+        {
+            uint64_t extension = 0;
+            if constexpr (std::is_signed_v<T>)
+            {
+                if (value < 0)
+                    extension = std::numeric_limits<uint64_t>::max();
+            }
+            data.fill(extension);
+            data[0] = static_cast<uint64_t>(value);
+        }
+    }
+
+    template <size_t M>
+    constexpr ArbiInt(const ArbiInt<M> &other)
+    {
+        constexpr size_t copied_words = std::min(num_words, ArbiInt<M>::num_words);
+        std::copy_n(other.data.begin(), copied_words, data.begin());
+
+        if constexpr (num_words > copied_words)
+        {
+            const uint64_t extension = other.isNegative()
+                                           ? std::numeric_limits<uint64_t>::max()
+                                           : uint64_t{0};
+            std::fill(data.begin() + copied_words, data.end(), extension);
+        }
+
+        // Preserve the old small-storage conversion rule even though storage
+        // is now uniformly a uint64_t limb.
+        if constexpr (N <= 32)
+        {
+            data[0] = static_cast<uint64_t>(
+                static_cast<int64_t>(static_cast<int32_t>(data[0])));
+        }
+    }
+
+    constexpr ArbiInt(double value)
+    {
+        loadFromDouble<0>(value);
     }
 
     template <int fracB>
-    constexpr void loadFromDouble(double val)
+    constexpr void loadFromDouble(double value)
     {
-        for (auto &word : data)
-            word = 0;
+        data.fill(0);
 
-        // Handle zero, NaN, and infinity
-        if (val == 0.0 || std::isnan(val) || std::isinf(val))
+        const uint64_t bits = std::bit_cast<uint64_t>(value);
+        const bool negative = (bits >> 63) != 0;
+        const uint64_t exponent_bits = (bits >> 52) & 0x7ff;
+        const uint64_t fraction = bits & 0x000fffffffffffffull;
+        if (exponent_bits == 0x7ff)
             return;
 
-        const uint64_t doubleAsUint64 = std::bit_cast<uint64_t>(val);
-        const uint64_t sign = doubleAsUint64 >> 63;
-        const int64_t exponent = ((doubleAsUint64 >> 52) & 0x7FF) - 1023;
-        const uint64_t mantissa = (doubleAsUint64 & 0xFFFFFFFFFFFFFull) | 0x10000000000000ull;
-
-        // Calculate the total shift required
-        int64_t shift = exponent + fracB - 52;
+        const uint64_t significand = exponent_bits == 0
+                                         ? fraction
+                                         : fraction | 0x0010000000000000ull;
+        const int64_t shift = exponent_bits == 0
+                                  ? static_cast<int64_t>(fracB) - 1074
+                                  : static_cast<int64_t>(exponent_bits) - 1075 + fracB;
 
         if (shift >= 0)
         {
-            // Left shift the mantissa
-            int64_t wordShift = shift / 64;
-            int64_t bitShift = shift % 64;
-
-            if (wordShift < num_words)
+            const size_t word_shift = static_cast<size_t>(shift / 64);
+            const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+            if (word_shift < num_words)
             {
-                data[wordShift] |= mantissa << bitShift;
-
-                if (bitShift != 0 && (wordShift + 1) < num_words)
-                {
-                    data[wordShift + 1] |= mantissa >> (64 - bitShift);
-                }
+                data[word_shift] = significand << bit_shift;
+                if (bit_shift != 0 && word_shift + 1 < num_words)
+                    data[word_shift + 1] = significand >> (64 - bit_shift);
             }
         }
-        else
+        else if (shift > -64)
         {
-            int64_t totalShift = -shift;
-
-            if (totalShift < 64)
-            {
-                data[0] = mantissa >> totalShift;
-            }
-            else if (totalShift < 64 * num_words)
-            {
-                int64_t wordShift = totalShift / 64;
-                int64_t bitShift = totalShift % 64;
-
-                if (bitShift == 0)
-                {
-                    if (wordShift < num_words)
-                    {
-                        data[wordShift] = mantissa;
-                    }
-                }
-                else
-                {
-                    if (wordShift < num_words)
-                    {
-                        data[wordShift] |= mantissa >> bitShift;
-                    }
-                    if ((wordShift + 1) < num_words)
-                    {
-                        data[wordShift + 1] |= mantissa << (64 - bitShift);
-                    }
-                }
-            }
+            data[0] = significand >> -shift;
         }
 
-        if (sign)
+        if (negative)
         {
-            // Invert the bits
+            uint64_t carry = 1;
             for (auto &word : data)
             {
-                word = ~word;
+                const uint64_t inverted = ~word;
+                word = inverted + carry;
+                carry = carry != 0 && word == 0;
             }
+        }
 
-            uint64_t carry = 1;
-            for (size_t i = 0; i < num_words; ++i)
+        if constexpr (N <= 32)
+        {
+            data[0] = static_cast<uint64_t>(
+                static_cast<int64_t>(static_cast<int32_t>(data[0])));
+        }
+    }
+
+    ArbiInt(const std::string &text)
+    {
+        if constexpr (N <= 64)
+        {
+            const int64_t value = std::stoll(text);
+            uint64_t raw = static_cast<uint64_t>(value);
+            if constexpr (N < 64)
             {
-                uint64_t sum = data[i] + carry;
-                carry = (sum < data[i]) ? 1 : 0;
-                data[i] = sum;
-                if (!carry)
-                    break;
+                constexpr uint64_t logical_mask = (uint64_t{1} << N) - 1;
+                raw &= logical_mask;
+                if (((raw >> (N - 1)) & 1) != 0)
+                    raw |= ~logical_mask;
             }
-        }
-    }
-
-    // Assignment from string
-    ArbiInt(const std::string &str)
-    {
-        data = string_to_big_integer<num_words>(str);
-    }
-
-    template <size_t M>
-        requires(ArbiInt<M>::num_words == num_words)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        std::copy(other.data.begin(), other.data.end(), data.begin());
-    }
-
-    template <size_t M>
-        requires(M > 0 && M <= 64)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        data[0] = other.data;
-
-        // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[0]) >> 63);
-        for (size_t i = 1; i < num_words; ++i)
-        {
-            data[i] = sign_extension;
-        }
-    }
-
-    template <size_t M>
-        requires(M > 64 && ArbiInt<M>::num_words != num_words)
-    constexpr ArbiInt(const ArbiInt<M> &other)
-    {
-        constexpr size_t copyLen = std::min(ArbiInt<M>::num_words, ArbiInt<N>::num_words);
-
-        std::copy(other.data.begin(), other.data.begin() + copyLen, data.begin());
-
-        // sign extension of the higher uint64_ts, all 1 or all 0 according to whether the 64-th bit of the lowest uint64_t is 1
-        uint64_t sign_extension = static_cast<uint64_t>(static_cast<int64_t>(data[copyLen - 1]) >> 63);
-        for (size_t i = copyLen; i < num_words; ++i)
-        {
-            data[i] = sign_extension;
-        }
-    }
-
-    // operator bool
-    constexpr operator bool() const
-    {
-        return !std::all_of(data.begin(), data.end(), [](uint64_t w) { return w == 0; });
-    }
-
-    auto fill()
-    {
-        if constexpr (N % 64 == 0)
-        {
-            for (size_t i = 0; i < num_words; ++i)
-            {
-                data[i] = UniRand(gen);
-            }
+            data[0] = raw;
         }
         else
         {
-            for (size_t i = 0; i < num_words - 1; ++i)
-            {
-                data[i] = UniRand(gen);
-            }
-
-            // generate a random number with the full range of - 2^(N%64-1) to 2^(N%64-1) - 1
-            static std::uniform_int_distribution<uint64_t> dist(-(int64_t(1) << (N % 64 - 1)), (int64_t(1) << (N % 64 - 1)) - 1);
-            data[num_words - 1] = dist(gen);
+            data = string_to_big_integer<num_words>(text);
         }
+    }
+
+    constexpr operator bool() const
+    {
+        return !isZero();
+    }
+
+    ArbiInt &fill()
+    {
+        for (auto &word : data)
+            word = UniRand(gen);
+        signExtendLogicalTop();
         return *this;
     }
 
@@ -826,67 +559,141 @@ public:
 
     constexpr double toDouble() const
     {
+        return toDoubleScaled(0);
+    }
 
-        // 确定符号
-        const bool negative = (data[num_words - 1] >> 63) != 0;
-
-        // 计算绝对值（使用位操作优化）
-        std::array<uint64_t, num_words> mag = {};
+    constexpr double toDoubleScaled(int binaryScale) const
+    {
+        const bool negative = isNegative();
+        std::array<uint64_t, num_words> magnitude{};
         if (negative)
         {
-            // 取反加一，使用位操作优化
             uint64_t carry = 1;
-            for (std::size_t i = 0; i < num_words; ++i)
+            for (size_t i = 0; i < num_words; ++i)
             {
-                uint64_t inverted = ~data[i];
-                mag[i] = inverted + carry;
-                if (carry && mag[i] == 0)
-                {
-                    carry = 1;
-                }
-                else
-                {
-                    carry = (mag[i] < inverted) ? 1 : 0;
-                }
+                const uint64_t inverted = ~data[i];
+                magnitude[i] = inverted + carry;
+                carry = carry != 0 && magnitude[i] == 0;
             }
         }
         else
         {
-            // 正数，直接复制
-            mag = data;
+            magnitude = data;
         }
 
-        // 找到最高非零字，以减少不必要的计算
-        std::size_t highest_non_zero_word = num_words;
-        while (highest_non_zero_word > 0 && mag[highest_non_zero_word - 1] == 0)
+        size_t used_words = num_words;
+        while (used_words > 0 && magnitude[used_words - 1] == 0)
+            --used_words;
+        if (used_words == 0)
+            return 0.0;
+
+        const size_t high_word = used_words - 1;
+        const size_t high_bit = high_word * 64 +
+                                (63 - static_cast<size_t>(
+                                          std::countl_zero(magnitude[high_word])));
+        const int64_t scaled_exponent = static_cast<int64_t>(high_bit) + binaryScale;
+        if (scaled_exponent > 1023)
+            return negative ? -std::numeric_limits<double>::infinity()
+                            : std::numeric_limits<double>::infinity();
+        if (scaled_exponent < -1075)
+            return negative ? -0.0 : 0.0;
+
+        const auto shifted_right_low64 = [&magnitude](size_t shift) constexpr {
+            const size_t word = shift / 64;
+            const unsigned offset = shift % 64;
+            if (word >= num_words)
+                return uint64_t{0};
+
+            uint64_t result = magnitude[word] >> offset;
+            if (offset != 0 && word + 1 < num_words)
+                result |= magnitude[word + 1] << (64 - offset);
+            return result;
+        };
+
+        const auto bit_is_set = [&magnitude](size_t bit) constexpr {
+            const size_t word = bit / 64;
+            return word < num_words &&
+                   ((magnitude[word] >> (bit % 64)) & 1) != 0;
+        };
+
+        const auto any_bit_below = [&magnitude](size_t exclusive) constexpr {
+            const size_t complete_words = std::min(exclusive / 64, num_words);
+            for (size_t i = 0; i < complete_words; ++i)
+                if (magnitude[i] != 0)
+                    return true;
+
+            const unsigned remainder = exclusive % 64;
+            if (complete_words < num_words && remainder != 0)
+            {
+                const uint64_t low_mask = (uint64_t{1} << remainder) - 1;
+                return (magnitude[complete_words] & low_mask) != 0;
+            }
+            return false;
+        };
+
+        uint64_t significand = 0;
+        int exponent = static_cast<int>(scaled_exponent);
+        if (exponent >= -1022)
         {
-            --highest_non_zero_word;
+            const size_t bit_length = high_bit + 1;
+            if (bit_length <= 53)
+            {
+                significand = magnitude[0] << (53 - bit_length);
+            }
+            else
+            {
+                const size_t discarded = bit_length - 53;
+                significand = shifted_right_low64(discarded);
+                const bool guard = bit_is_set(discarded - 1);
+                const bool sticky = any_bit_below(discarded - 1);
+                if (guard && (sticky || (significand & 1) != 0))
+                    ++significand;
+
+                if (significand == (uint64_t{1} << 53))
+                {
+                    significand >>= 1;
+                    ++exponent;
+                    if (exponent > 1023)
+                        return negative ? -std::numeric_limits<double>::infinity()
+                                        : std::numeric_limits<double>::infinity();
+                }
+            }
+
+            const double result = std::ldexp(static_cast<double>(significand),
+                                             exponent - 52);
+            return negative ? -result : result;
         }
 
-        // 将绝对值转换为double（替代ldexp）
-        double result = 0.0;
-        constexpr double two_pow_64 = 18446744073709551616.0; // 2^64
-
-        for (std::size_t i = highest_non_zero_word; i-- > 0;)
+        const int64_t scale_to_subnormal = static_cast<int64_t>(binaryScale) + 1074;
+        if (scale_to_subnormal >= 0)
         {
-            result = result * two_pow_64 + static_cast<double>(mag[i]);
+            significand = magnitude[0] << static_cast<unsigned>(scale_to_subnormal);
         }
-
-        // 应用符号
-        if (negative)
+        else
         {
-            result = -result;
+            const size_t discarded = static_cast<size_t>(-scale_to_subnormal);
+            significand = shifted_right_low64(discarded);
+            const bool guard = bit_is_set(discarded - 1);
+            const bool sticky = any_bit_below(discarded - 1);
+            if (guard && (sticky || (significand & 1) != 0))
+                ++significand;
         }
 
-        return result;
+        const double result = std::ldexp(static_cast<double>(significand), -1074);
+        return negative ? -result : result;
     }
 
     constexpr auto toBinary() const
     {
         std::string result;
-        for (int i = num_words - 1; i >= 0; --i)
+        if constexpr (N <= 32)
         {
-            result += std::bitset<64>(data[i]).to_string();
+            result = std::bitset<32>(data[0]).to_string();
+        }
+        else
+        {
+            for (size_t i = num_words; i-- > 0;)
+                result += std::bitset<64>(data[i]).to_string();
         }
         return result;
     }
@@ -894,1105 +701,378 @@ public:
     void display(std::string name = "") const
     {
         if (!name.empty())
-        {
             std::cout << name << ":" << std::endl;
-        }
-
         std::cout << "N: " << N << std::endl;
-        std::cout << "Binary:  ";
-        for (int i = num_words - 1; i >= 0; --i)
-        {
-            std::cout << std::bitset<64>(data[i]) << " ";
-        }
-        std::cout << std::endl;
-
-        std::cout << "Decimal: " << big_integer_to_string(data) << std::endl;
+        std::cout << "Binary:  " << toBinary() << std::endl;
+        std::cout << "Decimal: " << toString() << std::endl;
         std::cout << std::endl;
     }
 };
 
-// operator+
-
-// special case for each input smaller than 64 bits and the result is also smaller than 64 bits
-template <size_t N, size_t M>
-    requires(N < 64 && M < 64)
-constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+template <size_t N>
+constexpr uint64_t arbiWord(const ArbiInt<N> &value, size_t index)
 {
-    ArbiInt<std::max(N, M) + 1> result; // the result may need one more bit
-    result.data = static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(lhs.data) + static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(rhs.data);
-    return result;
+    if (index < ArbiInt<N>::num_words)
+        return value.data[index];
+    return value.isNegative() ? std::numeric_limits<uint64_t>::max() : 0;
 }
 
-// super special case for a 64-bit integer promoted to 65-bit integer
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64) && (N == 64 || M == 64)
-constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
+template <size_t N>
+constexpr void setArbiWord(ArbiInt<N> &value, size_t index, uint64_t word)
 {
-
-    ArbiInt<65> result;
-
-    // transform the 64-bit integer to 128-bit integer
-    __int128_t sum = static_cast<__int128_t>(lhs.data) + static_cast<__int128_t>(rhs.data);
-
-    // store the lower 64 bits
-    result.data[0] = static_cast<uint64_t>(sum);
-    result.data[1] = static_cast<uint64_t>(sum >> 64);
-
-    return result;
-}
-
-// general case for a integer larger than 64 bits with a integer smaller than 64 bits
-template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    constexpr size_t R = N + 1;
-    ArbiInt<R> result;
-
-    constexpr size_t res_words = ArbiInt<R>::num_words;
-    constexpr size_t lhs_words = ArbiInt<N>::num_words;
-
-    // Compute sign extensions using arithmetic right shift
-    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_words - 1]) >> 63;
-    int64_t rhs_sign_extension = static_cast<int64_t>(rhs.data) >> 63;
-
-    __uint128_t carry = 0;
-    for (size_t i = 0; i < res_words; ++i)
-    {
-        uint64_t lhs_word = (i < lhs_words) ? lhs.data[i] : static_cast<uint64_t>(lhs_sign_extension);
-        uint64_t rhs_word = (i == 0) ? rhs.data : static_cast<uint64_t>(rhs_sign_extension);
-
-        __uint128_t sum = static_cast<__uint128_t>(lhs_word) + rhs_word + carry;
-        result.data[i] = static_cast<uint64_t>(sum);
-        carry = sum >> 64;
-    }
-
-    return result;
-}
-
-// general case for a integer smaller than 64 bits with a integer larger than 64 bits
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator+(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    return rhs + lhs;
+    if (index < ArbiInt<N>::num_words)
+        value.data[index] = word;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator+(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    // The result may need one more bit to store potential overflow
     constexpr size_t R = std::max(N, M) + 1;
     ArbiInt<R> result;
-
-    constexpr size_t res_words = ArbiInt<R>::num_words;
-    constexpr size_t lhs_words = ArbiInt<N>::num_words;
-    constexpr size_t rhs_words = ArbiInt<M>::num_words;
-
-    // Compute sign extensions using arithmetic right shift
-    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_words - 1]) >> 63;
-    int64_t rhs_sign_extension = static_cast<int64_t>(rhs.data[rhs_words - 1]) >> 63;
-
-    __uint128_t carry = 0;
-    for (size_t i = 0; i < res_words; ++i)
+    uint64_t carry = 0;
+    for (size_t i = 0; i < ArbiInt<R>::num_words; ++i)
     {
-        uint64_t lhs_word = (i < lhs_words) ? lhs.data[i] : static_cast<uint64_t>(lhs_sign_extension);
-        uint64_t rhs_word = (i < rhs_words) ? rhs.data[i] : static_cast<uint64_t>(rhs_sign_extension);
-
-        __uint128_t sum = static_cast<__uint128_t>(lhs_word) + rhs_word + carry;
-
-        result.data[i] = static_cast<uint64_t>(sum);
-
-        carry = sum >> 64;
+        const uint64_t a = arbiWord(lhs, i);
+        const uint64_t b = arbiWord(rhs, i);
+        const uint64_t partial = a + b;
+        const bool first_carry = partial < a;
+        const uint64_t sum = partial + carry;
+        const bool second_carry = sum < partial;
+        result.data[i] = sum;
+        carry = first_carry || second_carry;
     }
-
     return result;
 }
 
-// operator-
-
-// Special case for N < 64 and M < 64
 template <size_t N, size_t M>
-    requires(N < 64 && M < 64)
-constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<std::max(N, M) + 1> result;
-    result.data = static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(lhs.data) - static_cast<ArbiInt<std::max(N, M) + 1>::data_t>(rhs.data);
-    return result;
-}
-
-// Special case when either N or M is exactly 64
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64) && (N == 64 || M == 64)
-constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<65> result;
-    __int128_t diff = static_cast<__int128_t>(lhs.data) - static_cast<__int128_t>(rhs.data);
-    result.data[0] = static_cast<uint64_t>(diff);
-    result.data[1] = static_cast<uint64_t>(diff >> 64);
-    return result;
-}
-
-// General case for N > 64 and M <= 64
-template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    constexpr size_t R = N + 1;
-    ArbiInt<R> result;
-
-    constexpr size_t res_words = ArbiInt<R>::num_words;
-    constexpr size_t lhs_words = ArbiInt<N>::num_words;
-
-    // Precompute sign bit positions
-    constexpr size_t lhs_sign_bit_pos = N - 1;
-    constexpr size_t lhs_sign_word_index = lhs_sign_bit_pos / 64;
-    constexpr size_t lhs_sign_bit_in_word = lhs_sign_bit_pos % 64;
-    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_sign_word_index]) >> lhs_sign_bit_in_word;
-
-    __int128_t borrow = 0;
-    for (size_t i = 0; i < res_words; ++i)
-    {
-        uint64_t lhs_word = (i < lhs_words) ? lhs.data[i] : static_cast<uint64_t>(lhs_sign_extension);
-        uint64_t rhs_word = (i == 0) ? rhs.data : 0;
-
-        __int128_t diff = static_cast<__int128_t>(lhs_word) - rhs_word - borrow;
-        result.data[i] = static_cast<uint64_t>(diff);
-        borrow = (diff < 0) ? 1 : 0;
-    }
-
-    return result;
-}
-
-// General case for N <= 64 and M > 64
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator-(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    constexpr size_t R = M + 1;
-    ArbiInt<R> lhs_promoted = lhs; // Promote lhs to match the size of rhs
-    return lhs_promoted - rhs;
-}
-
-// General case for N > 64 and M > 64
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator-(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t R = std::max(N, M) + 1;
     ArbiInt<R> result;
-
-    constexpr size_t res_words = ArbiInt<R>::num_words;
-    constexpr size_t lhs_words = ArbiInt<N>::num_words;
-    constexpr size_t rhs_words = ArbiInt<M>::num_words;
-
-    // Precompute sign bit positions
-    constexpr size_t lhs_sign_bit_pos = N - 1;
-    constexpr size_t lhs_sign_word_index = lhs_sign_bit_pos / 64;
-    constexpr size_t lhs_sign_bit_in_word = lhs_sign_bit_pos % 64;
-    constexpr size_t rhs_sign_bit_pos = M - 1;
-    constexpr size_t rhs_sign_word_index = rhs_sign_bit_pos / 64;
-    constexpr size_t rhs_sign_bit_in_word = rhs_sign_bit_pos % 64;
-    int64_t lhs_sign_extension = static_cast<int64_t>(lhs.data[lhs_sign_word_index]) >> lhs_sign_bit_in_word;
-    int64_t rhs_sign_extension = static_cast<int64_t>(rhs.data[rhs_sign_word_index]) >> rhs_sign_bit_in_word;
-
-    __int128_t borrow = 0;
-    for (size_t i = 0; i < res_words; ++i)
+    uint64_t borrow = 0;
+    for (size_t i = 0; i < ArbiInt<R>::num_words; ++i)
     {
-        uint64_t lhs_word = (i < lhs_words) ? lhs.data[i] : static_cast<uint64_t>(lhs_sign_extension);
-        uint64_t rhs_word = (i < rhs_words) ? rhs.data[i] : static_cast<uint64_t>(rhs_sign_extension);
-
-        __int128_t diff = static_cast<__int128_t>(lhs_word) - rhs_word - borrow;
-        result.data[i] = static_cast<uint64_t>(diff);
-        borrow = (diff < 0) ? 1 : 0;
+        const uint64_t a = arbiWord(lhs, i);
+        const uint64_t b = arbiWord(rhs, i);
+        const uint64_t subtrahend = b + borrow;
+        const bool add_overflow = borrow != 0 && subtrahend == 0;
+        result.data[i] = a - subtrahend;
+        borrow = add_overflow || a < subtrahend;
     }
-
     return result;
 }
 
-// Unary minus operator for ArbiInt<N>
 template <size_t N>
-    requires(N < 64)
-constexpr auto operator-(const ArbiInt<N> &x)
+constexpr auto operator-(const ArbiInt<N> &value)
 {
     ArbiInt<N + 1> result;
-    result.data = -static_cast<ArbiInt<N + 1>::data_t>(x.data);
-    return result;
-}
-
-template <size_t N>
-    requires(N == 64)
-constexpr auto operator-(const ArbiInt<N> &x)
-{
-    ArbiInt<N + 1> result; // it will be promoted to 65 bits and occupy 2 uint64_t
-    __int128_t temp = -static_cast<__int128_t>(x.data);
-    result.data[0] = static_cast<uint64_t>(temp);
-    result.data[1] = static_cast<uint64_t>(temp >> 64);
-    return result;
-}
-
-template <size_t N>
-    requires(N > 64)
-constexpr auto operator-(const ArbiInt<N> &x)
-{
-    ArbiInt<N + 1> result;
-
     uint64_t carry = 1;
-    for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
+    for (size_t i = 0; i < ArbiInt<N + 1>::num_words; ++i)
     {
-        uint64_t temp = ~x.data[i] + carry;
-        result.data[i] = temp;
-        carry = (temp < carry);
+        const uint64_t inverted = ~arbiWord(value, i);
+        result.data[i] = inverted + carry;
+        carry = carry != 0 && result.data[i] == 0;
     }
-
-    if constexpr (N % 64 == 0)
-    {
-        result.data[ArbiInt<N>::num_words] = carry;
-    }
-
-    return result;
-}
-
-// template <size_t N>
-//     requires(N <= 64)
-// // Negation without promotion, won't change the size of the integer and may cause overflow
-// constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
-// {
-//     ArbiInt<N> result;
-//     result.data = -x.data;
-//     return result;
-// }
-
-// template <size_t N>
-//     requires(N > 64)
-// // Negation without promotion, won't change the size of the integer and may cause overflow
-// constexpr auto negWithoutPromotion(const ArbiInt<N> &x)
-// {
-//     ArbiInt<N> result;
-
-//     uint64_t carry = 1;
-//     for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
-//     {
-//         uint64_t temp = ~x.data[i] + carry;
-//         result.data[i] = temp;
-//         carry = (temp < carry);
-//     }
-
-//     return result;
-// }
-
-// operator*
-
-template <size_t N, size_t M>
-    requires(M + N <= 64)
-constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<N + M> result;
-    result.data = static_cast<ArbiInt<N + M>::data_t>(lhs.data) * static_cast<ArbiInt<N + M>::data_t>(rhs.data);
     return result;
 }
 
 template <size_t N, size_t M>
-    requires(M + N > 64 && (N <= 64 && M <= 64))
-constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<N + M> result;
-
-    __int128_t product = static_cast<__int128_t>(lhs.data) * static_cast<__int128_t>(rhs.data);
-
-    result.data[0] = static_cast<uint64_t>(product);
-    result.data[1] = static_cast<uint64_t>(product >> 64);
-
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator*(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    return rhs * lhs;
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    constexpr size_t R = N + M;
-    using ResultType = ArbiInt<R>;
-    ResultType result;
-    result.data.fill(0);
-
-    // Sign extraction
-    bool lhs_negative = (lhs.data[lhs.num_words - 1] >> ((N - 1) % 64)) & 1;
-    bool rhs_negative = rhs.data < 0;
-    bool result_negative = lhs_negative ^ rhs_negative;
-
-    // Compute absolute value of rhs
-    uint64_t rhs_abs = static_cast<uint64_t>(rhs.data);
-    if (rhs_negative)
-    {
-        rhs_abs = (~rhs_abs) + 1ULL;
-    }
-
-    __uint128_t carry = 0;
-    uint64_t lhs_carry = lhs_negative ? 1ULL : 0ULL;
-
-    for (size_t i = 0; i < lhs.num_words; ++i)
-    {
-        uint64_t lhs_val = lhs.data[i];
-        if (lhs_negative)
-        {
-            uint64_t temp = ~lhs_val + lhs_carry;
-            lhs_carry = (temp < lhs_carry) ? 1ULL : 0ULL;
-            lhs_val = temp;
-        }
-
-        __uint128_t prod = (__uint128_t)lhs_val * rhs_abs + carry;
-        result.data[i] = static_cast<uint64_t>(prod);
-        carry = prod >> 64;
-    }
-
-    // Handle the final carry from multiplication
-    size_t result_size = result.num_words;
-    size_t next_index = lhs.num_words;
-    if (next_index < result_size)
-    {
-        result.data[next_index] = static_cast<uint64_t>(carry);
-    }
-    else if (carry != 0)
-    {
-        // Optional: Handle overflow (e.g., throw an exception or set an overflow flag)
-    }
-
-    // Convert result to two's complement if the resulting sign is negative
-    if (result_negative)
-    {
-        uint64_t carry = 1;
-        for (size_t i = 0; i < result.num_words; ++i)
-        {
-            uint64_t temp = ~result.data[i] + carry;
-            carry = (temp < carry) ? 1ULL : 0ULL;
-            result.data[i] = temp;
-        }
-    }
-
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator*(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     constexpr size_t R = N + M;
-    using ResultType = ArbiInt<R>;
-    ResultType result{};
+    ArbiInt<R> result;
 
-    // Determine if the operands are negative
-    bool lhs_negative = (lhs.data[lhs.num_words - 1] >> ((N - 1) % 64)) & 1;
-    bool rhs_negative = (rhs.data[rhs.num_words - 1] >> ((M - 1) % 64)) & 1;
-    bool result_negative = lhs_negative ^ rhs_negative;
-
-    // Variables to hold carry-over for lhs and rhs during two's complement conversion
-    uint64_t lhs_carry = lhs_negative ? 1 : 0;
-    uint64_t rhs_carry = rhs_negative ? 1 : 0;
-
-    // Perform multiplication
-    for (size_t i = 0; i < lhs.num_words; ++i)
+    // Multiplication of finite sign-extended two's-complement vectors is the
+    // ordinary unsigned convolution modulo the result's physical word width.
+    for (size_t i = 0; i < ArbiInt<R>::num_words; ++i)
     {
-        // Compute lhs_val with inversion and carry, if negative
-        uint64_t lhs_val = lhs.data[i];
-        if (lhs_negative)
+        __uint128_t carry = 0;
+        for (size_t j = 0; i + j < ArbiInt<R>::num_words; ++j)
         {
-            uint64_t temp = ~lhs_val + lhs_carry;
-            lhs_carry = (temp < lhs_carry) ? 1 : 0;
-            lhs_val = temp;
+            const size_t k = i + j;
+            const __uint128_t product =
+                static_cast<__uint128_t>(arbiWord(lhs, i)) * arbiWord(rhs, j);
+            const __uint128_t accumulated = product + result.data[k] + carry;
+            result.data[k] = static_cast<uint64_t>(accumulated);
+            carry = accumulated >> 64;
         }
+    }
+    return result;
+}
 
-        uint64_t inner_rhs_carry = rhs_negative ? 1 : 0;
-        for (size_t j = 0; j < rhs.num_words; ++j)
+// Signed two's-complement division.  The extra result bit represents
+// min_value / -1 without overflow.  Remainder follows the dividend sign, as
+// in C++ truncation-toward-zero division; quantization-specific correction is
+// deliberately performed by the fixed-point layer afterwards.
+template <size_t N, size_t M>
+struct ArbiDivResult
+{
+    static constexpr size_t width = std::max(N, M) + 1;
+    ArbiInt<width> quotient;
+    ArbiInt<width> remainder;
+};
+
+template <size_t N, size_t M>
+constexpr auto divmod(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+{
+    constexpr size_t R = std::max(N, M) + 1;
+    constexpr size_t W = (R + 63) / 64;
+    using words_t = std::array<uint64_t, W>;
+
+    const bool lhs_negative = lhs.isNegative();
+    const bool rhs_negative = rhs.isNegative();
+
+    auto magnitude = []<size_t K>(const ArbiInt<K> &value) constexpr {
+        words_t words{};
+        for (size_t i = 0; i < W; ++i)
+            words[i] = arbiWord(value, i);
+        if (value.isNegative())
         {
-            // Compute rhs_val with inversion and carry, if negative
-            uint64_t rhs_val = rhs.data[j];
-            if (rhs_negative)
+            uint64_t carry = 1;
+            for (size_t i = 0; i < W; ++i)
             {
-                uint64_t temp = ~rhs_val + inner_rhs_carry;
-                inner_rhs_carry = (temp < inner_rhs_carry) ? 1 : 0;
-                rhs_val = temp;
+                const uint64_t inverted = ~words[i];
+                words[i] = inverted + carry;
+                carry = carry && words[i] == 0;
             }
+        }
+        return words;
+    };
 
-            __uint128_t product = __uint128_t(lhs_val) * rhs_val;
-            size_t k = i + j;
-            if (k < result.num_words)
-            {
-                __uint128_t sum = product + result.data[k];
-                result.data[k] = static_cast<uint64_t>(sum);
-                __uint128_t carry = sum >> 64;
+    const words_t dividend = magnitude(lhs);
+    const words_t divisor = magnitude(rhs);
+    bool divisor_zero = true;
+    for (uint64_t word : divisor)
+        divisor_zero &= word == 0;
+    if (divisor_zero)
+        throw std::domain_error("ArbiInt division by zero");
 
-                // Propagate carry
-                size_t m = k + 1;
-                while (carry && m < result.num_words)
-                {
-                    __uint128_t temp = result.data[m] + carry;
-                    result.data[m] = static_cast<uint64_t>(temp);
-                    carry = temp >> 64;
-                    ++m;
-                }
-            }
+    words_t quotient{};
+    words_t remainder{};
+
+    auto unsigned_ge = [](const words_t &a, const words_t &b) constexpr {
+        for (size_t i = W; i-- > 0;)
+        {
+            if (a[i] != b[i])
+                return a[i] > b[i];
+        }
+        return true;
+    };
+
+    auto unsigned_subtract = [](words_t &a, const words_t &b) constexpr {
+        uint64_t borrow = 0;
+        for (size_t i = 0; i < W; ++i)
+        {
+            const uint64_t before = a[i];
+            const uint64_t subtrahend = b[i] + borrow;
+            const bool add_overflow = borrow && subtrahend == 0;
+            a[i] = before - subtrahend;
+            borrow = add_overflow || before < subtrahend;
+        }
+    };
+
+    for (size_t bit = W * 64; bit-- > 0;)
+    {
+        uint64_t carry = (dividend[bit / 64] >> (bit % 64)) & 1;
+        for (size_t i = 0; i < W; ++i)
+        {
+            const uint64_t next = remainder[i] >> 63;
+            remainder[i] = (remainder[i] << 1) | carry;
+            carry = next;
+        }
+        if (unsigned_ge(remainder, divisor))
+        {
+            unsigned_subtract(remainder, divisor);
+            quotient[bit / 64] |= uint64_t{1} << (bit % 64);
         }
     }
 
-    // Apply two's complement to the result if it should be negative
-    if (result_negative)
-    {
-        // Invert all bits
-        for (size_t i = 0; i < result.num_words; ++i)
-        {
-            result.data[i] = ~result.data[i];
-        }
-        // Add 1 and propagate carry
+    auto apply_sign = [](words_t &words, bool negative) constexpr {
+        if (!negative)
+            return;
         uint64_t carry = 1;
-        for (size_t i = 0; i < result.num_words; ++i)
+        for (size_t i = 0; i < W; ++i)
         {
-            uint64_t temp = result.data[i] + carry;
-            carry = (temp < carry) ? 1 : 0;
-            result.data[i] = temp;
+            const uint64_t inverted = ~words[i];
+            words[i] = inverted + carry;
+            carry = carry && words[i] == 0;
         }
-    }
+    };
+    apply_sign(quotient, lhs_negative != rhs_negative);
+    apply_sign(remainder, lhs_negative);
 
+    ArbiDivResult<N, M> result;
+    for (size_t i = 0; i < W; ++i)
+    {
+        setArbiWord(result.quotient, i, quotient[i]);
+        setArbiWord(result.remainder, i, remainder[i]);
+    }
     return result;
-}
-
-// operator /
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator/(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<64> result;
-    result.data = lhs.data / rhs.data;
-    return result;
-}
-
-// 辅助函数：比较两个大数的绝对值大小
-inline int compareAbs(const std::string &a, const std::string &b)
-{
-    if (a.size() != b.size())
-        return a.size() > b.size() ? 1 : -1;
-    for (size_t i = 0; i < a.size(); i++)
-    {
-        if (a[i] != b[i])
-            return a[i] > b[i] ? 1 : -1;
-    }
-    return 0;
-}
-
-// 辅助函数：大数减法
-inline std::string subtract(const std::string &a, const std::string &b)
-{
-    std::string result;
-    int carry = 0;
-    int i = (int)a.size() - 1;
-    int j = (int)b.size() - 1;
-
-    while (i >= 0 || j >= 0 || carry)
-    {
-        int digitA = i >= 0 ? a[i] - '0' : 0;
-        int digitB = j >= 0 ? b[j] - '0' : 0;
-        int diff = digitA - digitB - carry;
-
-        if (diff < 0)
-        {
-            diff += 10;
-            carry = 1;
-        }
-        else
-        {
-            carry = 0;
-        }
-
-        result = char(diff + '0') + result;
-        i--;
-        j--;
-    }
-
-    // 移除前导零
-    auto start = result.find_first_not_of('0');
-    if (start != std::string::npos)
-    {
-        return result.substr(start);
-    }
-    else
-    {
-        return "0";
-    }
-}
-
-// 执行大数除法
-inline std::string divideString(const std::string &dividend, const std::string &divisor)
-{
-    if (divisor == "0")
-    {
-        throw std::runtime_error("Division by zero.");
-    }
-
-    // 处理符号
-    bool negResult = (dividend[0] == '-') ^ (divisor[0] == '-');
-    std::string absDividend = dividend[0] == '-' ? dividend.substr(1) : dividend;
-    std::string absDivisor = divisor[0] == '-' ? divisor.substr(1) : divisor;
-
-    if (compareAbs(absDividend, absDivisor) < 0)
-    {
-        return "0"; // 被除数比除数小，商为0
-    }
-
-    std::string result;
-    std::string current = "";
-    for (char digit : absDividend)
-    {
-        current += digit; // 逐个数字处理
-        current.erase(0, current.find_first_not_of('0'));
-        if (current.empty())
-            current = "0";
-
-        int count = 0;
-        while (compareAbs(current, absDivisor) >= 0)
-        {
-            current = subtract(current, absDivisor);
-            count++;
-        }
-        result += char(count + '0');
-    }
-
-    result.erase(0, result.find_first_not_of('0')); // 移除结果的前导零
-    if (result.empty())
-        result = "0";
-
-    return negResult ? '-' + result : result;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 || M > 64)
-[[deprecated("Division for large integers is currently implemented using string conversion. It is not efficient and may be slow for large numbers.")]]
-auto operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
+constexpr auto operator/(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    auto dividend = lhs.toString();
-    auto divisor = rhs.toString();
-
-    std::string result = divideString(dividend, divisor);
-
-    return ArbiInt<N - M>(result);
+    return divmod(lhs, rhs).quotient;
 }
 
-// operator <<
-// specially, the static shift left is designed for no overflow guaranteed
-template <int shift, size_t N>
-    requires(shift > 0) && (N + shift <= 64)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+template <size_t N, size_t M>
+constexpr auto operator%(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    ArbiInt<N + shift> result;
-
-    result.data = static_cast<typename ArbiInt<N + shift>::data_t>(x.data) << shift;
-
-    return result;
+    return divmod(lhs, rhs).remainder;
 }
 
+// For canonical logical values, static shifts change the type width so no
+// mathematical information is lost. Deliberate headroom values may still hit
+// the physical top-limb sign bit at an exact 64-bit boundary.
 template <int shift, size_t N>
-    requires(shift > 0) && (N + shift > 64) && (N <= 64)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
-{
-    ArbiInt<N + shift> result;
-
-    // check if the shifted bits will occupy 2 uint64_t
-    if ((N + shift) / 64 == shift / 64)
-    {
-        result.data[shift / 64] = static_cast<uint64_t>(x.data) << (shift % 64);
-    }
-    else
-    {
-        __uint128_t temp = static_cast<__uint128_t>(x.data) << (shift % 64);
-        result.data[shift / 64] = static_cast<uint64_t>(temp);
-        result.data[shift / 64 + 1] = static_cast<uint64_t>(temp >> 64);
-    }
-
-    return result;
-}
+constexpr auto staticShiftRight(const ArbiInt<N> &value);
 
 template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (shift % 64 == 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+    requires(shift > 0)
+constexpr auto staticShiftLeftImpl(const ArbiInt<N> &value)
 {
-    ArbiInt<N + shift> result;
-
-    // directly copy
-    // std::memcpy(result.data.data() + shift / 64, x.data.data(), sizeof(uint64_t) * ArbiInt<N>::num_words);
-    std::copy(x.data.begin(), x.data.end(), result.data.begin() + shift / 64);
-
-    return result;
-}
-template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (shift % 64 != 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
-{
-    constexpr size_t num_words_in = ArbiInt<N>::num_words;
-    constexpr size_t num_words_out = ArbiInt<N + shift>::num_words;
+    ArbiInt<N + static_cast<size_t>(shift)> result;
+    constexpr size_t output_words = (N + shift + 63) / 64;
     constexpr size_t word_shift = shift / 64;
     constexpr size_t bit_shift = shift % 64;
 
-    ArbiInt<N + shift> result;
-
-    // 判断x是否为负数
-    uint64_t sign_bit_mask = uint64_t(1) << 63;
-    bool x_is_negative = x.data[num_words_in - 1] & sign_bit_mask;
-    uint64_t sign_extension_word = x_is_negative ? ~uint64_t(0) : uint64_t(0);
-
-    // 扩展数据以包含符号扩展位
-    std::array<uint64_t, num_words_in + 1> extended_data;
-    for (size_t i = 0; i < num_words_in; ++i)
+    for (size_t i = 0; i < output_words; ++i)
     {
-        extended_data[i] = x.data[i];
-    }
-    extended_data[num_words_in] = sign_extension_word;
-
-    // 初始化结果数据为0
-    for (size_t i = 0; i < num_words_out; ++i)
-    {
-        result.data[i] = 0;
-    }
-
-    // 执行左移操作
-    for (size_t i = 0; i <= num_words_in; ++i)
-    {
-        uint64_t current = extended_data[i];
-        size_t new_index = i + word_shift;
-
-        if (new_index < num_words_out)
+        uint64_t word = 0;
+        if (i >= word_shift)
         {
-            result.data[new_index] |= current << bit_shift;
+            const size_t source_index = i - word_shift;
+            word = arbiWord(value, source_index) << bit_shift;
+            if constexpr (bit_shift != 0)
+            {
+                if (source_index > 0)
+                    word |= arbiWord(value, source_index - 1) >> (64 - bit_shift);
+            }
         }
-        if (bit_shift != 0 && new_index + 1 < num_words_out)
-        {
-            result.data[new_index + 1] |= current >> (64 - bit_shift);
-        }
+        setArbiWord(result, i, word);
     }
-
-    // 已经通过符号扩展处理高位数据，无需额外处理
-
     return result;
 }
 
 template <int shift, size_t N>
-    requires(shift < 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+constexpr auto staticShiftLeft(const ArbiInt<N> &value)
 {
-    return staticShiftRight<-shift>(x);
+    if constexpr (shift > 0)
+        return staticShiftLeftImpl<shift>(value);
+    else if constexpr (shift < 0)
+        return staticShiftRight<-shift>(value);
+    else
+        return value;
 }
 
 template <int shift, size_t N>
-    requires(shift == 0)
-constexpr auto staticShiftLeft(const ArbiInt<N> &x)
+constexpr auto staticShiftRight(const ArbiInt<N> &value)
 {
-    return x;
-}
-
-// operator >>
-template <int shift, size_t N>
-    requires(shift > 0) && (N <= shift)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    ArbiInt<1> result;
-    result.data = x.isNegative() ? ~int64_t(0) : int64_t(0);
-    return result;
-}
-
-template <int shift, size_t N>
-    requires(shift > 0) && (N <= 64) && (N > shift)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    ArbiInt<N - shift> result;
-
-    result.data = x.data >> shift;
-
-    return result;
-}
-
-template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N - shift <= 64) && (N > shift)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    // get the highest 128 bits and shift right
-    ArbiInt<N - shift> result;
-
-    constexpr size_t num_words = ArbiInt<N>::num_words;
-
-    __uint128_t high = static_cast<__uint128_t>(x.data[num_words - 1]) << 64;
-    __uint128_t low = static_cast<__uint128_t>(x.data[num_words - 2]);
-
-    __uint128_t temp = high | low;
-
-    constexpr size_t actual_shift = shift - 64 * (num_words - 2);
-
-    result.data = static_cast<__int128_t>(temp) >> actual_shift;
-
-    return result;
-}
-
-template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N > shift + 64) && (shift % 64 == 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    ArbiInt<N - shift> result;
-    std::copy(x.data.begin() + shift / 64, x.data.end(), result.data.begin());
-    return result;
-}
-
-template <int shift, size_t N>
-    requires(shift > 0) && (N > 64) && (N > shift + 64) && (shift % 64 != 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    constexpr size_t shift_words = shift / 64; // Number of complete 64-bit blocks to shift right
-    constexpr size_t shift_bits = shift % 64;  // Remaining bits to shift right
-    constexpr size_t num_input_words = ArbiInt<N>::num_words;
-    constexpr size_t num_output_words = ArbiInt<N - shift>::num_words;
-    ArbiInt<N - shift> result;
-
-    // Determine the sign extension word based on the sign of x
-    bool is_negative = static_cast<int64_t>(x.data[num_input_words - 1]) < 0;
-    uint64_t sign_extension_word = is_negative ? ~uint64_t(0) : uint64_t(0);
-
-    for (size_t i = 0; i < num_output_words; ++i)
+    if constexpr (shift < 0)
     {
-        // Get the source words with proper sign extension
-        uint64_t low_word = 0;
-        uint64_t high_word = 0;
-
-        size_t low_index = i + shift_words;
-        size_t high_index = i + shift_words + 1;
-
-        // Retrieve low_word, or sign extension if out of bounds
-        if (low_index < num_input_words)
-            low_word = x.data[low_index];
-        else
-            low_word = sign_extension_word;
-
-        // Retrieve high_word, or sign extension if out of bounds
-        if (high_index < num_input_words)
-            high_word = x.data[high_index];
-        else
-            high_word = sign_extension_word;
-
-        // Perform the shift and combine the bits
-        result.data[i] = (low_word >> shift_bits) | (high_word << (64 - shift_bits));
+        return staticShiftLeft<-shift>(value);
     }
-
-    return result;
-}
-
-template <int shift, size_t N>
-    requires(shift < 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    return staticShiftLeft<-shift>(x);
-}
-
-template <int shift, size_t N>
-    requires(shift == 0)
-constexpr auto staticShiftRight(const ArbiInt<N> &x)
-{
-    return x;
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    return lhs.data == rhs.data;
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    return static_cast<int64_t>(lhs.data[0]) == static_cast<int64_t>(rhs.data);
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr bool operator==(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    return static_cast<int64_t>(lhs.data) == static_cast<int64_t>(rhs.data[0]);
+    else if constexpr (shift == 0)
+    {
+        return value;
+    }
+    else if constexpr (static_cast<size_t>(shift) >= N)
+    {
+        ArbiInt<1> result;
+        result.data[0] = value.isNegative()
+                             ? std::numeric_limits<uint64_t>::max()
+                             : uint64_t{0};
+        return result;
+    }
+    else
+    {
+        constexpr size_t R = N - static_cast<size_t>(shift);
+        constexpr size_t word_shift = shift / 64;
+        constexpr size_t bit_shift = shift % 64;
+        ArbiInt<R> result;
+        for (size_t i = 0; i < ArbiInt<R>::num_words; ++i)
+        {
+            const uint64_t low = arbiWord(value, i + word_shift);
+            if constexpr (bit_shift == 0)
+            {
+                result.data[i] = low;
+            }
+            else
+            {
+                const uint64_t high = arbiWord(value, i + word_shift + 1);
+                result.data[i] = (low >> bit_shift) |
+                                 (high << (64 - bit_shift));
+            }
+        }
+        return result;
+    }
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr bool operator==(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    constexpr size_t num_words_N = ArbiInt<N>::num_words;
-    constexpr size_t num_words_M = ArbiInt<M>::num_words;
-
-    constexpr size_t min_words = (num_words_N < num_words_M) ? num_words_N : num_words_M;
-
-    // check the uint64_t within the range of min_words
-    for (size_t i = 0; i < min_words; ++i)
-    {
-        if (lhs.data[i] != rhs.data[i])
-        {
+    constexpr size_t words = std::max(ArbiInt<N>::num_words,
+                                      ArbiInt<M>::num_words);
+    for (size_t i = 0; i < words; ++i)
+        if (arbiWord(lhs, i) != arbiWord(rhs, i))
             return false;
-        }
-    }
     return true;
 }
 
 template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr bool operator!=(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    return !(lhs == rhs);
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    return !(lhs == rhs);
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr bool operator!=(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    return !(lhs == rhs);
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
-constexpr bool operator!=(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
-{
-    return !(lhs == rhs);
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    return lhs.data <=> rhs.data;
-}
-
-// For lhs > 64 bits and rhs <= 64 bits
-template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    int64_t rhs_ext = (rhs.data < 0) ? -1LL : 0LL; // 符号扩展rhs的值
-    for (int i = ArbiInt<N>::num_words - 1; i > 0; --i)
-    {
-        if (static_cast<int64_t>(lhs.data[i]) != rhs_ext)
-        {
-            return static_cast<int64_t>(lhs.data[i]) <=> rhs_ext;
-        }
-    }
-    return static_cast<int64_t>(lhs.data[0]) <=> static_cast<int64_t>(rhs.data);
-}
-
-// For lhs <= 64 bits and rhs > 64 bits
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator<=>(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    int64_t lhs_ext = (lhs.data < 0) ? -1LL : 0LL; // 符号扩展lhs的值
-    for (int i = ArbiInt<M>::num_words - 1; i > 0; --i)
-    {
-        if (static_cast<int64_t>(rhs.data[i]) != lhs_ext)
-        {
-            return lhs_ext <=> static_cast<int64_t>(rhs.data[i]);
-        }
-    }
-    return static_cast<int64_t>(lhs.data) <=> static_cast<int64_t>(rhs.data[0]);
-}
-
-// For both lhs and rhs > 64 bits
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator<=>(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
-    uint64_t lhs_ext = (lhs.data[ArbiInt<N>::num_words - 1] >> 63) ? -1ULL : 0ULL;
-    uint64_t rhs_ext = (rhs.data[ArbiInt<M>::num_words - 1] >> 63) ? -1ULL : 0ULL;
+    if (lhs.isNegative() != rhs.isNegative())
+        return lhs.isNegative() ? std::strong_ordering::less
+                                : std::strong_ordering::greater;
 
-    // Compare the most significant bits first, if they are different, return the result
-    if (lhs_ext != rhs_ext)
-        return rhs_ext <=> lhs_ext;
-
-    constexpr int max_words = std::max(ArbiInt<N>::num_words, ArbiInt<M>::num_words);
-
-    for (int i = max_words - 1; i >= 0; --i)
+    constexpr size_t words = std::max(ArbiInt<N>::num_words,
+                                      ArbiInt<M>::num_words);
+    for (size_t i = words; i-- > 0;)
     {
-        uint64_t lhs_word = (i < ArbiInt<N>::num_words) ? lhs.data[i] : lhs_ext;
-        uint64_t rhs_word = (i < ArbiInt<M>::num_words) ? rhs.data[i] : rhs_ext;
-
-        if (lhs_word != rhs_word)
-            return (lhs_word <=> rhs_word);
+        const uint64_t a = arbiWord(lhs, i);
+        const uint64_t b = arbiWord(rhs, i);
+        if (a != b)
+            return a < b ? std::strong_ordering::less
+                         : std::strong_ordering::greater;
     }
-    return lhs_ext <=> rhs_ext;
-}
-
-// operator ^
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<std::max(N, M)> result;
-    result.data = lhs.data ^ rhs.data;
-    return result;
+    return std::strong_ordering::equal;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<N> result = lhs;
-    result.data[0] ^= static_cast<uint64_t>(rhs.data);
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator^(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    ArbiInt<M> result = rhs;
-    result.data[0] ^= static_cast<uint64_t>(lhs.data);
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator^(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<std::max(N, M)> result;
-    if constexpr (N > M)
-    {
-        result = lhs;
-    }
-    else
-    {
-        result = rhs;
-    }
-
-    for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
-    {
-        result.data[i] = lhs.data[i] ^ rhs.data[i];
-    }
-    return result;
-}
-
-// operator &
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<std::max(N, M)> result;
-    result.data = lhs.data & rhs.data;
+    for (size_t i = 0; i < decltype(result)::num_words; ++i)
+        result.data[i] = arbiWord(lhs, i) ^ arbiWord(rhs, i);
     return result;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<N> result;
-    result.data[0] = lhs.data[0] & static_cast<uint64_t>(rhs.data);
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator&(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    ArbiInt<M> result;
-    result.data[0] = static_cast<uint64_t>(lhs.data) & rhs.data[0];
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator&(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<std::max(N, M)> result;
-    for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
-    {
-        result.data[i] = lhs.data[i] & rhs.data[i];
-    }
-    return result;
-}
-
-// operator |
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M <= 64)
-constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<std::max(N, M)> result;
-    result.data = lhs.data | rhs.data;
+    for (size_t i = 0; i < decltype(result)::num_words; ++i)
+        result.data[i] = arbiWord(lhs, i) & arbiWord(rhs, i);
     return result;
 }
 
 template <size_t N, size_t M>
-    requires(N > 64 && M <= 64)
-constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> rhs)
-{
-    ArbiInt<N> result = lhs;
-    result.data[0] |= static_cast<uint64_t>(rhs.data);
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N <= 64 && M > 64)
-constexpr auto operator|(const ArbiInt<N> lhs, const ArbiInt<M> &rhs)
-{
-    ArbiInt<M> result = rhs;
-    result.data[0] |= static_cast<uint64_t>(lhs.data);
-    return result;
-}
-
-template <size_t N, size_t M>
-    requires(N > 64 && M > 64)
 constexpr auto operator|(const ArbiInt<N> &lhs, const ArbiInt<M> &rhs)
 {
     ArbiInt<std::max(N, M)> result;
-    if constexpr (N > M)
-    {
-        result = lhs;
-    }
-    else
-    {
-        result = rhs;
-    }
-
-    for (size_t i = 0; i < std::min(ArbiInt<N>::num_words, ArbiInt<M>::num_words); ++i)
-    {
-        result.data[i] = lhs.data[i] | rhs.data[i];
-    }
-    return result;
-}
-
-// operator ~
-template <size_t N>
-    requires(N <= 64)
-constexpr auto operator~(const ArbiInt<N> x)
-{
-    ArbiInt<N> result;
-    result.data = ~x.data;
+    for (size_t i = 0; i < decltype(result)::num_words; ++i)
+        result.data[i] = arbiWord(lhs, i) | arbiWord(rhs, i);
     return result;
 }
 
 template <size_t N>
-    requires(N > 64)
-constexpr auto operator~(const ArbiInt<N> &x)
+constexpr auto operator~(const ArbiInt<N> &value)
 {
     ArbiInt<N> result;
     for (size_t i = 0; i < ArbiInt<N>::num_words; ++i)
-    {
-        result.data[i] = ~x.data[i];
-    }
+        result.data[i] = ~value.data[i];
     return result;
 }
 
@@ -2021,6 +1101,25 @@ struct TRN
 template <int fromFrac, int toFrac, typename QuMode>
 struct fracConvert;
 
+template <int discardedBits, size_t N>
+    requires(discardedBits > 0)
+inline constexpr auto splitQuantizedBits(const ArbiInt<N> &val)
+{
+    auto floor = staticShiftRight<discardedBits>(val);
+    // Computing r = x - floor(x / 2^d) * 2^d avoids signed-mask bugs when d
+    // is exactly 32, 64, 128, ... .  The remainder is always in [0, 2^d).
+    auto remainder = val - staticShiftLeft<discardedBits>(floor);
+    return std::pair{floor, remainder};
+}
+
+template <int discardedBits>
+inline constexpr auto quantizationHalf()
+{
+    static_assert(discardedBits > 0);
+    // Start with two bits so the half value never occupies a sign bit.
+    return staticShiftLeft<discardedBits - 1>(ArbiInt<2>(1));
+}
+
 template <int fromFrac, int toFrac>
 struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
 {
@@ -2033,20 +1132,10 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::POS_INF>>
         }
         else
         {
-
-            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
-
-            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
-
-            auto Xl = val & mask;
-
-            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
-
-            bool flag = Xl >= T;
-
-            auto oneOrZero = ArbiInt<1>(flag);
-
-            return Xh + oneOrZero;
+            constexpr int discarded = fromFrac - toFrac;
+            auto [floor, remainder] = splitQuantizedBits<discarded>(val);
+            constexpr auto half = quantizationHalf<discarded>();
+            return floor + ArbiInt<1>(remainder >= half);
         }
     }
 };
@@ -2063,20 +1152,10 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::NEG_INF>>
         }
         else
         {
-
-            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
-
-            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
-
-            auto Xl = val & mask;
-
-            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
-
-            bool flag = Xl > T;
-
-            auto oneOrZero = ArbiInt<1>(flag);
-
-            return Xh + oneOrZero;
+            constexpr int discarded = fromFrac - toFrac;
+            auto [floor, remainder] = splitQuantizedBits<discarded>(val);
+            constexpr auto half = quantizationHalf<discarded>();
+            return floor + ArbiInt<1>(remainder > half);
         }
     }
 };
@@ -2093,20 +1172,12 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::ZERO>>
         }
         else
         {
-
-            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
-
-            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
-
-            auto Xl = val & mask;
-
-            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
-
-            bool flag = Xl > T || (Xl == T && (val.isNegative()));
-
-            auto oneOrZero = ArbiInt<1>(flag);
-
-            return Xh + oneOrZero;
+            constexpr int discarded = fromFrac - toFrac;
+            auto [floor, remainder] = splitQuantizedBits<discarded>(val);
+            constexpr auto half = quantizationHalf<discarded>();
+            const bool increment = remainder > half ||
+                                   (remainder == half && val.isNegative());
+            return floor + ArbiInt<1>(increment);
         }
     }
 };
@@ -2123,20 +1194,12 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::INF>>
         }
         else
         {
-
-            auto Xh = staticShiftRight<fromFrac - toFrac>(val);
-
-            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allOnes();
-
-            auto Xl = val & mask;
-
-            constexpr auto T = staticShiftLeft<fromFrac - toFrac - 1>(ArbiInt<1>::allOnes());
-
-            bool flag = Xl > T || (Xl == T && (val.isPositive()));
-
-            auto oneOrZero = ArbiInt<1>(flag);
-
-            return Xh + oneOrZero;
+            constexpr int discarded = fromFrac - toFrac;
+            auto [floor, remainder] = splitQuantizedBits<discarded>(val);
+            constexpr auto half = quantizationHalf<discarded>();
+            const bool increment = remainder > half ||
+                                   (remainder == half && !val.isNegative());
+            return floor + ArbiInt<1>(increment);
         }
     }
 };
@@ -2153,26 +1216,13 @@ struct fracConvert<fromFrac, toFrac, QuMode<RND::CONV>>
         }
         else
         {
-            constexpr auto mask = ArbiInt<fromFrac - toFrac>::allZeros();
-            auto floor_raw = val & mask;
-
-            auto ceil = ArbiInt<N + 1> (floor_raw + staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes()));
-            ArbiInt<N + 1> floor = floor_raw;
-            if (floor + ceil == staticShiftLeft<1>(val))
-            {
-                constexpr auto mask2 = staticShiftLeft<fromFrac - toFrac>(ArbiInt<1>::allOnes());
-
-                if (floor & mask2)
-                {
-                    return staticShiftRight<fromFrac - toFrac>(ceil);
-                }
-                else
-                {
-                    return staticShiftRight<fromFrac - toFrac>(floor);
-                }
-            }
-
-            return (val - floor) < (ceil - val) ? staticShiftRight<fromFrac - toFrac>(floor) : staticShiftRight<fromFrac - toFrac>(ceil);
+            constexpr int discarded = fromFrac - toFrac;
+            auto [floor, remainder] = splitQuantizedBits<discarded>(val);
+            constexpr auto half = quantizationHalf<discarded>();
+            const bool floor_is_odd = (arbiWord(floor, 0) & 1) != 0;
+            const bool increment = remainder > half ||
+                                   (remainder == half && floor_is_odd);
+            return floor + ArbiInt<1>(increment);
         }
     }
 };
@@ -2203,21 +1253,10 @@ struct fracConvert<fromFrac, toFrac, QuMode<TRN::SMGN>>
         }
         else
         {
-            constexpr auto one = ArbiInt<1>::allOnes();
-  
-            if (val.isNegative())
-            {
-                resType res = ~staticShiftRight<fromFrac - toFrac>(~val + one) + one;
-
-                return res;
-            }
-            else
-            {
-                resType res = staticShiftRight<fromFrac - toFrac>(val);
-
-                return res;
-            }
- 
+            constexpr int discarded = fromFrac - toFrac;
+            auto [floor, remainder] = splitQuantizedBits<discarded>(val);
+            const bool increment = val.isNegative() && !remainder.isZero();
+            return resType(floor + ArbiInt<1>(increment));
         }
     }
 };
@@ -2245,6 +1284,67 @@ struct WRP
 
 template <int toInt, int toFrac, bool toIsSigned, typename OfMode>
 struct intConvert;
+
+template <size_t ResultWidth, size_t KeptBits, bool SignExtend, size_t N>
+inline constexpr auto wrapArbiLowBits(const ArbiInt<N> &val)
+{
+    static_assert(ResultWidth > 0);
+    static_assert(KeptBits <= ResultWidth);
+    ArbiInt<ResultWidth> result;
+    if constexpr (KeptBits == 0)
+    {
+        return result;
+    }
+    else
+    {
+        constexpr size_t physical_words = (ResultWidth + 63) / 64;
+        constexpr size_t full_words = KeptBits / 64;
+        constexpr size_t partial_bits = KeptBits % 64;
+        const bool negative = SignExtend &&
+                              (((arbiWord(val, (KeptBits - 1) / 64) >>
+                                 ((KeptBits - 1) % 64)) &
+                                1) != 0);
+
+        for (size_t i = 0; i < physical_words; ++i)
+        {
+            uint64_t word;
+            if (i < full_words)
+            {
+                word = arbiWord(val, i);
+            }
+            else if constexpr (partial_bits != 0)
+            {
+                if (i == full_words)
+                {
+                    constexpr uint64_t mask = (uint64_t{1} << partial_bits) - 1;
+                    word = arbiWord(val, i) & mask;
+                    if (negative)
+                        word |= ~mask;
+                }
+                else
+                {
+                    word = negative ? std::numeric_limits<uint64_t>::max() : 0;
+                }
+            }
+            else
+            {
+                word = negative ? std::numeric_limits<uint64_t>::max() : 0;
+            }
+            setArbiWord(result, i, word);
+        }
+        return result;
+    }
+}
+
+template <size_t N>
+inline constexpr void setArbiBit(ArbiInt<N> &value, size_t bit, bool set)
+{
+    const size_t word_index = bit / 64;
+    const uint64_t mask = uint64_t{1} << (bit % 64);
+    uint64_t word = arbiWord(value, word_index);
+    word = set ? word | mask : word & ~mask;
+    setArbiWord(value, word_index, word);
+}
 
 template <int toInt, int toFrac, bool toIsSigned>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<SAT::TCPL>>
@@ -2326,39 +1426,82 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL>>
 
     inline static constexpr auto convert(auto val)
     {
+        constexpr size_t result_width = 1 + toInt + toFrac;
         if constexpr (toIsSigned)
         {
-            constexpr auto mask = ArbiInt<toInt + toFrac + 1>::allOnes();
-
-            auto maskedVal = val & mask;
-
-            if (staticShiftRight<toFrac + toInt>(maskedVal))
-            {
-                constexpr auto mask2 = ~mask;
-
-                return maskedVal | mask2;
-            }
-            else
-            {
-                return maskedVal;
-            }
+            return wrapArbiLowBits<result_width, result_width, true>(val);
         }
         else
         {
-            constexpr auto mask = ArbiInt<toInt + toFrac>::allOnes();
-
-            return val & mask;
+            return wrapArbiLowBits<result_width, result_width - 1, false>(val);
         }
     }
 };
+
+template <auto Count>
+consteval size_t normalizedWrapSaturationBits(size_t limit)
+{
+    using count_type = std::remove_cv_t<decltype(Count)>;
+    if constexpr (std::is_arithmetic_v<count_type> || std::is_enum_v<count_type>)
+    {
+        const long double count = static_cast<long double>(Count);
+        if (!(count > 0))
+            return 0;
+        if (count >= static_cast<long double>(limit))
+            return limit;
+        return static_cast<size_t>(count);
+    }
+    else if constexpr (requires { static_cast<size_t>(Count); })
+    {
+        const size_t count = static_cast<size_t>(Count);
+        return std::min(count, limit);
+    }
+    else
+    {
+        // The historical tag is template<auto>.  Keep otherwise-valid NTTPs
+        // source-compatible by treating an uncountable value as N == 0.
+        return 0;
+    }
+}
 
 template <int toInt, int toFrac, bool toIsSigned, auto N>
 struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
 {
     inline static constexpr auto convert(auto val)
     {
-        // not implemented
-        return val;
+        constexpr size_t result_width = 1 + toInt + toFrac;
+        constexpr size_t effective_width = toIsSigned ? result_width : result_width - 1;
+        constexpr size_t saturation_bits =
+            normalizedWrapSaturationBits<N>(effective_width);
+
+        constexpr auto maximum = ArbiInt<result_width>::maximum();
+        constexpr auto minimum = toIsSigned ? ArbiInt<result_width>::minimum()
+                                             : ArbiInt<result_width>(0);
+        const bool overflow = val > maximum || val < minimum;
+
+        if constexpr (toIsSigned)
+        {
+            auto result = wrapArbiLowBits<result_width, result_width, true>(val);
+            if (!overflow || saturation_bits == 0)
+                return result;
+
+            const bool sign = val.isNegative();
+            setArbiBit(result, result_width - 1, sign);
+            for (size_t i = 1; i < saturation_bits; ++i)
+                setArbiBit(result, result_width - 1 - i, !sign);
+            // Re-extend the forced target sign through unused physical bits.
+            return wrapArbiLowBits<result_width, result_width, true>(result);
+        }
+        else
+        {
+            auto result = wrapArbiLowBits<result_width, result_width - 1, false>(val);
+            if (!overflow || saturation_bits == 0)
+                return result;
+
+            for (size_t i = 0; i < saturation_bits; ++i)
+                setArbiBit(result, effective_width - 1 - i, true);
+            return result;
+        }
     }
 };
 
@@ -2375,7 +1518,7 @@ constexpr int defaultIntBits = 8;
 constexpr int defaultFracBits = 8;
 constexpr bool defaultIsSigned = true;
 using defaultQuMode = TRN::TCPL;
-using defaultOfMode = SAT::TCPL;
+using defaultOfMode = WRP::TCPL;
 
 template <typename... Args>
 class Qu_s
@@ -2398,15 +1541,36 @@ public:
     inline static constexpr int QuM = QuModeInput::value;
     inline static constexpr int OfM = OfModeInput::value;
 
-    // no matter whether the sign bit is commanded by the user, the actual implementation will always have a sign bit
+    // Low-level escape hatch: intentionally public, intentionally unstable.
+    // Users may inspect or manipulate the raw ArbiInt, but its representation
+    // and helper surface are outside QuBLAS' compatibility contract.
+    // No matter whether the sign bit is requested by the user, the internal
+    // fixed-point representation always carries one sign bit.
     ArbiInt<1 + intB + fracB> data;
 
     inline constexpr Qu_s(double val)
     {
-        ArbiInt<1200 + 1200> buffer;
-        buffer.template loadFromDouble<1200 + fracB>(val);
+        // Every finite IEEE-754 binary64 value is an integer multiple of
+        // 2^-1074.  This fixed exact representation covers subnormals and the
+        // full normal exponent range; fracConvert then performs the selected
+        // quantization before intConvert applies overflow handling.
+        ArbiInt<2099> buffer;
+        buffer.template loadFromDouble<1074>(val);
 
-        data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<1200 + fracB, fracB, QuMode<QuM_t>>::convert(buffer));
+        data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<1074, fracB, QuMode<QuM_t>>::convert(buffer));
+    }
+
+    template <typename T>
+        requires std::is_integral_v<std::remove_cv_t<T>>
+    inline constexpr Qu_s(T val)
+    {
+        using input_t = std::remove_cv_t<T>;
+        // One additional bit gives every unsigned input a zero sign bit while
+        // retaining the complete range of a signed input.
+        constexpr size_t inputWidth = std::numeric_limits<input_t>::digits + 1;
+        const ArbiInt<inputWidth> buffer(val);
+        const auto scaled = fracConvert<0, fracB, QuMode<QuM_t>>::convert(buffer);
+        data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(scaled);
     }
 
     inline constexpr Qu_s() : data() {}
@@ -2429,7 +1593,7 @@ public:
 
     inline double toDouble() const
     {
-        return data.toDouble() / std::pow(2, fracB);
+        return data.toDoubleScaled(-fracB);
     }
 
     inline void display(std::string name = "") const
@@ -2454,16 +1618,22 @@ public:
         return binary;
     }
 
-    inline auto fill()
+    inline Qu_s &fill()
     {
         this->data.fill();
+        if constexpr (!isS)
+        {
+            constexpr size_t storageWidth = 1 + intB + fracB;
+            constexpr size_t valueWidth = intB + fracB;
+            this->data = wrapArbiLowBits<storageWidth, valueWidth, false>(this->data);
+        }
 
         return *this;
     }
 
-    inline auto fill(int val)
+    inline Qu_s &fill(int val)
     {
-        this->data = val;
+        *this = Qu_s(val);
 
         return *this;
     }
@@ -2495,6 +1665,281 @@ struct QuInputHelper<Qu_s<Args...>> : QuInputHelper<Args...>
 
 template <typename... Args>
 using Qu = typename QuInputHelper<Args...>::type;
+
+// ------------------- Strict value-tag facade -------------------
+//
+// Qu keeps the original type-tag grammar.  Q is a deliberately separate
+// value-tag facade: it offers terse literals without weakening or changing the
+// legacy spelling.
+
+namespace detail {
+
+template <typename Legacy>
+struct value_tag
+{
+    using legacy = Legacy;
+};
+
+template <typename>
+inline constexpr int legacy_tag_category = 0;
+template <int Value>
+inline constexpr int legacy_tag_category<intBits<Value>> = 1;
+template <int Value>
+inline constexpr int legacy_tag_category<fracBits<Value>> = 2;
+template <bool Value>
+inline constexpr int legacy_tag_category<isSigned<Value>> = 3;
+template <typename Legacy>
+inline constexpr int legacy_tag_category<QuMode<Legacy>> = 4;
+template <typename Legacy>
+inline constexpr int legacy_tag_category<OfMode<Legacy>> = 5;
+
+template <typename>
+inline constexpr int value_tag_category = 0;
+template <typename Legacy>
+inline constexpr int value_tag_category<value_tag<Legacy>> =
+    legacy_tag_category<Legacy>;
+
+template <int Category, auto... Tags>
+inline constexpr size_t value_tag_count =
+    (size_t{0} + ... +
+     (value_tag_category<std::remove_cvref_t<decltype(Tags)>> == Category));
+
+template <char... Digits>
+consteval int decimal_digits()
+{
+    static_assert(sizeof...(Digits) > 0 &&
+                  ((Digits >= '0' && Digits <= '9') && ...));
+    uint64_t value = 0;
+    ((value = value * 10 + (Digits - '0')), ...);
+    if (value > static_cast<uint64_t>(std::numeric_limits<int>::max()))
+        throw "QuBLAS bit-count literal does not fit in int";
+    return static_cast<int>(value);
+}
+
+template <auto... Tags>
+consteval bool valid_q_tag_pack()
+{
+    return ((value_tag_category<std::remove_cvref_t<decltype(Tags)>> != 0) &&
+            ...) &&
+           value_tag_count<1, Tags...> <= 1 &&
+           value_tag_count<2, Tags...> <= 1 &&
+           value_tag_count<3, Tags...> <= 1 &&
+           value_tag_count<4, Tags...> <= 1 &&
+           value_tag_count<5, Tags...> <= 1;
+}
+
+template <typename T>
+struct is_fixed_scalar : std::false_type
+{};
+
+template <int Integer, int Fractional, bool Signed, typename Quantization,
+          typename Overflow>
+struct is_fixed_scalar<
+    Qu_s<intBits<Integer>, fracBits<Fractional>, isSigned<Signed>,
+         QuMode<Quantization>, OfMode<Overflow>>> : std::true_type
+{};
+
+template <typename T>
+inline constexpr bool is_fixed_scalar_v =
+    is_fixed_scalar<std::remove_cvref_t<T>>::value;
+
+} // namespace detail
+
+template <char... Digits>
+consteval auto operator""_i()
+{
+    return detail::value_tag<
+        intBits<detail::decimal_digits<Digits...>()>>{};
+}
+
+template <char... Digits>
+consteval auto operator""_f()
+{
+    return detail::value_tag<
+        fracBits<detail::decimal_digits<Digits...>()>>{};
+}
+
+template <int Value>
+constexpr auto operator-(detail::value_tag<fracBits<Value>>)
+{
+    return detail::value_tag<fracBits<-Value>>{};
+}
+
+inline constexpr detail::value_tag<isSigned<true>> signed_;
+inline constexpr detail::value_tag<isSigned<false>> unsigned_;
+
+namespace rnd {
+inline constexpr detail::value_tag<QuMode<RND::POS_INF>> pos_inf;
+inline constexpr detail::value_tag<QuMode<RND::NEG_INF>> neg_inf;
+inline constexpr detail::value_tag<QuMode<RND::ZERO>> zero;
+inline constexpr detail::value_tag<QuMode<RND::INF>> inf;
+inline constexpr detail::value_tag<QuMode<RND::CONV>> conv;
+} // namespace rnd
+
+namespace trn {
+inline constexpr detail::value_tag<QuMode<TRN::TCPL>> tcpl;
+inline constexpr detail::value_tag<QuMode<TRN::SMGN>> smgn;
+} // namespace trn
+
+namespace sat {
+inline constexpr detail::value_tag<OfMode<SAT::TCPL>> tcpl;
+inline constexpr detail::value_tag<OfMode<SAT::ZERO>> zero;
+inline constexpr detail::value_tag<OfMode<SAT::SMGN>> smgn;
+} // namespace sat
+
+namespace wrp {
+inline constexpr detail::value_tag<OfMode<WRP::TCPL>> tcpl;
+template <auto Bits>
+    requires(std::is_integral_v<decltype(Bits)> && Bits >= 0)
+inline constexpr detail::value_tag<OfMode<WRP::TCPL_SAT<Bits>>> tcpl_sat;
+} // namespace wrp
+
+template <auto... Tags>
+concept QValueTagPack = detail::valid_q_tag_pack<Tags...>();
+
+template <auto... Tags>
+    requires QValueTagPack<Tags...>
+using Q = Qu<typename std::remove_cvref_t<decltype(Tags)>::legacy...>;
+
+// ------------------- Compile-time exact literals -------------------
+
+template <size_t N>
+struct fixed_string
+{
+    char value[N];
+
+    constexpr fixed_string(const char (&text)[N])
+    {
+        std::copy_n(text, N, value);
+    }
+
+    inline static constexpr size_t extent = N;
+    constexpr size_t size() const { return N - 1; }
+    constexpr char operator[](size_t index) const { return value[index]; }
+    constexpr auto operator<=>(const fixed_string &) const = default;
+};
+
+template <size_t N>
+fixed_string(const char (&)[N]) -> fixed_string<N>;
+
+namespace detail {
+
+struct binary_literal_info
+{
+    bool valid = true;
+    bool negative = false;
+    size_t digits = 0;
+    int fractional = 0;
+};
+
+template <fixed_string Text>
+consteval binary_literal_info inspect_binary_literal()
+{
+    binary_literal_info info;
+    bool sawDigit = false;
+    bool sawPoint = false;
+    for (size_t index = 0; index < Text.size(); ++index)
+    {
+        const char c = Text[index];
+        if ((c == '+' || c == '-') && index == 0)
+        {
+            info.negative = c == '-';
+            continue;
+        }
+        if (c == '0' || c == '1')
+        {
+            sawDigit = true;
+            ++info.digits;
+            info.fractional += sawPoint;
+            continue;
+        }
+        if (c == '.' && !sawPoint)
+        {
+            sawPoint = true;
+            continue;
+        }
+        info.valid = false;
+    }
+    info.valid &= sawDigit;
+    return info;
+}
+
+template <fixed_string Text>
+class binary_literal_proxy
+{
+    inline static constexpr auto info = inspect_binary_literal<Text>();
+    static_assert(info.valid,
+                  "A _bq literal accepts one optional leading sign, binary "
+                  "digits, and at most one radix point.");
+
+    static constexpr auto magnitude()
+    {
+        ArbiInt<info.digits + 1> result;
+        size_t outputBit = 0;
+        for (size_t index = Text.size(); index-- > 0;)
+        {
+            if (Text[index] == '0' || Text[index] == '1')
+            {
+                if (Text[index] == '1')
+                    setArbiBit(result, outputBit, true);
+                ++outputBit;
+            }
+        }
+        return result;
+    }
+
+    template <typename Target, size_t Width>
+    static constexpr Target convert(const ArbiInt<Width> &raw)
+    {
+        auto fractional =
+            fracConvert<info.fractional, Target::fracB,
+                        QuMode<typename Target::QuM_t>>::convert(raw);
+        auto bounded = intConvert<Target::intB, Target::fracB, Target::isS,
+                                  OfMode<typename Target::OfM_t>>::convert(
+            fractional);
+        Target result;
+        result.data = bounded;
+        return result;
+    }
+
+public:
+    template <typename Target>
+        requires is_fixed_scalar_v<Target>
+    constexpr auto as() const
+    {
+        using target_type = std::remove_cvref_t<Target>;
+        constexpr auto rawMagnitude = magnitude();
+        if constexpr (info.negative)
+            return convert<target_type>(-rawMagnitude);
+        else
+            return convert<target_type>(rawMagnitude);
+    }
+};
+
+} // namespace detail
+
+template <fixed_string Text>
+consteval auto operator""_bq()
+{
+    return detail::binary_literal_proxy<Text>{};
+}
+
+template <typename Target>
+struct to_type
+{
+    using type = Target;
+};
+
+template <typename Target>
+inline constexpr to_type<Target> to{};
+
+template <fixed_string Text, typename Target>
+    requires detail::is_fixed_scalar_v<Target>
+constexpr auto operator|(detail::binary_literal_proxy<Text> literal,
+                         to_type<Target>)
+{
+    return literal.template as<Target>();
+}
 
 // ------------------- Complex -------------------
 template <typename... realArgs, typename... imagArgs>
@@ -2551,7 +1996,7 @@ public:
         return "(" + real.toString() + ", " + imag.toString() + ")";
     }
 
-    inline auto fill(auto... dis)
+    inline Qu_s &fill(auto... dis)
         requires(sizeof...(dis) <= 1)
     {
         real.fill(dis...);
@@ -2559,7 +2004,7 @@ public:
         return *this;
     }
 
-    inline auto fill(auto realInput, auto imagInput)
+    inline Qu_s &fill(auto realInput, auto imagInput)
     {
         real.fill(realInput);
         imag.fill(imagInput);
@@ -2593,7 +2038,7 @@ template <size_t... dims>
 struct dim
 {
     static inline constexpr size_t dimSize = sizeof...(dims);
-    static inline constexpr size_t elemSize = (dims * ...);
+    static inline constexpr size_t elemSize = (size_t{1} * ... * dims);
 
     static inline constexpr std::array<size_t, dimSize> dimArray = {dims...};
 
@@ -2638,14 +2083,56 @@ struct dim
 
     template <size_t... index>
         requires(sizeof...(index) == dimSize)
-    using absoluteIndex = absoluteIndex_s<index...>::value;
+    static inline constexpr size_t absoluteIndex = absoluteIndex_s<index...>::value;
 };
+
+// Compile-time half-open ranges for the C++23 multidimensional subscript DSL.
+template <size_t First, size_t Last>
+struct slice_t
+{
+    static_assert(First < Last, "A slice range must be non-empty.");
+    inline static constexpr size_t first = First;
+    inline static constexpr size_t last = Last;
+};
+
+// A range reads as a value directly inside the subscript:
+// tensor[1, all, slice<0, 5>].
+template <size_t First, size_t Last>
+inline constexpr slice_t<First, Last> slice{};
+
+struct all_t
+{};
+
+inline constexpr all_t all{};
+
+template <typename T>
+concept SliceSelector =
+    std::same_as<std::remove_cvref_t<T>, all_t> ||
+    isA<std::remove_cvref_t<T>, slice_t<0, 1>>;
+
+template <typename T>
+concept TensorSliceSelector =
+    SliceSelector<T> || std::integral<std::remove_cvref_t<T>>;
+
+template <typename Tensor, typename... Selectors>
+class SliceView;
 
 template <size_t... dims, typename Arg>
     requires(isA<Arg, Qu_s<>>)
 class Qu_s<dim<dims...>, Arg>
 {
 public:
+    constexpr void ensureStorage()
+    {
+        if constexpr (onHeap)
+        {
+            if (data.size() != dim<dims...>::elemSize)
+            {
+                data.resize(dim<dims...>::elemSize);
+            }
+        }
+    }
+
     template <typename First, typename... Rest>
     inline static constexpr size_t calculateIndex(size_t accum, First first, Rest... rest)
     {
@@ -2672,18 +2159,12 @@ public:
     // 构造函数
     constexpr Qu_s()
     {
-        if constexpr (onHeap)
-        {
-            data.resize(dim<dims...>::elemSize);
-        }
+        ensureStorage();
     }
 
     constexpr Qu_s(auto... values)
     {
-        if constexpr (onHeap)
-        {
-            data.resize(dim<dims...>::elemSize);
-        }
+        ensureStorage();
 
         if constexpr (sizeof...(values) == dim<dims...>::elemSize)
         {
@@ -2699,10 +2180,7 @@ public:
         requires isSquareBracketIndexable<SquareBracketIndexableType>
     constexpr Qu_s(const SquareBracketIndexableType &val)
     {
-        if constexpr (onHeap)
-        {
-            data.resize(dim<dims...>::elemSize);
-        }
+        ensureStorage();
 
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
@@ -2713,10 +2191,7 @@ public:
     // 拷贝构造函数
     constexpr Qu_s(const Qu_s<dim<dims...>, Arg> &val)
     {
-        if constexpr (onHeap)
-        {
-            data.resize(dim<dims...>::elemSize);
-        }
+        ensureStorage();
 
         std::copy(val.data.begin(), val.data.end(), data.begin());
     }
@@ -2725,10 +2200,7 @@ public:
     template <typename fromArg>
     constexpr Qu_s(const Qu_s<dim<dims...>, fromArg> &val)
     {
-        if constexpr (onHeap)
-        {
-            data.resize(dim<dims...>::elemSize);
-        }
+        ensureStorage();
 
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
@@ -2742,18 +2214,21 @@ public:
 
     // 移动构造函数
     // 来自相同类型的Qu_s, 直接移动std::array或者std::vector
-    constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val)
+    constexpr Qu_s(Qu_s<dim<dims...>, Arg> &&val) : data(std::move(val.data))
     {
-        data = std::move(val.data);
+        // A tensor has a fixed logical extent.  Keep that invariant even for a
+        // moved-from heap-backed tensor, since all indexing APIs rely on it.
+        val.ensureStorage();
     }
 
     // 来自不同类型的Qu_s，逐个元素转换
     template <typename fromArg>
     constexpr Qu_s(Qu_s<dim<dims...>, fromArg> &&val)
     {
+        ensureStorage();
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
-            data[i] = val.data[i];
+            data[i] = std::move(val.data[i]);
         }
     }
 
@@ -2761,7 +2236,11 @@ public:
     // 来自相同类型的Qu_s, 直接拷贝std::array或者std::vector
     constexpr Qu_s &operator=(const Qu_s<dim<dims...>, Arg> &val)
     {
-        std::copy(val.data.begin(), val.data.end(), data.begin());
+        if (this != &val)
+        {
+            ensureStorage();
+            std::copy_n(val.data.begin(), dim<dims...>::elemSize, data.begin());
+        }
         return *this;
     }
 
@@ -2769,6 +2248,7 @@ public:
     template <typename fromArg>
     constexpr Qu_s &operator=(const Qu_s<dim<dims...>, fromArg> &val)
     {
+        ensureStorage();
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
             data[i] = val.data[i];
@@ -2780,7 +2260,11 @@ public:
     // 来自相同类型的Qu_s, 直接移动std::array
     constexpr Qu_s &operator=(Qu_s<dim<dims...>, Arg> &&val)
     {
-        data = std::move(val.data);
+        if (this != &val)
+        {
+            data = std::move(val.data);
+            val.ensureStorage();
+        }
         return *this;
     }
 
@@ -2788,6 +2272,7 @@ public:
     template <typename fromArg>
     constexpr Qu_s &operator=(Qu_s<dim<dims...>, fromArg> &&val)
     {
+        ensureStorage();
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
             data[i] = std::move(val.data[i]);
@@ -2795,12 +2280,14 @@ public:
         return *this;
     }
 
-    inline void clear()
+    inline Qu_s &clear()
     {
-        memset(data.data(), 0, dim<dims...>::elemSize * sizeof(Arg));
+        ensureStorage();
+        std::fill(data.begin(), data.end(), Arg{});
+        return *this;
     }
 
-    inline auto fill(auto... dis)
+    inline Qu_s &fill(auto... dis)
     {
         for (size_t i = 0; i < dim<dims...>::elemSize; i++)
         {
@@ -2809,7 +2296,7 @@ public:
         return *this;
     }
 
-    inline auto shuffle()
+    inline Qu_s &shuffle()
     {
         std::shuffle(data.begin(), data.end(), gen);
         return *this;
@@ -2819,26 +2306,38 @@ public:
     template <auto... index>
     inline constexpr auto &get()
     {
-        return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+        return data[dim<dims...>::template absoluteIndex_s<index...>::value];
     }
 
     template <auto... index>
     inline constexpr const auto &get() const
     {
-        return std::get<dim<dims...>::template absoluteIndex_s<index...>::value>(data);
+        return data[dim<dims...>::template absoluteIndex_s<index...>::value];
     }
 
     // operator[]
     inline constexpr auto &operator[](auto... index)
-        requires(sizeof...(index) == dim<dims...>::dimSize && sizeof...(index) > 1)
+        requires(sizeof...(index) == dim<dims...>::dimSize && sizeof...(index) > 1 &&
+                 (std::is_convertible_v<decltype(index), size_t> && ...))
     {
         return data[calculateIndex(0, index...)];
     }
 
     inline constexpr const auto &operator[](auto... index) const
-        requires(sizeof...(index) == dim<dims...>::dimSize && sizeof...(index) > 1)
+        requires(sizeof...(index) == dim<dims...>::dimSize && sizeof...(index) > 1 &&
+                 (std::is_convertible_v<decltype(index), size_t> && ...))
     {
         return data[calculateIndex(0, index...)];
+    }
+
+    inline constexpr auto operator[](this auto &&self, auto... selectors)
+        requires(sizeof...(selectors) == dim<dims...>::dimSize &&
+                 (TensorSliceSelector<decltype(selectors)> && ...) &&
+                 !(std::integral<std::remove_cvref_t<decltype(selectors)>> && ...))
+    {
+        using self_t = decltype(self);
+        return SliceView<self_t, std::remove_cvref_t<decltype(selectors)>...>(
+            std::forward<self_t>(self), selectors...);
     }
 
     inline constexpr auto &operator[](size_t index)
@@ -3079,7 +2578,7 @@ struct MulMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSig
     using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
     using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
 
-    static inline constexpr auto toInt = tagExtractor<intBits<fullPrecision ? fromInt1 + fromInt2 : std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static inline constexpr auto toInt = tagExtractor<intBits<fullPrecision ? fromInt1 + fromInt2 + (fromIsSigned1 && fromIsSigned2) : std::max(fromInt1, fromInt2)>, toArgs...>::value;
     static inline constexpr auto toFrac = tagExtractor<fracBits<fullPrecision ? fromFrac1 + fromFrac2 : std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
     static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
     using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
@@ -3101,6 +2600,26 @@ struct AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSig
     static inline constexpr auto toInt = tagExtractor<intBits<fullPrecision ? std::max(fromInt1, fromInt2) + 1 : std::max(fromInt1, fromInt2)>, toArgs...>::value;
     static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
     static inline constexpr auto toIsSigned = tagExtractor<isSigned<fromIsSigned1 || fromIsSigned2>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
+template <typename... Args>
+struct SubMerger;
+
+template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, typename fromQuMode1, typename fromOfMode1, int fromInt2, int fromFrac2, bool fromIsSigned2, typename fromQuMode2, typename fromOfMode2>
+struct SubMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
+{
+    static inline constexpr bool fullPrecision = (std::is_same_v<FullPrec, toArgs> || ...);
+
+    using fromQuMode = std::conditional_t<std::is_same_v<fromQuMode1, fromQuMode2>, fromQuMode1, defaultQuMode>;
+    using fromOfMode = std::conditional_t<std::is_same_v<fromOfMode1, fromOfMode2>, fromOfMode1, defaultOfMode>;
+
+    static inline constexpr auto toInt = tagExtractor<intBits<fullPrecision ? std::max(fromInt1, fromInt2) + (fromIsSigned1 || fromIsSigned2) : std::max(fromInt1, fromInt2)>, toArgs...>::value;
+    static inline constexpr auto toFrac = tagExtractor<fracBits<std::max(fromFrac1, fromFrac2)>, toArgs...>::value;
+    static inline constexpr auto toIsSigned = tagExtractor<isSigned<fullPrecision ? true : (fromIsSigned1 || fromIsSigned2)>, toArgs...>::value;
     using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
     using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
 
@@ -3179,7 +2698,7 @@ template <typename... toArgs, int fromInt1, int fromFrac1, bool fromIsSigned1, t
     requires(!isA<typename TypeList<toArgs...>::head, Qu_s<>>)
 struct Qsub_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>
 {
-    using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
+    using merger = SubMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
 
     static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
     static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
@@ -3212,19 +2731,121 @@ struct Qdiv_s<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned
 {
     using merger = AddMerger<Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>>, Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>>, TypeList<toArgs...>>;
 
-    static inline constexpr int shiftA = fromFrac2 > fromFrac1 ? fromFrac2 - fromFrac1 : 0;
-    static inline constexpr int shiftB = fromFrac1 > fromFrac2 ? fromFrac1 - fromFrac2 : 0;
+    // The exact target raw value is
+    //   (f1.raw / f2.raw) * 2^(fromFrac2 - fromFrac1 + toFrac).
+    // Apply a positive shift to one side of the rational value rather than
+    // right-shifting either side and discarding information before division.
+    static inline constexpr int rawShift = fromFrac2 - fromFrac1 + merger::toFrac;
+
+    template <int shift, size_t N>
+    inline static constexpr auto scaleRaw(const ArbiInt<N> &value)
+    {
+        if constexpr (shift == 0)
+        {
+            return value;
+        }
+        else
+        {
+            // Multiplication avoids left-shifting a negative built-in signed
+            // value while still producing the exact two's-complement result.
+            constexpr auto powerOfTwo = staticShiftLeft<shift>(ArbiInt<2>(1));
+            return value * powerOfTwo;
+        }
+    }
+
+    template <size_t width, size_t N>
+    inline static constexpr auto magnitude(const ArbiInt<N> &value)
+    {
+        ArbiInt<width> promoted(value);
+        if (value.isNegative())
+        {
+            return ArbiInt<width>(-promoted);
+        }
+        return promoted;
+    }
 
     inline static constexpr auto div(const Qu_s<intBits<fromInt1>, fracBits<fromFrac1>, isSigned<fromIsSigned1>, QuMode<fromQuMode1>, OfMode<fromOfMode1>> f1, const Qu_s<intBits<fromInt2>, fracBits<fromFrac2>, isSigned<fromIsSigned2>, QuMode<fromQuMode2>, OfMode<fromOfMode2>> f2)
     {
-        if (f2.data == 0)
+        const auto numerator = scaleRaw<(rawShift > 0 ? rawShift : 0)>(f1.data);
+        const auto denominator = scaleRaw<(rawShift < 0 ? -rawShift : 0)>(f2.data);
+        const bool negativeResult = numerator.isNegative() != denominator.isNegative();
+
+        // divmod throws std::domain_error for a zero denominator.  Keep that
+        // failure visible to callers instead of silently manufacturing zero.
+        const auto division = divmod(numerator, denominator);
+        constexpr size_t roundedWidth = decltype(division.quotient)::num_bits + 1;
+        using rounded_type = ArbiInt<roundedWidth>;
+        rounded_type rounded(division.quotient);
+
+        const auto adjustAwayFromZero = [&rounded, negativeResult]() constexpr {
+            if (negativeResult)
+            {
+                rounded = rounded_type(rounded - ArbiInt<1>(1));
+            }
+            else
+            {
+                rounded = rounded_type(rounded + ArbiInt<1>(1));
+            }
+        };
+
+        if (!division.remainder.isZero())
         {
-            return Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>>();
+            if constexpr (std::is_same_v<typename merger::toQuMode, TRN::TCPL>)
+            {
+                // divmod truncates toward zero; a negative non-integral result
+                // needs one step toward -infinity for two's-complement truncation.
+                if (negativeResult)
+                {
+                    adjustAwayFromZero();
+                }
+            }
+            else if constexpr (!std::is_same_v<typename merger::toQuMode, TRN::SMGN>)
+            {
+                constexpr size_t magnitudeWidth = std::max(decltype(division.remainder)::num_bits,
+                                                            decltype(denominator)::num_bits) +
+                                                  2;
+                const auto remainderMagnitude = magnitude<magnitudeWidth>(division.remainder);
+                const auto divisorMagnitude = magnitude<magnitudeWidth>(denominator);
+                const auto twiceRemainder = staticShiftLeft<1>(remainderMagnitude);
+                const auto distanceComparison = twiceRemainder <=> divisorMagnitude;
+
+                if (distanceComparison > 0)
+                {
+                    adjustAwayFromZero();
+                }
+                else if (distanceComparison == 0)
+                {
+                    if constexpr (std::is_same_v<typename merger::toQuMode, RND::POS_INF>)
+                    {
+                        if (!negativeResult)
+                        {
+                            adjustAwayFromZero();
+                        }
+                    }
+                    else if constexpr (std::is_same_v<typename merger::toQuMode, RND::NEG_INF>)
+                    {
+                        if (negativeResult)
+                        {
+                            adjustAwayFromZero();
+                        }
+                    }
+                    else if constexpr (std::is_same_v<typename merger::toQuMode, RND::INF>)
+                    {
+                        adjustAwayFromZero();
+                    }
+                    else if constexpr (std::is_same_v<typename merger::toQuMode, RND::CONV>)
+                    {
+                        if ((arbiWord(rounded, 0) & uint64_t{1}) != 0)
+                        {
+                            adjustAwayFromZero();
+                        }
+                    }
+                    // RND::ZERO keeps the toward-zero quotient at a tie.
+                }
+            }
         }
 
-        auto fullQuotient = staticShiftLeft<shiftA + merger::toFrac>(f1.data) / staticShiftLeft<shiftB>(f2.data);
-
-        auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(fullQuotient);
+        auto intQuotient = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(rounded);
 
         Qu_s<intBits<merger::toInt>, fracBits<merger::toFrac>, isSigned<merger::toIsSigned>, QuMode<typename merger::toQuMode>, OfMode<typename merger::toOfMode>> result;
         result.data = intQuotient;
@@ -3271,14 +2892,36 @@ struct Qabs_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>,
 template <typename... Args>
 struct Qneg_s;
 
+template <typename... Args>
+struct NegMerger;
+
+template <typename... toArgs, int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode>
+struct NegMerger<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, TypeList<toArgs...>>
+{
+    static inline constexpr auto toInt = tagExtractor<intBits<fromInt + (fromIsSigned ? 1 : 0)>, toArgs...>::value;
+    static inline constexpr auto toFrac = tagExtractor<fracBits<fromFrac>, toArgs...>::value;
+    static inline constexpr auto toIsSigned = tagExtractor<isSigned<true>, toArgs...>::value;
+    using toQuMode = tagExtractor<QuMode<fromQuMode>, toArgs...>::type;
+    using toOfMode = tagExtractor<OfMode<fromOfMode>, toArgs...>::type;
+
+    using resType = Qu_s<intBits<toInt>, fracBits<toFrac>, isSigned<toIsSigned>, QuMode<toQuMode>, OfMode<toOfMode>>;
+};
+
 // specialization for static Qu_s
 template <typename... toArgs, int fromInt, int fromFrac, bool fromIsSigned, typename fromQuMode, typename fromOfMode>
 struct Qneg_s<Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>, TypeList<toArgs...>>
 {
+    using sourceType = Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>>;
+    using merger = NegMerger<sourceType, TypeList<toArgs...>>;
+
     inline static constexpr auto neg(const Qu_s<intBits<fromInt>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> f)
     {
-        Qu_s<intBits<fromInt + 1>, fracBits<fromFrac>, isSigned<fromIsSigned>, QuMode<fromQuMode>, OfMode<fromOfMode>> result;
-        result.data = -f.data;
+        const auto fullNegation = -f.data;
+        const auto scaled = fracConvert<fromFrac, merger::toFrac, QuMode<typename merger::toQuMode>>::convert(fullNegation);
+        const auto converted = intConvert<merger::toInt, merger::toFrac, merger::toIsSigned, OfMode<typename merger::toOfMode>>::convert(scaled);
+
+        typename merger::resType result;
+        result.data = converted;
 
         return result;
     }
@@ -3480,7 +3123,7 @@ struct Qmul_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
 {
     using addabType = tagExtractor<abT<toArgs...>, toArgs...>::type::list;
     using addcdType = tagExtractor<cdT<toArgs...>, toArgs...>::type::list;
-    using subbaType = tagExtractor<baT<toArgs...>, toArgs...>::type;
+    using subbaType = tagExtractor<baT<toArgs...>, toArgs...>::type::list;
     using mulabcType = tagExtractor<abcT<toArgs...>, toArgs...>::type::list;
     using mulcdbType = tagExtractor<cdbT<toArgs...>, toArgs...>::type::list;
     using mulbadType = tagExtractor<badT<toArgs...>, toArgs...>::type::list;
@@ -3559,7 +3202,7 @@ struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2.
 template <typename... realArgs1, typename... imagArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, toArgs...>
 {
-    inline static constexpr auto div(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    inline static constexpr auto div(const Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>)
     {
         throw std::runtime_error("Complex division is not supported yet.");
     }
@@ -3678,7 +3321,7 @@ struct Qsub_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
 template <typename... realArgs1, typename... realArgs2, typename... imagArgs2, typename... toArgs>
 struct Qdiv_s<Qu_s<realArgs1...>, Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>, TypeList<toArgs...>>
 {
-    inline static constexpr auto div(const Qu_s<realArgs1...> f1, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>> f2)
+    inline static constexpr auto div(const Qu_s<realArgs1...>, const Qu_s<Qu_s<realArgs2...>, Qu_s<imagArgs2...>>)
     {
         throw std::runtime_error("Real-Complex division is not supported yet.");
     }
@@ -3708,34 +3351,93 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
 
 // ------------------- Basic tensor operations -------------------
 
+template <typename T>
+inline constexpr bool isScalarOperand = isScalar<std::remove_cvref_t<T>>;
+
+template <typename T, typename = void>
+struct isTensorOperand_s : std::false_type
+{};
+
+template <typename T>
+struct isTensorOperand_s<T, std::void_t<typename T::size>>
+    : std::bool_constant<!isScalarOperand<T>>
+{};
+
+// Keep the structural Qu_s<dim<...>, Arg> recognition used by the original
+// overload set.  In particular Arg may itself be a TypeList tag bundle and
+// therefore need not expose a nested size member.
+template <size_t... dims, typename Arg>
+struct isTensorOperand_s<Qu_s<dim<dims...>, Arg>, void> : std::true_type
+{};
+
+template <typename T>
+inline constexpr bool isTensorOperand = isTensorOperand_s<std::remove_cvref_t<T>>::value;
+
+template <typename T, typename = void>
+struct tensorSize_s;
+
+template <typename T>
+struct tensorSize_s<T, std::void_t<typename T::size>>
+{
+    using type = typename T::size;
+};
+
+template <size_t... dims, typename Arg>
+struct tensorSize_s<Qu_s<dim<dims...>, Arg>, void>
+{
+    using type = dim<dims...>;
+};
+
+template <typename T>
+using tensorSize = typename tensorSize_s<std::remove_cvref_t<T>>::type;
+
+template <typename T1, typename T2, bool = isTensorOperand<T1> && isTensorOperand<T2>>
+struct hasSameTensorSize_s : std::false_type
+{};
+
+template <typename T1, typename T2>
+struct hasSameTensorSize_s<T1, T2, true>
+    : std::is_same<tensorSize<T1>, tensorSize<T2>>
+{};
+
+template <typename T1, typename T2>
+inline constexpr bool hasSameTensorSize = hasSameTensorSize_s<T1, T2>::value;
+
+template <typename T1, typename T2>
+inline constexpr bool isTensorOperandPair =
+    (isTensorOperand<T1> && isScalarOperand<T2>) ||
+    (isScalarOperand<T1> && isTensorOperand<T2>) ||
+    hasSameTensorSize<T1, T2>;
+
 template <typename... Args>
 struct sizeMerger;
 
-template <size_t... dims1, typename QuT1, typename QuT2>
-struct sizeMerger<Qu_s<dim<dims1...>, QuT1>, Qu_s<dim<dims1...>, QuT2>>
+template <typename T1, typename T2>
+    requires hasSameTensorSize<T1, T2>
+struct sizeMerger<T1, T2>
 {
-    using size = dim<dims1...>;
+    using size = tensorSize<T1>;
 };
 
-template <size_t... dims1, typename QuT1, typename QuT2>
-    requires isScalar<QuT2>
-struct sizeMerger<Qu_s<dim<dims1...>, QuT1>, QuT2>
+template <typename T1, typename T2>
+    requires(isTensorOperand<T1> && isScalarOperand<T2>)
+struct sizeMerger<T1, T2>
 {
-    using size = dim<dims1...>;
+    using size = tensorSize<T1>;
 };
 
-template <size_t... dims2, typename QuT2, typename QuT1>
-    requires isScalar<QuT1>
-struct sizeMerger<QuT1, Qu_s<dim<dims2...>, QuT2>>
+template <typename T1, typename T2>
+    requires(isScalarOperand<T1> && isTensorOperand<T2>)
+struct sizeMerger<T1, T2>
 {
-    using size = dim<dims2...>;
+    using size = tensorSize<T2>;
 };
 
 // use [] to call the object if it is a tensor, otherwise just return the object
 template <typename T>
-inline auto autoCall(const T &obj, auto... index)
+inline constexpr auto autoCall(const T &obj, auto... index)
 {
-    if constexpr (isScalar<T>)
+    if constexpr (isScalarOperand<T>)
     {
         return obj;
     }
@@ -3745,201 +3447,136 @@ inline auto autoCall(const T &obj, auto... index)
     }
 }
 
-template <typename... Args>
-class MulExpression;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-class MulExpression<QuT1, QuT2, toArgs...>
+// Encode the operand value category in the expression type: lvalues are kept
+// by reference while rvalues are owned by the expression.  This avoids a
+// runtime discriminated union and keeps temporary expression chains alive.
+template <typename T>
+class ExpressionOperand
 {
-    const QuT1 &q1;
-    const QuT2 &q2;
+    using value_type = std::remove_cvref_t<T>;
+    inline static constexpr bool storesReference = std::is_lvalue_reference_v<T>;
+    using storage_type = std::conditional_t<storesReference,
+                                            std::reference_wrapper<const value_type>,
+                                            value_type>;
+
+    storage_type value;
+
+    inline static constexpr storage_type store(T &&operand)
+    {
+        if constexpr (storesReference)
+        {
+            return std::cref(operand);
+        }
+        else
+        {
+            return std::forward<T>(operand);
+        }
+    }
 
 public:
-    using size = typename sizeMerger<QuT1, QuT2>::size;
+    explicit constexpr ExpressionOperand(T &&operand)
+        : value(store(std::forward<T>(operand))) {}
 
-    MulExpression(const QuT1 &f1, const QuT2 &f2)
-        : q1(f1), q2(f2) {}
-
-    auto operator[](auto... index) const
+    inline constexpr const value_type &get() const
     {
-        return Qmul<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
+        if constexpr (storesReference)
+        {
+            return value.get();
+        }
+        else
+        {
+            return value;
+        }
     }
 };
 
-template <typename... Args>
-struct QmulTensor_s;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-struct QmulTensor_s<QuT1, QuT2, toArgs...>
+// A lazy tensor is only a shape plus an unnamed computation.  The closure is
+// the complete AST; named operands are references and temporary operands are
+// values inside the ExpressionOperand tuple captured by `lift` below.
+template <typename Size, typename Compute>
+class LazyTensor
 {
-    inline static constexpr auto mul(const QuT1 &f1, const QuT2 &f2)
-    {
-        return MulExpression<QuT1, QuT2, toArgs...>(f1, f2);
-    }
-};
-
-template <typename... Args>
-class AddExpression;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-class AddExpression<QuT1, QuT2, toArgs...>
-{
-    const QuT1 &q1;
-    const QuT2 &q2;
+    [[no_unique_address]] Compute compute;
 
 public:
-    using size = typename sizeMerger<QuT1, QuT2>::size;
+    using size = Size;
 
-    AddExpression(const QuT1 &f1, const QuT2 &f2)
-        : q1(f1), q2(f2) {}
+    explicit inline constexpr LazyTensor(Compute value)
+        : compute(std::move(value)) {}
 
-    auto operator[](auto... index) const
+    template <typename Self, typename... Index>
+    inline constexpr decltype(auto) operator[](this const Self &self,
+                                               Index... index)
+        requires((sizeof...(Index) == 1 ||
+                  (sizeof...(Index) == Size::dimSize &&
+                   sizeof...(Index) > 1)) &&
+                 (std::convertible_to<Index, size_t> && ...))
     {
-        return Qadd<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
+        return self.compute(index...);
+    }
+
+    template <typename Self, typename... Selectors>
+    inline constexpr auto operator[](this Self &&self, Selectors... selectors)
+        requires(sizeof...(Selectors) == Size::dimSize &&
+                 (TensorSliceSelector<Selectors> && ...) &&
+                 !(std::integral<std::remove_cvref_t<Selectors>> && ...))
+    {
+        return SliceView<Self &&, std::remove_cvref_t<Selectors>...>(
+            std::forward<Self>(self), selectors...);
+    }
+
+    template <typename Self>
+    inline constexpr auto eval(this const Self &self)
+    {
+        if constexpr (Self::size::dimSize == 0)
+        {
+            return self[size_t{}];
+        }
+        else
+        {
+            using element_type = std::remove_cvref_t<decltype(self[size_t{}])>;
+            using result_type = Qu_s<typename Self::size, element_type>;
+            return result_type(self);
+        }
     }
 };
 
-template <typename... Args>
-struct QaddTensor_s;
+template <typename T>
+concept LazyTensorNode =
+    isTensorOperand<T> &&
+    requires(const std::remove_cvref_t<T> &expression) { expression.eval(); };
 
-template <typename QuT1, typename QuT2, typename... toArgs>
-struct QaddTensor_s<QuT1, QuT2, toArgs...>
+template <LazyTensorNode Expr>
+inline constexpr auto eval(Expr &&expression)
 {
-    inline static constexpr auto add(const QuT1 &f1, const QuT2 &f2)
-    {
-        return AddExpression<QuT1, QuT2, toArgs...>(f1, f2);
-    }
-};
+    return std::forward<Expr>(expression).eval();
+}
 
-template <typename... Args>
-class SubExpression;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-class SubExpression<QuT1, QuT2, toArgs...>
+template <typename Size, typename Compute>
+inline constexpr auto lazy(Compute &&compute)
 {
-    const QuT1 &q1;
-    const QuT2 &q2;
+    return LazyTensor<Size, std::remove_cvref_t<Compute>>(
+        std::forward<Compute>(compute));
+}
 
-public:
-    using size = typename sizeMerger<QuT1, QuT2>::size;
-
-    SubExpression(const QuT1 &f1, const QuT2 &f2)
-        : q1(f1), q2(f2) {}
-
-    auto operator[](auto... index) const
-    {
-        return Qsub<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
-    }
-};
-
-template <typename... Args>
-struct QsubTensor_s;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-struct QsubTensor_s<QuT1, QuT2, toArgs...>
+template <typename Size, typename Op, typename... Operands>
+inline constexpr auto lift(Op &&operation, Operands &&...operands)
 {
-    inline static constexpr auto sub(const QuT1 &f1, const QuT2 &f2)
-    {
-        return SubExpression<QuT1, QuT2, toArgs...>(f1, f2);
-    }
-};
-
-template <typename... Args>
-class DivExpression;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-class DivExpression<QuT1, QuT2, toArgs...>
-{
-    const QuT1 &q1;
-    const QuT2 &q2;
-
-public:
-    using size = typename sizeMerger<QuT1, QuT2>::size;
-
-    DivExpression(const QuT1 &f1, const QuT2 &f2)
-        : q1(f1), q2(f2) {}
-
-    auto operator[](auto... index) const
-    {
-        return Qdiv<toArgs...>(autoCall(q1, index...), autoCall(q2, index...));
-    }
-};
-
-template <typename... Args>
-struct QdivTensor_s;
-
-template <typename QuT1, typename QuT2, typename... toArgs>
-struct QdivTensor_s<QuT1, QuT2, toArgs...>
-{
-    inline static constexpr auto div(const QuT1 &f1, const QuT2 &f2)
-    {
-        return DivExpression<QuT1, QuT2, toArgs...>(f1, f2);
-    }
-};
-
-template <typename... Args>
-class AbsExpression;
-
-template <typename QuT, typename... toArgs>
-class AbsExpression<QuT, toArgs...>
-{
-    const QuT &q;
-
-public:
-    using size = typename QuT::size;
-
-    AbsExpression(const QuT &f)
-        : q(f) {}
-
-    auto operator[](auto... index) const
-    {
-        return Qabs<toArgs...>(q[index...]);
-    }
-};
-
-template <typename... Args>
-struct QabsTensor_s;
-
-template <typename QuT, typename... toArgs>
-struct QabsTensor_s<QuT, toArgs...>
-{
-    inline static constexpr auto abs(const QuT &f)
-    {
-        return AbsExpression<QuT, toArgs...>(f);
-    }
-};
-
-template <typename... Args>
-class NegExpression;
-
-template <typename QuT, typename... toArgs>
-class NegExpression<QuT, toArgs...>
-{
-    const QuT &q;
-
-public:
-    using size = typename QuT::size;
-
-    NegExpression(const QuT &f)
-        : q(f) {}
-
-    auto operator[](auto... index) const
-    {
-        return Qneg<toArgs...>(q[index...]);
-    }
-};
-
-template <typename... Args>
-struct QnegTensor_s;
-
-template <typename QuT, typename... toArgs>
-struct QnegTensor_s<QuT, toArgs...>
-{
-    inline static constexpr auto neg(const QuT &f)
-    {
-        return NegExpression<QuT, toArgs...>(f);
-    }
-};
+    using captures = std::tuple<ExpressionOperand<Operands &&>...>;
+    return lazy<Size>(
+        [op = std::forward<Op>(operation),
+         values = captures(ExpressionOperand<Operands &&>(
+             std::forward<Operands>(operands))...)](auto... index) constexpr {
+            auto element = [&](const auto &value) -> decltype(auto) {
+                return autoCall(value.get(), index...);
+            };
+            return std::apply(
+                [&](const auto &...value) -> decltype(auto) {
+                    return std::invoke(op, element(value)...);
+                },
+                values);
+        });
+}
 
 // ------------------- Functions -------------------
 
@@ -4045,454 +3682,316 @@ inline constexpr auto operator==(const Qu_s<QuArgs1...> f1, const Qu_s<QuArgs2..
 }
 
 // tensor functions
-template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qmul(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto Qmul(QuT1 &&f1, QuT2 &&f2)
 {
-    return QmulTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::mul(f1, f2);
+    using T1 = std::remove_cvref_t<QuT1>;
+    using T2 = std::remove_cvref_t<QuT2>;
+    using Size = typename sizeMerger<T1, T2>::size;
+    return lift<Size>(
+        [](const auto &left, const auto &right) {
+            return Qmul<toArgs...>(left, right);
+        },
+        std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qadd(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto Qadd(QuT1 &&f1, QuT2 &&f2)
 {
-    return QaddTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::add(f1, f2);
+    using T1 = std::remove_cvref_t<QuT1>;
+    using T2 = std::remove_cvref_t<QuT2>;
+    using Size = typename sizeMerger<T1, T2>::size;
+    return lift<Size>(
+        [](const auto &left, const auto &right) {
+            return Qadd<toArgs...>(left, right);
+        },
+        std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qsub(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto Qsub(QuT1 &&f1, QuT2 &&f2)
 {
-    return QsubTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::sub(f1, f2);
+    using T1 = std::remove_cvref_t<QuT1>;
+    using T2 = std::remove_cvref_t<QuT2>;
+    using Size = typename sizeMerger<T1, T2>::size;
+    return lift<Size>(
+        [](const auto &left, const auto &right) {
+            return Qsub<toArgs...>(left, right);
+        },
+        std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... toArgs, typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto Qdiv(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename... toArgs, typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto Qdiv(QuT1 &&f1, QuT2 &&f2)
 {
-    return QdivTensor_s<Qu_s<QuArgs1...>, Qu_s<QuArgs2...>, toArgs...>::div(f1, f2);
+    using T1 = std::remove_cvref_t<QuT1>;
+    using T2 = std::remove_cvref_t<QuT2>;
+    using Size = typename sizeMerger<T1, T2>::size;
+    return lift<Size>(
+        [](const auto &left, const auto &right) {
+            return Qdiv<toArgs...>(left, right);
+        },
+        std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... toArgs, typename... QuArgs>
-    requires(!isScalar<Qu_s<QuArgs...>>)
-inline constexpr auto Qabs(const Qu_s<QuArgs...> &f)
+template <typename... toArgs, typename QuT>
+    requires isTensorOperand<QuT>
+inline constexpr auto Qabs(QuT &&f)
 {
-    return QabsTensor_s<Qu_s<QuArgs...>, toArgs...>::abs(f);
+    using T = std::remove_cvref_t<QuT>;
+    return lift<typename T::size>(
+        [](const auto &value) { return Qabs<toArgs...>(value); },
+        std::forward<QuT>(f));
 }
 
-template <typename... toArgs, typename... QuArgs>
-    requires(!isScalar<Qu_s<QuArgs...>>)
-inline constexpr auto Qneg(const Qu_s<QuArgs...> &f)
+template <typename... toArgs, typename QuT>
+    requires isTensorOperand<QuT>
+inline constexpr auto Qneg(QuT &&f)
 {
-    return QnegTensor_s<Qu_s<QuArgs...>, toArgs...>::neg(f);
+    using T = std::remove_cvref_t<QuT>;
+    return lift<typename T::size>(
+        [](const auto &value) { return Qneg<toArgs...>(value); },
+        std::forward<QuT>(f));
 }
 
 // operator overloading
-template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator*(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto operator*(QuT1 &&f1, QuT2 &&f2)
 {
-    return Qmul(f1, f2);
+    return Qmul(std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator+(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto operator+(QuT1 &&f1, QuT2 &&f2)
 {
-    return Qadd(f1, f2);
+    return Qadd(std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator-(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto operator-(QuT1 &&f1, QuT2 &&f2)
 {
-    return Qsub(f1, f2);
+    return Qsub(std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... QuArgs1, typename... QuArgs2>
-    requires(!isScalar<Qu_s<QuArgs1...>>) || (!isScalar<Qu_s<QuArgs2...>>)
-inline constexpr auto operator/(const Qu_s<QuArgs1...> &f1, const Qu_s<QuArgs2...> &f2)
+template <typename QuT1, typename QuT2>
+    requires isTensorOperandPair<QuT1, QuT2>
+inline constexpr auto operator/(QuT1 &&f1, QuT2 &&f2)
 {
-    return Qdiv(f1, f2);
+    return Qdiv(std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
-template <typename... QuArgs>
-    requires(!isScalar<Qu_s<QuArgs...>>)
-inline constexpr auto operator-(const Qu_s<QuArgs...> &f1)
+template <typename QuT>
+    requires isTensorOperand<QuT>
+inline constexpr auto operator-(QuT &&f1)
 {
-    return Qneg(f1);
+    return Qneg(std::forward<QuT>(f1));
 }
 
 // ------------------- Slice -------------------
 
-template <size_t... Args>
-struct sr;
+template <typename Selector, size_t SourceExtent>
+struct SliceSelectorTraits;
 
-template <size_t targetDim, size_t lower, size_t upper>
-struct sr<targetDim, lower, upper>
-{
-    static constexpr size_t dim = targetDim;
-    static constexpr size_t start = lower;
-    static constexpr size_t end = upper;
-};
-
-template <size_t targetDim, size_t lower>
-struct sr<targetDim, lower>
-{
-    static constexpr size_t dim = targetDim;
-    static constexpr size_t start = lower;
-    static constexpr size_t end = lower + 1;
-};
-
-template <size_t I, auto toDimSize>
-struct IndexLoader
-{
-    static constexpr size_t count1 = std::accumulate(toDimSize.begin(), toDimSize.begin() + I, 0, [](size_t a, size_t b) { return a + (b == 1); });
-
-    inline static auto execute(auto... index)
-    {
-        return packIndex<I - count1>(index...);
-    }
-};
-
-template <size_t targetDimIndex, typename... srs>
-struct dimExtractor
-{
-};
-
-template <size_t targetDimIndex, typename sr1, typename... srs>
-    requires(sr1::dim == targetDimIndex)
-struct dimExtractor<targetDimIndex, sr1, srs...>
-{
-    inline static constexpr size_t start = sr1::start;
-    inline static constexpr size_t end = sr1::end;
-};
-
-template <size_t targetDimIndex, typename sr1, typename... srs>
-    requires(sr1::dim != targetDimIndex)
-struct dimExtractor<targetDimIndex, sr1, srs...> : dimExtractor<targetDimIndex, srs...>
-{
-};
-
-template <size_t targetDimIndex>
-struct dimExtractor<targetDimIndex>
+template <size_t SourceExtent>
+struct SliceSelectorTraits<all_t, SourceExtent>
 {
     inline static constexpr size_t start = 0;
-    inline static constexpr size_t end = 0;
+    inline static constexpr size_t extent = SourceExtent;
 };
 
-template <typename targetTensorT, typename... Args>
-struct dimArrayExtractor : dimArrayExtractor<std::make_index_sequence<targetTensorT::size::dimSize>, targetTensorT, Args...>
+template <size_t First, size_t Last, size_t SourceExtent>
+struct SliceSelectorTraits<slice_t<First, Last>, SourceExtent>
 {
+    static_assert(Last <= SourceExtent, "A slice range is outside its source extent.");
+    inline static constexpr size_t start = First;
+    inline static constexpr size_t extent = Last - First;
 };
 
-template <size_t... I, typename targetTensorT, typename... Args>
-struct dimArrayExtractor<std::index_sequence<I...>, targetTensorT, Args...>
+template <typename SourceSize, typename SelectorTuple>
+struct SliceShape
 {
-    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toLower = {dimExtractor<I, Args...>::start...};
-    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toUpper = {dimExtractor<I, Args...>::end == 0 ? targetTensorT::size::dimArray[I] : dimExtractor<I, Args...>::end...};
-    inline constexpr static std::array<size_t, targetTensorT::size::dimSize> toDimSize = {toUpper[I] - toLower[I]...};
-};
-
-template <typename... Args>
-class SliceExpression;
-
-// general case, try not to use this version for compile-time efficiency
-template <typename targetTensorT, typename... Args>
-    requires(targetTensorT::size::dimSize >= 3 && sizeof...(Args) >= 1)
-class SliceExpression<targetTensorT, Args...>
-{
-public:
-    // target tensor
-    const targetTensorT &targetTensor;
-    SliceExpression(const targetTensorT &targetTensor)
-        : targetTensor(targetTensor) {}
-
-    inline constexpr static auto fromDimSize = targetTensorT::size::dimSize;
-    inline constexpr static std::array<size_t, fromDimSize> toLower = dimArrayExtractor<targetTensorT, Args...>::toLower;
-    inline constexpr static std::array<size_t, fromDimSize> toUpper = dimArrayExtractor<targetTensorT, Args...>::toUpper;
-    inline constexpr static std::array<size_t, fromDimSize> toDimSize = dimArrayExtractor<targetTensorT, Args...>::toDimSize;
-
-    inline auto &operator[](auto... index)
-    {
-        return indexHelper(std::make_index_sequence<fromDimSize>{}, index...);
-    }
-
-    // const version []
-    inline auto &operator[](auto... index) const
-    {
-        return indexHelper(std::make_index_sequence<fromDimSize>{}, index...);
-    }
-
     template <size_t... I>
-    inline auto &indexHelper(std::index_sequence<I...>, auto... index)
+    inline static consteval size_t rank(std::index_sequence<I...>)
     {
-        return targetTensor[toDimSize[I] == 1 ? toLower[I] : (toLower[I] + IndexLoader<I, toDimSize>::execute(index...))...];
+        return (size_t{0} + ... +
+                (std::integral<std::tuple_element_t<I, SelectorTuple>> ? 0 : 1));
     }
 
-    inline auto &operator[](size_t index)
-    {
-        throw std::runtime_error("Not supported yet. Tell Niurx if you need this feature.");
-        return 0;
-    }
+    inline static constexpr size_t outputRank =
+        rank(std::make_index_sequence<SourceSize::dimSize>{});
 
-    inline auto &operator[](size_t index) const
-    {
-        throw std::runtime_error("Not supported yet. Tell Niurx if you need this feature.");
-        return 0;
-    }
-};
-
-// slice a matrix to a vector
-template <typename targetTensorT, size_t... Args>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::start == sr<Args...>::end - 1)
-class SliceExpression<targetTensorT, sr<Args...>>
-{
-public:
-    using size = std::conditional_t<sr<Args...>::dim == 0, dim<1, targetTensorT::size::dimArray[1]>, dim<targetTensorT::size::dimArray[0]>>;
-
-    const targetTensorT &targetTensor;
-    SliceExpression(const targetTensorT &targetTensor)
-        : targetTensor(targetTensor) {}
-
-    auto &operator[](size_t index)
-    {
-        if constexpr (sr<Args...>::dim == 0)
-        {
-            return targetTensor[sr<Args...>::start, index];
-        }
-        else
-        {
-            return targetTensor[index, sr<Args...>::start];
-        }
-    }
-
-    auto &operator[](size_t index) const
-    {
-        if constexpr (sr<Args...>::dim == 0)
-        {
-            return targetTensor[sr<Args...>::start, index];
-        }
-        else
-        {
-            return targetTensor[index, sr<Args...>::start];
-        }
-    }
-};
-
-template <typename targetTensorT, size_t... Args1, size_t... Args2>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::start == sr<Args2...>::end - 1)
-class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>> : public SliceExpression<targetTensorT, sr<Args2...>, sr<Args1...>>
-{
-};
-
-template <typename targetTensorT, size_t... Args1, size_t... Args2>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args1...>::start == sr<Args1...>::end - 1)
-class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
-{
-public:
-    using size = std::conditional_t<sr<Args1...>::dim == 0, dim<1, sr<Args2...>::end - sr<Args2...>::start>, dim<sr<Args2...>::end - sr<Args2...>::start>>;
-
-    const targetTensorT &targetTensor;
-    SliceExpression(const targetTensorT &targetTensor)
-        : targetTensor(targetTensor) {}
-
-    auto &operator[](size_t index)
-    {
-        if constexpr (sr<Args1...>::dim == 0)
-        {
-            return targetTensor[sr<Args1...>::start, index + sr<Args2...>::start];
-        }
-        else
-        {
-            return targetTensor[index + sr<Args2...>::start, sr<Args1...>::start];
-        }
-    }
-
-    auto &operator[](size_t index) const
-    {
-        if constexpr (sr<Args1...>::dim == 0)
-        {
-            return targetTensor[sr<Args1...>::start, index + sr<Args2...>::start];
-        }
-        else
-        {
-            return targetTensor[index + sr<Args2...>::start, sr<Args1...>::start];
-        }
-    }
-};
-
-// slice a matrix to a matrix
-template <typename targetTensorT, size_t... Args>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args...>::end - sr<Args...>::start > 1)
-class SliceExpression<targetTensorT, sr<Args...>>
-{
-public:
-    inline static constexpr size_t row = sr<Args...>::dim == 0 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[0];
-    inline static constexpr size_t col = sr<Args...>::dim == 1 ? sr<Args...>::end - sr<Args...>::start : targetTensorT::size::dimArray[1];
-    using size = dim<row, col>;
-
-    const targetTensorT &targetTensor;
-
-    SliceExpression(const targetTensorT &targetTensor)
-        : targetTensor(targetTensor) {}
-
-    auto &operator[](size_t index)
-    {
-        // transfer 1-d index to 2-d index, col-major
-        size_t j = index / row;
-        size_t i = index % row;
-
-        if constexpr (sr<Args...>::dim == 0)
-        {
-            return targetTensor[i + sr<Args...>::start, j];
-        }
-        else
-        {
-            return targetTensor[i, j + sr<Args...>::start];
-        }
-    }
-
-    auto &operator[](size_t index) const
-    {
-        // transfer 1-d index to 2-d index, col-major
-        size_t j = index / row;
-        size_t i = index % row;
-
-        if constexpr (sr<Args...>::dim == 0)
-        {
-            return targetTensor[i + sr<Args...>::start, j];
-        }
-        else
-        {
-            return targetTensor[i, j + sr<Args...>::start];
-        }
-    }
-
-    auto &operator[](size_t i, size_t j)
-    {
-        if constexpr (sr<Args...>::dim == 0)
-        {
-            return targetTensor[i + sr<Args...>::start, j];
-        }
-        else
-        {
-            return targetTensor[i, j + sr<Args...>::start];
-        }
-    }
-
-    auto &operator[](size_t i, size_t j) const
-    {
-        if constexpr (sr<Args...>::dim == 0)
-        {
-            return targetTensor[i + sr<Args...>::start, j];
-        }
-        else
-        {
-            return targetTensor[i, j + sr<Args...>::start];
-        }
-    }
-};
-
-template <typename targetTensorT, size_t... Args1, size_t... Args2>
-    requires(targetTensorT::size::dimSize == 2 && sr<Args2...>::end - sr<Args2...>::start > 1 && sr<Args1...>::end - sr<Args1...>::start > 1)
-class SliceExpression<targetTensorT, sr<Args1...>, sr<Args2...>>
-{
-public:
-    inline static constexpr size_t row = sr<Args1...>::dim == 0 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
-    inline static constexpr size_t col = sr<Args1...>::dim == 1 ? sr<Args1...>::end - sr<Args1...>::start : sr<Args2...>::end - sr<Args2...>::start;
-    using size = dim<row, col>;
-
-    inline static constexpr size_t rowStart = sr<Args1...>::dim == 0 ? sr<Args1...>::start : sr<Args2...>::start;
-    inline static constexpr size_t colStart = sr<Args1...>::dim == 1 ? sr<Args1...>::start : sr<Args2...>::start;
-
-    const targetTensorT &targetTensor;
-
-    SliceExpression(const targetTensorT &targetTensor)
-        : targetTensor(targetTensor) {}
-
-    auto &operator[](size_t index)
-    {
-        // transfer 1-d index to 2-d index, col-major
-        size_t j = index / row;
-        size_t i = index % row;
-
-        return targetTensor[i + rowStart, j + colStart];
-    }
-
-    auto &operator[](size_t index) const
-    {
-        // transfer 1-d index to 2-d index, col-major
-        size_t j = index / row;
-        size_t i = index % row;
-
-        return targetTensor[i + rowStart, j + colStart];
-    }
-
-    auto &operator[](size_t i, size_t j)
-    {
-        return targetTensor[i + rowStart, j + colStart];
-    }
-
-    auto &operator[](size_t i, size_t j) const
-    {
-        return targetTensor[i + rowStart, j + colStart];
-    }
-};
-
-// Dynamic slice
-
-template <>
-struct sr<>
-{
-    size_t dim;
-    size_t start;
-    size_t end;
-
-    sr(size_t dim, size_t start, size_t end)
-        : dim(dim), start(start), end(end) {}
-
-    sr(size_t dim, size_t start)
-        : dim(dim), start(start), end(start + 1) {}
-
-    void display(std::string prefix = "")
-    {
-        std::cout << prefix << "dim: " << dim << " start: " << start << " end: " << end << std::endl;
-    }
-};
-
-using srd = sr<>;
-
-template <typename targetTensorT>
-class SliceExpression<targetTensorT>
-{
-public:
-    const targetTensorT &targetTensor;
-
-    std::array<size_t, targetTensorT::size::dimSize> toLower;
-    std::array<size_t, targetTensorT::size::dimSize> toUpper;
-    std::array<size_t, targetTensorT::size::dimSize> toDimSize;
-
-    SliceExpression(const targetTensorT &f, auto... srs)
-        : targetTensor(f)
-    {
-
-        static auto updateTargetDim = [srs..., this]<size_t... Is>(size_t index, std::index_sequence<Is...>) {
-            toLower[index] = (0 + ... + (index == srs.dim ? srs.start : 0));
-            toUpper[index] = (0 + ... + (index == srs.dim ? srs.end : 0));
-            if (toUpper[index] == 0)
+    inline static constexpr auto extents = []<size_t... I>(
+                                                std::index_sequence<I...>) {
+        std::array<size_t, outputRank> result{};
+        size_t output = 0;
+        auto append = [&]<size_t Axis> {
+            using selector = std::tuple_element_t<Axis, SelectorTuple>;
+            if constexpr (!std::integral<selector>)
             {
-                toUpper[index] = targetTensorT::size::dimArray[index];
+                result[output++] =
+                    SliceSelectorTraits<selector,
+                                        SourceSize::dimArray[Axis]>::extent;
             }
         };
+        (append.template operator()<I>(), ...);
+        return result;
+    }(std::make_index_sequence<SourceSize::dimSize>{});
 
-        [this]<size_t... Is>(std::index_sequence<Is...>) {
-            (updateTargetDim(Is, std::make_index_sequence<sizeof...(srs)>{}), ...);
-        }(std::make_index_sequence<targetTensorT::size::dimSize>{});
+    template <size_t... I>
+    static auto make(std::index_sequence<I...>) -> dim<extents[I]...>;
+
+    using type = decltype(make(std::make_index_sequence<outputRank>{}));
+};
+
+template <typename Tensor, typename... Selectors>
+class SliceView
+{
+    using tensor_t = std::remove_cvref_t<Tensor>;
+    using source_size = typename tensor_t::size;
+    using selector_tuple = std::tuple<Selectors...>;
+
+    static_assert(source_size::dimSize > 0, "A slice needs at least one axis.");
+    static_assert(sizeof...(Selectors) == source_size::dimSize,
+                  "A tensor slice needs exactly one selector per axis.");
+    static_assert((TensorSliceSelector<Selectors> && ...));
+    static_assert((!std::integral<Selectors> || ...),
+                  "An all-integral subscript is an element access, not a slice.");
+
+public:
+    using size = typename SliceShape<source_size, selector_tuple>::type;
+
+private:
+
+    inline static constexpr bool storesReference =
+        std::is_lvalue_reference_v<Tensor>;
+    using referred_t = std::remove_reference_t<Tensor>;
+    using storage_t = std::conditional_t<
+        storesReference, std::reference_wrapper<referred_t>, tensor_t>;
+
+    storage_t storage;
+    selector_tuple selectors;
+
+    inline static constexpr storage_t store(Tensor tensor)
+    {
+        if constexpr (storesReference)
+            return std::ref(tensor);
+        else
+            return std::forward<Tensor>(tensor);
     }
 
-    inline auto &operator[](auto... index)
+    inline constexpr decltype(auto) target()
     {
+        if constexpr (storesReference)
+            return storage.get();
+        else
+            return (storage);
+    }
+
+    inline constexpr decltype(auto) target() const
+    {
+        if constexpr (storesReference)
+            return storage.get();
+        else
+            return std::as_const(storage);
+    }
+
+    template <size_t I>
+    inline static constexpr size_t localAxis = []<size_t... Before>(
+                                                    std::index_sequence<Before...>) {
+        return (size_t{0} + ... +
+                (std::integral<std::tuple_element_t<Before, selector_tuple>>
+                     ? 0
+                     : 1));
+    }(std::make_index_sequence<I>{});
+
+    template <size_t I>
+    inline constexpr size_t sourceIndex(
+        const std::array<size_t, size::dimSize> &local) const
+    {
+        using selector = std::tuple_element_t<I, selector_tuple>;
+        if constexpr (std::integral<selector>)
+        {
+            const auto raw = std::get<I>(selectors);
+            if constexpr (std::signed_integral<selector>)
+                if (raw < 0)
+                    throw std::out_of_range("Slice index is out of range.");
+
+            const size_t source = static_cast<size_t>(raw);
+            if (source >= source_size::dimArray[I])
+                throw std::out_of_range("Slice index is out of range.");
+            return source;
+        }
+        else
+        {
+            using traits =
+                SliceSelectorTraits<selector, source_size::dimArray[I]>;
+            constexpr size_t axis = localAxis<I>;
+            if (local[axis] >= traits::extent)
+                throw std::out_of_range("Slice index is out of range.");
+            return traits::start + local[axis];
+        }
+    }
+
+    template <typename Self, size_t... I>
+    inline static constexpr decltype(auto) access(
+        Self &self, const std::array<size_t, size::dimSize> &local,
+        std::index_sequence<I...>)
+    {
+        return self.target()[self.template sourceIndex<I>(local)...];
+    }
+
+    template <typename Self>
+    inline static constexpr decltype(auto) accessFlat(Self &self, size_t flat)
+    {
+        if (flat >= size::elemSize)
+            throw std::out_of_range("Slice index is out of range.");
+
+        std::array<size_t, size::dimSize> local{};
+        for (size_t axis = 0; axis < size::dimSize; ++axis)
+        {
+            local[axis] = flat % size::dimArray[axis];
+            flat /= size::dimArray[axis];
+        }
+        return access(self, local,
+                      std::make_index_sequence<source_size::dimSize>{});
+    }
+
+public:
+    explicit inline constexpr SliceView(Tensor tensor, Selectors... selected)
+        : storage(store(std::forward<Tensor>(tensor))),
+          selectors(std::move(selected)...) {}
+
+    inline constexpr decltype(auto) operator[](this auto &&self, size_t flat)
+    {
+        return accessFlat(self, flat);
+    }
+
+    inline constexpr decltype(auto) operator[](this auto &&self, auto... index)
+        requires(sizeof...(index) == size::dimSize &&
+                 sizeof...(index) > 1 &&
+                 (std::is_convertible_v<decltype(index), size_t> && ...))
+    {
+        std::array<size_t, size::dimSize> local{
+            static_cast<size_t>(index)...};
+        return access(self, local,
+                      std::make_index_sequence<source_size::dimSize>{});
+    }
+
+    template <typename Self, typename... Next>
+    inline constexpr auto operator[](this Self &&self, Next... selectors)
+        requires(sizeof...(Next) == size::dimSize &&
+                 (TensorSliceSelector<Next> && ...) &&
+                 !(std::integral<std::remove_cvref_t<Next>> && ...))
+    {
+        return SliceView<Self &&, std::remove_cvref_t<Next>...>(
+            std::forward<Self>(self), selectors...);
     }
 };
 
@@ -4504,7 +4003,7 @@ namespace ANUS {
 
 // polynomial fitting
 template <auto a0>
-inline static constexpr auto Qpoly(auto x)
+inline static constexpr auto Qpoly(auto)
 {
     return a0;
 }
@@ -4573,101 +4072,106 @@ struct Qapprox_s
 template <typename... Args>
 struct Reducer
 {
-    template <bool condition, size_t layer>
-    struct ReducerTypeSelector;
+    inline static constexpr size_t layerCount = sizeof...(Args);
 
-    // 递归展开的情况，满足条件
+    // The sentinel makes the untyped Qreduce<> spelling participate in the
+    // same tree as an explicitly typed reduction. Once a non-empty layer list
+    // is exhausted, its last type continues to describe every deeper layer.
     template <size_t layer>
-    struct ReducerTypeSelector<true, layer>
-    {
-        using type = TypeAt<layer >= sizeof...(Args) ? sizeof...(Args) - 1 : layer, TypeList<Args...>>;
-    };
+    using layerType = TypeAt<
+        layerCount == 0 ? 0 : (layer < layerCount ? layer : layerCount - 1),
+        TypeList<Args..., std::nullptr_t>>;
 
-    // 基础情况，不满足计算条件的部分
-    template <size_t layer>
-    struct ReducerTypeSelector<false, layer>
+    template <typename type, typename T>
+    static constexpr auto quantizeCarry(T &&value)
     {
-        using type = std::nullptr_t;
-    };
-
-    // version for arbitrary input, please avoid using this version for efficiency consideration
-    template <size_t layer, typename... Ts, size_t... I>
-    static inline auto reduce_impl(std::index_sequence<I...>,
-                                   const Ts... quants)
-    {
-        // (quants.display("layer " + std::to_string(layer)), ...);
-        if constexpr (sizeof...(quants) == 1)
+        if constexpr (std::is_same_v<type, std::nullptr_t>)
         {
-            return packIndex<0>(quants...);
+            return std::forward<T>(value);
+        }
+        else if constexpr (isTensorOperand<T>)
+        {
+            return lift<tensorSize<T>>(
+                [](const auto &element) { return type(element); },
+                std::forward<T>(value));
         }
         else
         {
-            using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
-            if constexpr (sizeof...(quants) % 2 == 0)
-            {
-                return reduce_impl<layer + 1>(
-                    std::make_index_sequence<sizeof...(I) / 2>{},
-                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
-            }
-            else
-            {
-                auto res = reduce_impl<layer + 1>(
-                    std::make_index_sequence<sizeof...(I) / 2>{},
-                    Qadd<type>(packIndex<I * 2>(quants...), packIndex<I * 2 + 1>(quants...))...);
-
-                return Qadd<type>(res, packIndex<sizeof...(quants) - 1>(quants...));
-            }
+            return type(std::forward<T>(value));
         }
     }
 
-    template <typename... Ts>
-    static auto reduce(const Ts... quants)
-    {
-        return reduce_impl<0>(std::make_index_sequence<sizeof...(Ts) / 2>{}, quants...);
-    }
+    // Each instantiation consumes one balanced tree layer. Tuple CTAD owns all
+    // intermediate values, while the explicit object parameter supplies the
+    // recursive call without a family of helper specializations.
+    inline static constexpr auto reduceTree =
+        []<size_t layer, typename Tuple>(this auto self, Tuple quants) -> auto {
+        constexpr size_t len = std::tuple_size_v<Tuple>;
+        static_assert(len > 0, "Qreduce requires at least one input.");
 
-    // version for a vec
-    template <size_t layer, size_t len, typename... fromArgs>
-    static auto reduce_impl(const Qu_s<dim<len>, fromArgs...> &quants)
-    {
-        using type = typename ReducerTypeSelector<sizeof...(Args) != 0, layer>::type;
-        // quants.display("layer " + std::to_string(layer));
-
-        static Qu_s<dim<(len + 1) / 2>, typename std::conditional_t<std::is_same_v<type, std::nullptr_t>, Qu<fromArgs...>, type>> res;
         if constexpr (len == 1)
         {
-            return quants.template get<0>();
+            return std::get<0>(std::move(quants));
         }
         else
         {
-            [&res = res, &quants = quants]<size_t... I>(std::index_sequence<I...>) {
-                ((res.template get<I>() = Qadd<type>(quants.template get<I * 2>(), quants.template get<I * 2 + 1>())), ...);
-            }(std::make_index_sequence<len / 2>());
-
-            if constexpr (len % 2 != 0)
-            {
-                res.template get<(len + 1) / 2 - 1>() = quants.template get<len - 1>();
-            }
-
-            return reduce_impl<layer + 1>(res);
+            using type = layerType<layer>;
+            return [&]<size_t... I>(std::index_sequence<I...>) -> auto {
+                if constexpr (len % 2 == 0)
+                {
+                    return self.template operator()<layer + 1>(std::tuple{
+                        Qadd<type>(std::move(std::get<I * 2>(quants)),
+                                   std::move(std::get<I * 2 + 1>(quants)))...});
+                }
+                else
+                {
+                    // The unpaired value crosses the same quantization boundary
+                    // as every paired result at this layer.
+                    return self.template operator()<layer + 1>(std::tuple{
+                        Qadd<type>(std::move(std::get<I * 2>(quants)),
+                                   std::move(std::get<I * 2 + 1>(quants)))...,
+                        quantizeCarry<type>(
+                            std::move(std::get<len - 1>(quants)))});
+                }
+            }(std::make_index_sequence<len / 2>{});
         }
-    }
+    };
 
-    template <size_t len, typename... fromArgs>
-    static auto reduce(const Qu_s<dim<len>, fromArgs...> &quants)
+    template <typename... Ts>
+        requires(sizeof...(Ts) != 1 || !(isTensorOperand<Ts> && ...))
+    static constexpr auto reduce(Ts... quants)
     {
-        return reduce_impl<0>(quants);
-    }
-
-    template <size_t... dims, typename... fromArgs>
-    static auto reduce(const Qu_s<dim<dims...>, fromArgs...> &quants)
-    {
-        static Qu_s<dim<dim<dims...>::elemSize>, fromArgs...> vec;
-        for (size_t i = 0; i < dim<dims...>::elemSize; i++)
+        if constexpr (sizeof...(Ts) == 0)
         {
-            vec[i] = quants[i];
+            static_assert(sizeof...(Ts) > 0, "Qreduce requires at least one input.");
         }
-        return reduce(vec);
+        else
+        {
+            return reduceTree.template operator()<0>(
+                std::tuple{std::move(quants)...});
+        }
+    }
+
+    // Concrete tensors and lazy expressions share one materialization path.
+    // Linear indexing deliberately flattens every rank before building the
+    // compile-time tuple tree.
+    template <typename TensorT>
+        requires isTensorOperand<TensorT>
+    static constexpr auto reduce(const TensorT &quants)
+    {
+        constexpr size_t len = tensorSize<TensorT>::elemSize;
+
+        if constexpr (len == 0)
+        {
+            static_assert(len > 0, "Qreduce requires a non-empty tensor.");
+        }
+        else
+        {
+            return [&]<size_t... I>(std::index_sequence<I...>) {
+                return reduceTree.template operator()<0>(
+                    std::tuple{quants[I]...});
+            }(std::make_index_sequence<len>{});
+        }
     }
 };
 
@@ -4687,4 +4191,645 @@ inline auto constexpr Qreduce(const Ts... quants)
     return ReducerInputHelper<Args...>::reduce(quants...);
 }
 
+// Decimal literals are exact rationals.  Their ArbiInt width grows with the
+// text, then the target Qu type's own division policy performs quantisation.
+namespace detail {
+
+struct decimal_literal_info
+{
+    bool valid = true;
+    bool negative = false;
+    size_t digits = 0;
+    size_t fractional = 0;
+};
+
+template <fixed_string Text>
+consteval decimal_literal_info inspect_decimal_literal()
+{
+    decimal_literal_info result;
+    bool point = false;
+    bool digit = false;
+
+    for (size_t i = 0; i < Text.size(); ++i)
+    {
+        const char c = Text[i];
+        if (i == 0 && (c == '+' || c == '-'))
+        {
+            result.negative = c == '-';
+            continue;
+        }
+        if (c == '.' && !point)
+        {
+            point = true;
+            continue;
+        }
+        if (c < '0' || c > '9')
+            return {.valid = false};
+
+        digit = true;
+        ++result.digits;
+        result.fractional += point;
+    }
+
+    result.valid = digit;
+    return result;
+}
+
+template <fixed_string Text>
+struct decimal_literal_proxy
+{
+    inline static constexpr auto literal = inspect_decimal_literal<Text>();
+    static_assert(literal.valid,
+                  "A _dq literal accepts one optional leading sign, decimal "
+                  "digits, and at most one radix point");
+
+    inline static constexpr size_t width = literal.digits * 4 + 2;
+
+    static constexpr auto append(ArbiInt<width> value, uint64_t digit = 0)
+    {
+        return ArbiInt<width>(value * ArbiInt<5>(10) + ArbiInt<5>(digit));
+    }
+
+    static constexpr auto magnitude()
+    {
+        ArbiInt<width> value;
+        for (size_t i = 0; i < Text.size(); ++i)
+            if (Text[i] >= '0' && Text[i] <= '9')
+                value = append(value, Text[i] - '0');
+        return value;
+    }
+
+    static constexpr auto denominator()
+    {
+        ArbiInt<width> value(1);
+        for (size_t i = 0; i < literal.fractional; ++i)
+            value = append(value);
+        return value;
+    }
+
+    template <typename Target>
+        requires is_fixed_scalar_v<Target>
+    constexpr auto as() const
+    {
+        using target_type = std::remove_cvref_t<Target>;
+        using exact_integer =
+            Qu<intBits<static_cast<int>(width - 1)>, fracBits<0>, isSigned<true>>;
+
+        exact_integer numerator;
+        exact_integer divisor;
+        constexpr auto absolute = magnitude();
+        numerator.data = literal.negative ? ArbiInt<width>(-absolute) : absolute;
+        divisor.data = denominator();
+        return Qdiv<target_type>(numerator, divisor);
+    }
+};
+
+} // namespace detail
+
+template <fixed_string Text>
+consteval auto operator""_dq()
+{
+    return detail::decimal_literal_proxy<Text>{};
+}
+
+template <fixed_string Text, typename Target>
+    requires detail::is_fixed_scalar_v<Target>
+constexpr auto operator|(detail::decimal_literal_proxy<Text> literal,
+                         to_type<Target>)
+{
+    return literal.template as<Target>();
+}
+
+// ------------------- Static einsum -------------------
+// A formula is compiled into one label graph.  Matrix products, diagonals,
+// outer products, traces and N-operand contractions are merely different data
+// in that graph; none needs its own expression class.
+namespace detail {
+
+constexpr bool isEinsumLabel(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+constexpr bool isEinsumSpace(char c)
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+template <size_t Axes, size_t Operands>
+struct einsum_syntax
+{
+    bool valid = true;
+    std::array<unsigned char, Axes> inputs{};
+    std::array<unsigned char, Axes> outputs{};
+    std::array<unsigned char, Axes> contractions{};
+    std::array<size_t, Operands + 1> offsets{};
+    size_t outputRank = 0;
+    size_t contractionRank = 0;
+};
+
+template <fixed_string Equation, size_t Axes, size_t Operands>
+consteval auto parseEinsum(const std::array<size_t, Operands> &ranks,
+                           const std::array<size_t, Axes> &axisExtents)
+{
+    einsum_syntax<Axes, Operands> syntax;
+    std::array<size_t, 256> occurrences{};
+    std::array<size_t, 256> extents{};
+    std::array<bool, 256> outputSeen{};
+
+    size_t arrow = Equation.size();
+    size_t arrows = 0;
+    for (size_t i = 0; i + 1 < Equation.size(); ++i)
+        if (Equation[i] == '-' && Equation[i + 1] == '>')
+        {
+            arrow = i;
+            ++arrows;
+        }
+    syntax.valid &= arrows <= 1;
+
+    size_t operand = 0;
+    size_t localAxis = 0;
+    size_t axis = 0;
+    for (size_t i = 0; i < arrow; ++i)
+    {
+        const char c = Equation[i];
+        if (isEinsumSpace(c))
+            continue;
+        if (c == ',')
+        {
+            syntax.valid &= operand < Operands && localAxis == ranks[operand];
+            ++operand;
+            localAxis = 0;
+            if (operand <= Operands)
+                syntax.offsets[operand] = axis;
+            continue;
+        }
+        if (!isEinsumLabel(c) || operand >= Operands ||
+            localAxis >= ranks[operand] || axis >= Axes)
+        {
+            syntax.valid = false;
+            continue;
+        }
+
+        const auto label = static_cast<unsigned char>(c);
+        syntax.inputs[axis] = label;
+        if (occurrences[label]++ == 0)
+            extents[label] = axisExtents[axis];
+        else
+            syntax.valid &= extents[label] == axisExtents[axis];
+        ++axis;
+        ++localAxis;
+    }
+
+    syntax.valid &= Operands > 0 && operand + 1 == Operands &&
+                    operand < Operands && localAxis == ranks[operand] &&
+                    axis == Axes;
+    syntax.offsets[Operands] = axis;
+
+    if (arrows == 1)
+    {
+        for (size_t i = arrow + 2; i < Equation.size(); ++i)
+        {
+            const char c = Equation[i];
+            if (isEinsumSpace(c))
+                continue;
+            if (!isEinsumLabel(c))
+            {
+                syntax.valid = false;
+                continue;
+            }
+            const auto label = static_cast<unsigned char>(c);
+            if (occurrences[label] == 0 || outputSeen[label] ||
+                syntax.outputRank >= Axes)
+            {
+                syntax.valid = false;
+                continue;
+            }
+            outputSeen[label] = true;
+            syntax.outputs[syntax.outputRank++] = label;
+        }
+    }
+    else
+    {
+        // Implicit output follows first appearance, which is more useful for a
+        // DSL than imposing an unrelated alphabetical ordering.
+        for (size_t i = 0; i < Axes; ++i)
+        {
+            const auto label = syntax.inputs[i];
+            if (occurrences[label] == 1 && !outputSeen[label])
+            {
+                outputSeen[label] = true;
+                syntax.outputs[syntax.outputRank++] = label;
+            }
+        }
+    }
+
+    std::array<bool, 256> contractionSeen{};
+    for (size_t i = 0; i < Axes; ++i)
+    {
+        const auto label = syntax.inputs[i];
+        if (!outputSeen[label] && !contractionSeen[label])
+        {
+            contractionSeen[label] = true;
+            syntax.contractions[syntax.contractionRank++] = label;
+            syntax.valid &= extents[label] > 0;
+        }
+    }
+    return syntax;
+}
+
+template <fixed_string Equation, typename... Shapes>
+struct einsum_plan
+{
+    inline static constexpr size_t operandCount = sizeof...(Shapes);
+    inline static constexpr size_t axisCount = (size_t{0} + ... + Shapes::dimSize);
+    inline static constexpr std::array<size_t, operandCount> ranks = {
+        Shapes::dimSize...};
+
+    inline static constexpr auto axisExtents = [] {
+        std::array<size_t, axisCount> result{};
+        size_t position = 0;
+        ([&] {
+            for (size_t extent : Shapes::dimArray)
+                result[position++] = extent;
+        }(), ...);
+        return result;
+    }();
+
+    inline static constexpr auto syntax =
+        parseEinsum<Equation>(ranks, axisExtents);
+
+    inline static constexpr auto labelExtents = [] {
+        std::array<size_t, 256> result{};
+        for (size_t i = 0; i < axisCount; ++i)
+            result[syntax.inputs[i]] = axisExtents[i];
+        return result;
+    }();
+
+    inline static constexpr size_t contractionSpace = [] {
+        size_t result = 1;
+        for (size_t i = 0; i < syntax.contractionRank; ++i)
+            result *= labelExtents[syntax.contractions[i]];
+        return result;
+    }();
+
+    template <size_t... I>
+    static auto makeSize(std::index_sequence<I...>)
+        -> dim<labelExtents[syntax.outputs[I]]...>;
+
+    using size = decltype(makeSize(
+        std::make_index_sequence<syntax.outputRank>{}));
+};
+
+template <fixed_string Equation, bool AllTensor, typename... Operands>
+struct einsum_compatible : std::false_type
+{};
+
+template <fixed_string Equation, typename... Operands>
+struct einsum_compatible<Equation, true, Operands...>
+    : std::bool_constant<
+          einsum_plan<Equation, tensorSize<Operands>...>::syntax.valid>
+{};
+
+} // namespace detail
+
+template <fixed_string Equation, typename... Operands>
+concept EinsumCompatible = detail::einsum_compatible<
+    Equation,
+    (sizeof...(Operands) > 0 && (isTensorOperand<Operands> && ...)),
+    std::remove_cvref_t<Operands>...>::value;
+
+template <fixed_string Equation, typename... Operands>
+    requires EinsumCompatible<Equation, Operands...>
+inline constexpr auto einsum(Operands &&...operands)
+{
+    using plan = detail::einsum_plan<
+        Equation, tensorSize<std::remove_cvref_t<Operands>>...>;
+    using size = typename plan::size;
+    using coordinates = std::array<size_t, 256>;
+    using operand_types = std::tuple<std::remove_cvref_t<Operands>...>;
+    using captures = std::tuple<ExpressionOperand<Operands &&>...>;
+
+    return lazy<size>(
+        [values = captures(ExpressionOperand<Operands &&>(
+             std::forward<Operands>(operands))...)]<typename... Index>(
+            Index... index) constexpr
+            requires((sizeof...(Index) == 1 ||
+                      (sizeof...(Index) == size::dimSize &&
+                       sizeof...(Index) > 1)) &&
+                     (std::convertible_to<Index, size_t> && ...))
+        {
+            coordinates at{};
+            if constexpr (sizeof...(Index) == 1)
+            {
+                size_t flat = std::array<size_t, 1>{
+                    static_cast<size_t>(index)...}[0];
+                if (flat >= size::elemSize)
+                    throw std::out_of_range(
+                        "einsum output index is out of range");
+
+                for (size_t axis = 0; axis < plan::syntax.outputRank; ++axis)
+                {
+                    const auto label = plan::syntax.outputs[axis];
+                    const auto extent = plan::labelExtents[label];
+                    at[label] = flat % extent;
+                    flat /= extent;
+                }
+            }
+            else
+            {
+                const std::array<size_t, size::dimSize> local{
+                    static_cast<size_t>(index)...};
+                for (size_t axis = 0; axis < size::dimSize; ++axis)
+                {
+                    if (local[axis] >= size::dimArray[axis])
+                        throw std::out_of_range(
+                            "einsum output index is out of range");
+                    at[plan::syntax.outputs[axis]] = local[axis];
+                }
+            }
+
+            auto operandValue = [&]<size_t I>(const coordinates &where)
+                -> decltype(auto) {
+                using operand_type = std::tuple_element_t<I, operand_types>;
+                using shape = tensorSize<operand_type>;
+                size_t flat = 0;
+                size_t stride = 1;
+                for (size_t axis = 0; axis < shape::dimSize; ++axis)
+                {
+                    const auto label =
+                        plan::syntax.inputs[plan::syntax.offsets[I] + axis];
+                    flat += where[label] * stride;
+                    stride *= shape::dimArray[axis];
+                }
+                return std::get<I>(values).get()[flat];
+            };
+
+            auto productAt = [&](const coordinates &where) {
+                auto multiply = [&]<size_t I>(this auto self, auto product)
+                    -> auto {
+                    if constexpr (I == sizeof...(Operands))
+                        return product;
+                    else
+                        return self.template operator()<I + 1>(Qmul<FullPrec>(
+                            product,
+                            operandValue.template operator()<I>(where)));
+                };
+
+                if constexpr (sizeof...(Operands) == 1)
+                    return operandValue.template operator()<0>(where);
+                else
+                    return multiply.template operator()<1>(
+                        operandValue.template operator()<0>(where));
+            };
+
+            auto contract = [&]<size_t Offset, size_t Count>(
+                                this auto self, coordinates where) -> auto {
+                if constexpr (Count == 1)
+                {
+                    size_t flat = Offset;
+                    for (size_t axis = 0;
+                         axis < plan::syntax.contractionRank; ++axis)
+                    {
+                        const auto label = plan::syntax.contractions[axis];
+                        const auto extent = plan::labelExtents[label];
+                        where[label] = flat % extent;
+                        flat /= extent;
+                    }
+                    return productAt(where);
+                }
+                else
+                {
+                    constexpr size_t left = Count / 2;
+                    return Qadd<FullPrec>(
+                        self.template operator()<Offset, left>(where),
+                        self.template operator()<Offset + left,
+                                                 Count - left>(where));
+                }
+            };
+
+            return contract.template operator()<0, plan::contractionSpace>(at);
+        });
+}
+
+// ------------------- Typed Einstein notation -------------------
+// `ein` is both sides of the notation, so tensors themselves remain blissfully
+// unaware of the DSL:
+//
+//   ein[_i, _k] <<= ein[A, _i, _j] * ein[B, _j, _k];
+namespace indices {
+
+template <char Label>
+struct axis
+{
+    inline static constexpr char value = Label;
+    using ein_axis = void;
+};
+
+template <typename T>
+concept Axis = requires { typename std::remove_cvref_t<T>::ein_axis; };
+
+template <char... Labels>
+struct axes
+{
+    inline static constexpr std::array<char, sizeof...(Labels)> values{Labels...};
+    inline static constexpr size_t count = sizeof...(Labels);
+};
+
+template <typename T, char... Labels>
+class indexed
+{
+    using storage = std::conditional_t<std::is_lvalue_reference_v<T>, T,
+                                       std::remove_cvref_t<T>>;
+    storage tensor;
+
+public:
+    using labels = axes<Labels...>;
+    using ein_factor = void;
+
+    inline constexpr explicit indexed(T &&value)
+        : tensor(std::forward<T>(value)) {}
+
+    inline constexpr decltype(auto) take() &&
+    {
+        if constexpr (std::is_lvalue_reference_v<T>)
+            return (tensor);
+        else
+            return std::move(tensor);
+    }
+};
+
+template <typename... Factors>
+struct product
+{
+    std::tuple<Factors...> factors;
+};
+
+template <char... Labels>
+struct output
+{};
+
+template <typename T>
+concept Factor = requires { typename std::remove_cvref_t<T>::ein_factor; };
+
+template <Factor L, Factor R>
+inline constexpr auto operator*(L &&left, R &&right)
+{
+    return product<std::remove_cvref_t<L>, std::remove_cvref_t<R>>{
+        {std::forward<L>(left), std::forward<R>(right)}};
+}
+
+template <typename... L, Factor R>
+inline constexpr auto operator*(product<L...> &&left, R &&right)
+{
+    return product<L..., std::remove_cvref_t<R>>{std::tuple_cat(
+        std::move(left.factors), std::tuple{std::forward<R>(right)})};
+}
+
+template <typename Output, typename... Factors>
+consteval auto equation()
+{
+    constexpr size_t extent =
+        (Factors::labels::count + ...) + sizeof...(Factors) + Output::count + 2;
+    char text[extent]{};
+    size_t at = 0;
+    size_t operand = 0;
+    auto emit = [&]<typename Labels> {
+        for (char label : Labels::values)
+            text[at++] = label;
+        if (++operand < sizeof...(Factors))
+            text[at++] = ',';
+    };
+    (emit.template operator()<typename Factors::labels>(), ...);
+    text[at++] = '-';
+    text[at++] = '>';
+    for (char label : Output::values)
+        text[at++] = label;
+    return fixed_string{text};
+}
+
+template <char... Out, typename... Factors>
+inline constexpr auto operator<<=(output<Out...>, product<Factors...> &&terms)
+{
+    return std::apply(
+        []<typename... F>(F &&...factor) {
+            return einsum<equation<axes<Out...>, Factors...>()>(
+                std::move(factor).take()...);
+        },
+        std::move(terms.factors));
+}
+
+template <char... Out, Factor F>
+inline constexpr auto operator<<=(output<Out...>, F &&factor)
+{
+    using factor_type = std::remove_cvref_t<F>;
+    return einsum<equation<axes<Out...>, factor_type>()>(
+        std::move(factor).take());
+}
+
+struct ein_t
+{
+    template <Axis... I>
+    inline constexpr auto operator[](I...) const
+    {
+        return output<std::remove_cvref_t<I>::value...>{};
+    }
+
+    template <typename T, Axis... I>
+        requires(isTensorOperand<T> && tensorSize<T>::dimSize == sizeof...(I))
+    inline constexpr auto operator[](T &&tensor, I...) const
+    {
+        return indexed<T &&, std::remove_cvref_t<I>::value...>(
+            std::forward<T>(tensor));
+    }
+};
+
+inline constexpr ein_t ein;
+inline constexpr axis<'a'> _a; inline constexpr axis<'b'> _b;
+inline constexpr axis<'c'> _c; inline constexpr axis<'d'> _d;
+inline constexpr axis<'e'> _e; inline constexpr axis<'f'> _f;
+inline constexpr axis<'g'> _g; inline constexpr axis<'h'> _h;
+inline constexpr axis<'i'> _i; inline constexpr axis<'j'> _j;
+inline constexpr axis<'k'> _k; inline constexpr axis<'l'> _l;
+inline constexpr axis<'m'> _m; inline constexpr axis<'n'> _n;
+inline constexpr axis<'o'> _o; inline constexpr axis<'p'> _p;
+inline constexpr axis<'q'> _q; inline constexpr axis<'r'> _r;
+inline constexpr axis<'s'> _s; inline constexpr axis<'t'> _t;
+inline constexpr axis<'u'> _u; inline constexpr axis<'v'> _v;
+inline constexpr axis<'w'> _w; inline constexpr axis<'x'> _x;
+inline constexpr axis<'y'> _y; inline constexpr axis<'z'> _z;
+
+} // namespace indices
+
 } // namespace QuBLAS
+
+// Keep formatting at the language boundary: the scalar itself only knows its
+// bits and value, while std::format supplies the surface syntax.
+namespace std {
+
+template <int IntBits, int FracBits, bool Signed, typename Quantization,
+          typename Overflow>
+struct formatter<
+    QuBLAS::Qu_s<QuBLAS::intBits<IntBits>, QuBLAS::fracBits<FracBits>,
+                 QuBLAS::isSigned<Signed>, QuBLAS::QuMode<Quantization>,
+                 QuBLAS::OfMode<Overflow>>,
+    char>
+{
+    char view = 'f';
+    std::formatter<double, char> number;
+    std::formatter<std::string_view, char> text;
+
+    constexpr auto parse(std::format_parse_context &context)
+    {
+        auto it = context.begin();
+        if (it != context.end() && (*it == 'b' || *it == 'x' || *it == 'X' || *it == 'q'))
+        {
+            view = *it++;
+            context.advance_to(it);
+            return text.parse(context);
+        }
+        return number.parse(context);
+    }
+
+    template <typename Context>
+    auto format(const auto &value, Context &context) const
+    {
+        if (view == 'b')
+        {
+            const auto bits = value.toString();
+            return text.format(std::string_view(bits), context);
+        }
+
+        if (view == 'q')
+        {
+            const auto description =
+                std::format("Q<{}_i, {}_f, {}>({})", IntBits, FracBits,
+                            Signed ? "signed_" : "unsigned_", value.toDouble());
+            return text.format(std::string_view(description), context);
+        }
+
+        if (view == 'x' || view == 'X')
+        {
+            auto bits = value.toString();
+            bits.insert(0, (4 - bits.size() % 4) % 4, '0');
+            std::string hex;
+            constexpr std::string_view digits = "0123456789abcdef";
+            for (size_t i = 0; i < bits.size(); i += 4)
+            {
+                unsigned nibble = 0;
+                for (size_t j = 0; j < 4; ++j)
+                    nibble = nibble * 2 + static_cast<unsigned>(bits[i + j] - '0');
+                hex += digits[nibble];
+            }
+            if (view == 'X')
+                std::ranges::transform(hex, hex.begin(), [](char c) {
+                    return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                });
+            return text.format(std::string_view(hex), context);
+        }
+
+        return number.format(value.toDouble(), context);
+    }
+};
+
+} // namespace std
