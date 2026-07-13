@@ -349,8 +349,6 @@ public:
     {
         ArbiInt result;
         result.data.fill(std::numeric_limits<uint64_t>::max());
-        if constexpr (top_bits != 0)
-            result.data.back() = mask;
         return result;
     }
 
@@ -367,10 +365,7 @@ public:
 
     static constexpr ArbiInt allZeros()
     {
-        ArbiInt result;
-        if constexpr (top_bits != 0)
-            result.data.back() = ~mask;
-        return result;
+        return ArbiInt{};
     }
 
     static constexpr ArbiInt minimum()
@@ -1806,7 +1801,9 @@ using Q = Qu<typename std::remove_cvref_t<decltype(Tags)>::legacy...>;
 template <size_t N>
 struct fixed_string
 {
-    char value[N];
+    char value[N]{};
+
+    constexpr fixed_string() = default;
 
     constexpr fixed_string(const char (&text)[N])
     {
@@ -1823,6 +1820,15 @@ template <size_t N>
 fixed_string(const char (&)[N]) -> fixed_string<N>;
 
 namespace detail {
+
+template <size_t Left, size_t Right>
+consteval auto concat(fixed_string<Left> left, fixed_string<Right> right)
+{
+    fixed_string<Left + Right - 1> result;
+    std::copy_n(left.value, Left - 1, result.value);
+    std::copy_n(right.value, Right, result.value + Left - 1);
+    return result;
+}
 
 struct binary_literal_info
 {
@@ -2116,6 +2122,43 @@ concept TensorSliceSelector =
 
 template <typename Tensor, typename... Selectors>
 class SliceView;
+
+template <typename Size, typename Compute>
+class LazyTensor;
+
+template <typename T>
+class OperandReference;
+
+template <typename T>
+class OperandOwner;
+
+// Expression nodes are cheap handles whose own lifetime must not leak into a
+// larger expression.  Named nodes are therefore embedded just like
+// temporaries; only terminal objects are borrowed when passed as lvalues.
+template <typename T>
+struct isExpressionIntermediate_s : std::false_type
+{};
+
+template <typename Size, typename Compute>
+struct isExpressionIntermediate_s<LazyTensor<Size, Compute>> : std::true_type
+{};
+
+template <typename Tensor, typename... Selectors>
+struct isExpressionIntermediate_s<SliceView<Tensor, Selectors...>>
+    : std::true_type
+{};
+
+template <typename T>
+struct isExpressionIntermediate_s<OperandReference<T>> : std::true_type
+{};
+
+template <typename T>
+struct isExpressionIntermediate_s<OperandOwner<T>> : std::true_type
+{};
+
+template <typename T>
+inline constexpr bool isExpressionIntermediate =
+    isExpressionIntermediate_s<std::remove_cvref_t<T>>::value;
 
 template <size_t... dims, typename Arg>
     requires(isA<Arg, Qu_s<>>)
@@ -3352,7 +3395,28 @@ struct Qdiv_s<Qu_s<Qu_s<realArgs1...>, Qu_s<imagArgs1...>>, Qu_s<realArgs2...>, 
 // ------------------- Basic tensor operations -------------------
 
 template <typename T>
-inline constexpr bool isScalarOperand = isScalar<std::remove_cvref_t<T>>;
+struct operandValue_s
+{
+    using type = std::remove_cvref_t<T>;
+};
+
+template <typename T>
+struct operandValue_s<OperandReference<T>>
+{
+    using type = typename operandValue_s<std::remove_cv_t<T>>::type;
+};
+
+template <typename T>
+struct operandValue_s<OperandOwner<T>>
+{
+    using type = typename operandValue_s<std::remove_cv_t<T>>::type;
+};
+
+template <typename T>
+using operandValue = typename operandValue_s<std::remove_cvref_t<T>>::type;
+
+template <typename T>
+inline constexpr bool isScalarOperand = isScalar<operandValue<T>>;
 
 template <typename T, typename = void>
 struct isTensorOperand_s : std::false_type
@@ -3368,6 +3432,16 @@ struct isTensorOperand_s<T, std::void_t<typename T::size>>
 // therefore need not expose a nested size member.
 template <size_t... dims, typename Arg>
 struct isTensorOperand_s<Qu_s<dim<dims...>, Arg>, void> : std::true_type
+{};
+
+template <typename T>
+struct isTensorOperand_s<OperandReference<T>, void>
+    : isTensorOperand_s<std::remove_cv_t<T>>
+{};
+
+template <typename T>
+struct isTensorOperand_s<OperandOwner<T>, void>
+    : isTensorOperand_s<std::remove_cv_t<T>>
 {};
 
 template <typename T>
@@ -3387,6 +3461,16 @@ struct tensorSize_s<Qu_s<dim<dims...>, Arg>, void>
 {
     using type = dim<dims...>;
 };
+
+template <typename T>
+struct tensorSize_s<OperandReference<T>, void>
+    : tensorSize_s<std::remove_cv_t<T>>
+{};
+
+template <typename T>
+struct tensorSize_s<OperandOwner<T>, void>
+    : tensorSize_s<std::remove_cv_t<T>>
+{};
 
 template <typename T>
 using tensorSize = typename tensorSize_s<std::remove_cvref_t<T>>::type;
@@ -3433,28 +3517,187 @@ struct sizeMerger<T1, T2>
     using size = tensorSize<T2>;
 };
 
+namespace detail {
+
+template <typename T, typename = void>
+struct OperandShape
+{};
+
+template <typename T>
+struct OperandShape<T, std::void_t<typename T::size>>
+{
+    using size = typename T::size;
+};
+
+} // namespace detail
+
+// ref/own are persistent policy nodes, rather than one-shot value-category
+// tricks. Naming either adaptor does not erase its capture policy.
+template <typename T>
+class OperandReference : public detail::OperandShape<std::remove_cv_t<T>>
+{
+    T *pointer;
+
+public:
+    using value_type = std::remove_cv_t<T>;
+
+    explicit constexpr OperandReference(T &operand)
+        : pointer(std::addressof(operand)) {}
+
+    inline constexpr decltype(auto) get(this const auto &self)
+    {
+        return *self.pointer;
+    }
+
+    template <typename Self, typename... Index>
+    inline constexpr decltype(auto) operator[](this Self &&self,
+                                               Index... index)
+        requires isTensorOperand<value_type> &&
+                 (sizeof...(Index) == 1 ||
+                  (sizeof...(Index) == tensorSize<value_type>::dimSize &&
+                   sizeof...(Index) > 1)) &&
+                 (std::convertible_to<Index, size_t> && ...)
+    {
+        return std::forward<Self>(self).get()[index...];
+    }
+
+    template <typename Self, typename... Selectors>
+    inline constexpr auto operator[](this Self &&self,
+                                     Selectors... selectors)
+        requires isTensorOperand<value_type> &&
+                 (sizeof...(Selectors) == tensorSize<value_type>::dimSize) &&
+                 (TensorSliceSelector<Selectors> && ...) &&
+                 (!(std::integral<std::remove_cvref_t<Selectors>> && ...))
+    {
+        return SliceView<Self &&, std::remove_cvref_t<Selectors>...>(
+            std::forward<Self>(self), selectors...);
+    }
+
+    inline static consteval auto expression_tree()
+    {
+        if constexpr (requires { value_type::expression_tree(); })
+            return value_type::expression_tree();
+        else if constexpr (isScalarOperand<value_type>)
+            return fixed_string{"Scalar"};
+        else
+            return fixed_string{"Tensor"};
+    }
+};
+
+template <typename T>
+class OperandOwner : public detail::OperandShape<std::remove_cv_t<T>>
+{
+    using value_type = std::remove_cv_t<T>;
+    value_type value;
+
+public:
+    explicit constexpr OperandOwner(value_type operand)
+        : value(std::move(operand)) {}
+
+    template <typename Self>
+    inline constexpr decltype(auto) get(this Self &&self)
+    {
+        return (std::forward<Self>(self).value);
+    }
+
+    template <typename Self, typename... Index>
+    inline constexpr decltype(auto) operator[](this Self &&self,
+                                               Index... index)
+        requires isTensorOperand<value_type> &&
+                 (sizeof...(Index) == 1 ||
+                  (sizeof...(Index) == tensorSize<value_type>::dimSize &&
+                   sizeof...(Index) > 1)) &&
+                 (std::convertible_to<Index, size_t> && ...)
+    {
+        return std::forward<Self>(self).get()[index...];
+    }
+
+    template <typename Self, typename... Selectors>
+    inline constexpr auto operator[](this Self &&self,
+                                     Selectors... selectors)
+        requires isTensorOperand<value_type> &&
+                 (sizeof...(Selectors) == tensorSize<value_type>::dimSize) &&
+                 (TensorSliceSelector<Selectors> && ...) &&
+                 (!(std::integral<std::remove_cvref_t<Selectors>> && ...))
+    {
+        return SliceView<Self &&, std::remove_cvref_t<Selectors>...>(
+            std::forward<Self>(self), selectors...);
+    }
+
+    inline static consteval auto expression_tree()
+    {
+        if constexpr (requires { value_type::expression_tree(); })
+            return value_type::expression_tree();
+        else if constexpr (isScalarOperand<value_type>)
+            return fixed_string{"Scalar"};
+        else
+            return fixed_string{"Tensor"};
+    }
+};
+
+template <typename T>
+struct isOperandPolicy_s : std::false_type
+{};
+
+template <typename T>
+struct isOperandPolicy_s<OperandReference<T>> : std::true_type
+{};
+
+template <typename T>
+struct isOperandPolicy_s<OperandOwner<T>> : std::true_type
+{};
+
+template <typename T>
+inline constexpr bool isOperandPolicy =
+    isOperandPolicy_s<std::remove_cvref_t<T>>::value;
+
+template <typename T>
+inline constexpr decltype(auto) unwrapOperand(T &&operand)
+{
+    if constexpr (isOperandPolicy<T>)
+        return unwrapOperand(std::forward<T>(operand).get());
+    else
+        return std::forward<T>(operand);
+}
+
 // use [] to call the object if it is a tensor, otherwise just return the object
 template <typename T>
 inline constexpr auto autoCall(const T &obj, auto... index)
 {
     if constexpr (isScalarOperand<T>)
-    {
-        return obj;
-    }
+        return unwrapOperand(obj);
     else
-    {
-        return obj[index...];
-    }
+        return unwrapOperand(obj)[index...];
 }
 
-// Encode the operand value category in the expression type: lvalues are kept
-// by reference while rvalues are owned by the expression.  This avoids a
-// runtime discriminated union and keeps temporary expression chains alive.
+template <typename T>
+    requires(isScalarOperand<T> || isTensorOperand<T>)
+inline constexpr auto ref(T &operand)
+{
+    return OperandReference<T>(operand);
+}
+
+template <typename T>
+    requires(isScalarOperand<T> || isTensorOperand<T>)
+inline constexpr auto own(T &&operand)
+{
+    using value_type = std::remove_cvref_t<T>;
+    return OperandOwner<value_type>(value_type(std::forward<T>(operand)));
+}
+
+// Encode both value category and AST category in the expression type.
+// Terminal lvalues are observed by reference. Named intermediate nodes are
+// embedded by value so returning a larger expression can never retain a
+// pointer to a dead local node.
 template <typename T>
 class ExpressionOperand
 {
+public:
     using value_type = std::remove_cvref_t<T>;
-    inline static constexpr bool storesReference = std::is_lvalue_reference_v<T>;
+    inline static constexpr bool storesReference =
+        std::is_lvalue_reference_v<T> && !isExpressionIntermediate<value_type>;
+
+private:
     using storage_type = std::conditional_t<storesReference,
                                             std::reference_wrapper<const value_type>,
                                             value_type>;
@@ -3488,11 +3731,116 @@ public:
             return value;
         }
     }
+
+    // Moving a pipe closure moves an owned RHS into the new AST. Applying a
+    // named closure copies its owned RHS, so the produced AST may safely
+    // outlive (and be produced repeatedly from) that closure. Borrowed
+    // terminals remain references in both cases.
+    template <typename Self>
+    inline constexpr decltype(auto) transfer(this Self &&self)
+    {
+        if constexpr (storesReference)
+        {
+            return self.value.get();
+        }
+        else if constexpr (std::is_rvalue_reference_v<Self &&>)
+        {
+            return std::move(self.value);
+        }
+        else
+        {
+            return value_type(self.value);
+        }
+    }
 };
 
-// A lazy tensor is only a shape plus an unnamed computation.  The closure is
-// the complete AST; named operands are references and temporary operands are
-// values inside the ExpressionOperand tuple captured by `lift` below.
+namespace detail {
+
+template <typename T>
+consteval auto expressionTree()
+{
+    using value_type = std::remove_cvref_t<T>;
+    if constexpr (requires { value_type::expression_tree(); })
+        return value_type::expression_tree();
+    else if constexpr (isScalarOperand<value_type>)
+        return fixed_string{"Scalar"};
+    else if constexpr (isTensorOperand<value_type>)
+        return fixed_string{"Tensor"};
+    else
+        return fixed_string{"Value"};
+}
+
+template <typename First>
+consteval auto expressionTreeList()
+{
+    return expressionTree<First>();
+}
+
+template <typename First, typename Second, typename... Rest>
+consteval auto expressionTreeList()
+{
+    return concat(
+        concat(expressionTree<First>(), fixed_string{", "}),
+        expressionTreeList<Second, Rest...>());
+}
+
+template <typename Op>
+consteval auto operationName()
+{
+    if constexpr (requires { Op::name; })
+        return Op::name;
+    else
+        return fixed_string{"Map"};
+}
+
+template <typename Op, typename... Operands>
+consteval auto expressionNodeTree()
+{
+    const auto open = concat(operationName<Op>(), fixed_string{"("});
+    if constexpr (sizeof...(Operands) == 0)
+        return concat(open, fixed_string{")"});
+    else
+        return concat(
+            concat(open, expressionTreeList<Operands...>()),
+            fixed_string{")"});
+}
+
+} // namespace detail
+
+// Unlike an opaque lambda closure, the computation now has a real type for
+// every operation and every edge.  The compiler can inspect it, users can
+// print it, and ownership remains entirely static.
+template <typename Op, typename... Operands>
+class ExpressionNode
+{
+    [[no_unique_address]] Op operation;
+    std::tuple<ExpressionOperand<Operands>...> operands;
+
+public:
+    explicit constexpr ExpressionNode(Op op, Operands... values)
+        : operation(std::move(op)),
+          operands(ExpressionOperand<Operands>(
+              std::forward<Operands>(values))...) {}
+
+    inline constexpr decltype(auto) operator()(auto... index) const
+    {
+        auto element = [&](const auto &operand) -> decltype(auto) {
+            return autoCall(operand.get(), index...);
+        };
+        return std::apply(
+            [&](const auto &...operand) -> decltype(auto) {
+                return std::invoke(operation, element(operand)...);
+            },
+            operands);
+    }
+
+    inline static consteval auto expression_tree()
+    {
+        return detail::expressionNodeTree<Op, Operands...>();
+    }
+};
+
+// A lazy tensor is a shape plus a named (or deliberately opaque) computation.
 template <typename Size, typename Compute>
 class LazyTensor
 {
@@ -3501,8 +3849,25 @@ class LazyTensor
 public:
     using size = Size;
 
+    inline static constexpr auto ast_tree = [] {
+        if constexpr (requires { Compute::expression_tree(); })
+            return Compute::expression_tree();
+        else
+            return fixed_string{"Lazy"};
+    }();
+
     explicit inline constexpr LazyTensor(Compute value)
         : compute(std::move(value)) {}
+
+    inline static consteval auto expression_tree()
+    {
+        return ast_tree;
+    }
+
+    inline constexpr std::string_view ast() const
+    {
+        return {ast_tree.value, ast_tree.size()};
+    }
 
     template <typename Self, typename... Index>
     inline constexpr decltype(auto) operator[](this const Self &self,
@@ -3562,20 +3927,9 @@ inline constexpr auto lazy(Compute &&compute)
 template <typename Size, typename Op, typename... Operands>
 inline constexpr auto lift(Op &&operation, Operands &&...operands)
 {
-    using captures = std::tuple<ExpressionOperand<Operands &&>...>;
-    return lazy<Size>(
-        [op = std::forward<Op>(operation),
-         values = captures(ExpressionOperand<Operands &&>(
-             std::forward<Operands>(operands))...)](auto... index) constexpr {
-            auto element = [&](const auto &value) -> decltype(auto) {
-                return autoCall(value.get(), index...);
-            };
-            return std::apply(
-                [&](const auto &...value) -> decltype(auto) {
-                    return std::invoke(op, element(value)...);
-                },
-                values);
-        });
+    using node = ExpressionNode<std::remove_cvref_t<Op>, Operands &&...>;
+    return lazy<Size>(node(std::forward<Op>(operation),
+                           std::forward<Operands>(operands)...));
 }
 
 // ------------------- Functions -------------------
@@ -3583,53 +3937,166 @@ inline constexpr auto lift(Op &&operation, Operands &&...operands)
 // scalar functions
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+    requires isScalarOperand<QuT1> && isScalarOperand<QuT2>
 inline constexpr auto Qmul(const QuT1 f1, const QuT2 f2)
 {
-    return Qmul_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::mul(f1, f2);
+    return Qmul_s<operandValue<QuT1>, operandValue<QuT2>,
+                  MergerArgsWrapper<toArgs...>>::mul(
+        unwrapOperand(f1), unwrapOperand(f2));
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+    requires isScalarOperand<QuT1> && isScalarOperand<QuT2>
 inline constexpr auto Qadd(const QuT1 f1, const QuT2 f2)
 {
-    return Qadd_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::add(f1, f2);
+    return Qadd_s<operandValue<QuT1>, operandValue<QuT2>,
+                  MergerArgsWrapper<toArgs...>>::add(
+        unwrapOperand(f1), unwrapOperand(f2));
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+    requires isScalarOperand<QuT1> && isScalarOperand<QuT2>
 inline constexpr auto Qsub(const QuT1 f1, const QuT2 f2)
 {
-    return Qsub_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::sub(f1, f2);
+    return Qsub_s<operandValue<QuT1>, operandValue<QuT2>,
+                  MergerArgsWrapper<toArgs...>>::sub(
+        unwrapOperand(f1), unwrapOperand(f2));
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+    requires isScalarOperand<QuT1> && isScalarOperand<QuT2>
 inline constexpr auto Qdiv(const QuT1 f1, const QuT2 f2)
 {
-    return Qdiv_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::div(f1, f2);
+    return Qdiv_s<operandValue<QuT1>, operandValue<QuT2>,
+                  MergerArgsWrapper<toArgs...>>::div(
+        unwrapOperand(f1), unwrapOperand(f2));
 }
 
 template <typename... toArgs, typename QuT>
-    requires isScalar<QuT>
+    requires isScalarOperand<QuT>
 inline constexpr auto Qabs(const QuT f)
 {
-    return Qabs_s<QuT, MergerArgsWrapper<toArgs...>>::abs(f);
+    return Qabs_s<operandValue<QuT>,
+                  MergerArgsWrapper<toArgs...>>::abs(unwrapOperand(f));
 }
 
 template <typename... toArgs, typename QuT>
-    requires isScalar<QuT>
+    requires isScalarOperand<QuT>
 inline constexpr auto Qneg(const QuT f)
 {
-    return Qneg_s<QuT, MergerArgsWrapper<toArgs...>>::neg(f);
+    return Qneg_s<operandValue<QuT>,
+                  MergerArgsWrapper<toArgs...>>::neg(unwrapOperand(f));
 }
 
 template <typename... toArgs, typename QuT1, typename QuT2>
-    requires isScalar<QuT1> && isScalar<QuT2>
+    requires isScalarOperand<QuT1> && isScalarOperand<QuT2>
 inline constexpr auto Qeq(const QuT1 f1, const QuT2 f2)
 {
-    return Qeq_s<QuT1, QuT2, MergerArgsWrapper<toArgs...>>::eq(f1, f2);
+    return Qeq_s<operandValue<QuT1>, operandValue<QuT2>,
+                 MergerArgsWrapper<toArgs...>>::eq(
+        unwrapOperand(f1), unwrapOperand(f2));
 }
+
+// Scalar kernels become operation names in the tensor AST.  Keeping the
+// quantization tag pack in the operation type makes differently configured
+// nodes distinct without adding a byte to the runtime object.
+template <typename... toArgs>
+struct QmulNode
+{
+    inline static constexpr auto name = fixed_string{"Qmul"};
+
+    template <typename Left, typename Right>
+        requires requires(Left &&left, Right &&right) {
+            Qmul<toArgs...>(std::forward<Left>(left),
+                            std::forward<Right>(right));
+        }
+    inline constexpr auto operator()(Left &&left, Right &&right) const
+    {
+        return Qmul<toArgs...>(
+            std::forward<Left>(left), std::forward<Right>(right));
+    }
+};
+
+template <typename... toArgs>
+struct QaddNode
+{
+    inline static constexpr auto name = fixed_string{"Qadd"};
+
+    template <typename Left, typename Right>
+        requires requires(Left &&left, Right &&right) {
+            Qadd<toArgs...>(std::forward<Left>(left),
+                            std::forward<Right>(right));
+        }
+    inline constexpr auto operator()(Left &&left, Right &&right) const
+    {
+        return Qadd<toArgs...>(
+            std::forward<Left>(left), std::forward<Right>(right));
+    }
+};
+
+template <typename... toArgs>
+struct QsubNode
+{
+    inline static constexpr auto name = fixed_string{"Qsub"};
+
+    template <typename Left, typename Right>
+        requires requires(Left &&left, Right &&right) {
+            Qsub<toArgs...>(std::forward<Left>(left),
+                            std::forward<Right>(right));
+        }
+    inline constexpr auto operator()(Left &&left, Right &&right) const
+    {
+        return Qsub<toArgs...>(
+            std::forward<Left>(left), std::forward<Right>(right));
+    }
+};
+
+template <typename... toArgs>
+struct QdivNode
+{
+    inline static constexpr auto name = fixed_string{"Qdiv"};
+
+    template <typename Left, typename Right>
+        requires requires(Left &&left, Right &&right) {
+            Qdiv<toArgs...>(std::forward<Left>(left),
+                            std::forward<Right>(right));
+        }
+    inline constexpr auto operator()(Left &&left, Right &&right) const
+    {
+        return Qdiv<toArgs...>(
+            std::forward<Left>(left), std::forward<Right>(right));
+    }
+};
+
+template <typename... toArgs>
+struct QabsNode
+{
+    inline static constexpr auto name = fixed_string{"Qabs"};
+
+    template <typename Value>
+        requires requires(Value &&value) {
+            Qabs<toArgs...>(std::forward<Value>(value));
+        }
+    inline constexpr auto operator()(Value &&value) const
+    {
+        return Qabs<toArgs...>(std::forward<Value>(value));
+    }
+};
+
+template <typename... toArgs>
+struct QnegNode
+{
+    inline static constexpr auto name = fixed_string{"Qneg"};
+
+    template <typename Value>
+        requires requires(Value &&value) {
+            Qneg<toArgs...>(std::forward<Value>(value));
+        }
+    inline constexpr auto operator()(Value &&value) const
+    {
+        return Qneg<toArgs...>(std::forward<Value>(value));
+    }
+};
 
 // operator overloading
 template <typename... QuArgs1, typename... QuArgs2>
@@ -3689,10 +4156,7 @@ inline constexpr auto Qmul(QuT1 &&f1, QuT2 &&f2)
     using T1 = std::remove_cvref_t<QuT1>;
     using T2 = std::remove_cvref_t<QuT2>;
     using Size = typename sizeMerger<T1, T2>::size;
-    return lift<Size>(
-        [](const auto &left, const auto &right) {
-            return Qmul<toArgs...>(left, right);
-        },
+    return lift<Size>(QmulNode<toArgs...>{},
         std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
@@ -3703,10 +4167,7 @@ inline constexpr auto Qadd(QuT1 &&f1, QuT2 &&f2)
     using T1 = std::remove_cvref_t<QuT1>;
     using T2 = std::remove_cvref_t<QuT2>;
     using Size = typename sizeMerger<T1, T2>::size;
-    return lift<Size>(
-        [](const auto &left, const auto &right) {
-            return Qadd<toArgs...>(left, right);
-        },
+    return lift<Size>(QaddNode<toArgs...>{},
         std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
@@ -3717,10 +4178,7 @@ inline constexpr auto Qsub(QuT1 &&f1, QuT2 &&f2)
     using T1 = std::remove_cvref_t<QuT1>;
     using T2 = std::remove_cvref_t<QuT2>;
     using Size = typename sizeMerger<T1, T2>::size;
-    return lift<Size>(
-        [](const auto &left, const auto &right) {
-            return Qsub<toArgs...>(left, right);
-        },
+    return lift<Size>(QsubNode<toArgs...>{},
         std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
@@ -3731,10 +4189,7 @@ inline constexpr auto Qdiv(QuT1 &&f1, QuT2 &&f2)
     using T1 = std::remove_cvref_t<QuT1>;
     using T2 = std::remove_cvref_t<QuT2>;
     using Size = typename sizeMerger<T1, T2>::size;
-    return lift<Size>(
-        [](const auto &left, const auto &right) {
-            return Qdiv<toArgs...>(left, right);
-        },
+    return lift<Size>(QdivNode<toArgs...>{},
         std::forward<QuT1>(f1), std::forward<QuT2>(f2));
 }
 
@@ -3742,9 +4197,7 @@ template <typename... toArgs, typename QuT>
     requires isTensorOperand<QuT>
 inline constexpr auto Qabs(QuT &&f)
 {
-    using T = std::remove_cvref_t<QuT>;
-    return lift<typename T::size>(
-        [](const auto &value) { return Qabs<toArgs...>(value); },
+    return lift<tensorSize<QuT>>(QabsNode<toArgs...>{},
         std::forward<QuT>(f));
 }
 
@@ -3752,9 +4205,7 @@ template <typename... toArgs, typename QuT>
     requires isTensorOperand<QuT>
 inline constexpr auto Qneg(QuT &&f)
 {
-    using T = std::remove_cvref_t<QuT>;
-    return lift<typename T::size>(
-        [](const auto &value) { return Qneg<toArgs...>(value); },
+    return lift<tensorSize<QuT>>(QnegNode<toArgs...>{},
         std::forward<QuT>(f));
 }
 
@@ -3792,6 +4243,103 @@ template <typename QuT>
 inline constexpr auto operator-(QuT &&f1)
 {
     return Qneg(std::forward<QuT>(f1));
+}
+
+// ------------------- Pipe API -------------------
+
+struct PipeClosure
+{};
+
+template <typename Operation, typename Right>
+class BinaryPipe : public PipeClosure
+{
+    ExpressionOperand<Right> right;
+
+public:
+    explicit constexpr BinaryPipe(Right operand)
+        : right(std::forward<Right>(operand)) {}
+
+    template <typename Self, typename Left>
+        requires requires(Self &&pipe, Left &&left) {
+            Operation{}(
+                std::forward<Left>(left),
+                std::forward<Self>(pipe).right.transfer());
+        }
+    inline constexpr auto apply(this Self &&self, Left &&left)
+    {
+        return Operation{}(
+            std::forward<Left>(left),
+            std::forward<Self>(self).right.transfer());
+    }
+};
+
+template <typename Operation>
+class UnaryPipe : public PipeClosure
+{
+public:
+    template <typename Left>
+        requires requires(Left &&left) {
+            Operation{}(std::forward<Left>(left));
+        }
+    inline constexpr auto apply(this const auto &, Left &&left)
+    {
+        return Operation{}(std::forward<Left>(left));
+    }
+};
+
+template <typename Left, typename Pipe>
+    requires std::derived_from<std::remove_cvref_t<Pipe>, PipeClosure> &&
+             requires(Left &&left, Pipe &&pipe) {
+                 std::forward<Pipe>(pipe).apply(
+                     std::forward<Left>(left));
+             }
+inline constexpr auto operator|(Left &&left, Pipe &&pipe)
+{
+    return std::forward<Pipe>(pipe).apply(std::forward<Left>(left));
+}
+
+template <typename... toArgs, typename Right>
+    requires(isScalarOperand<Right> || isTensorOperand<Right>)
+inline constexpr auto Qadd(Right &&right)
+{
+    return BinaryPipe<QaddNode<toArgs...>, Right &&>(
+        std::forward<Right>(right));
+}
+
+template <typename... toArgs, typename Right>
+    requires(isScalarOperand<Right> || isTensorOperand<Right>)
+inline constexpr auto Qsub(Right &&right)
+{
+    return BinaryPipe<QsubNode<toArgs...>, Right &&>(
+        std::forward<Right>(right));
+}
+
+template <typename... toArgs, typename Right>
+    requires(isScalarOperand<Right> || isTensorOperand<Right>)
+inline constexpr auto Qmul(Right &&right)
+{
+    return BinaryPipe<QmulNode<toArgs...>, Right &&>(
+        std::forward<Right>(right));
+}
+
+template <typename... toArgs, typename Right>
+    requires(isScalarOperand<Right> || isTensorOperand<Right>)
+inline constexpr auto Qdiv(Right &&right)
+{
+    return BinaryPipe<QdivNode<toArgs...>, Right &&>(
+        std::forward<Right>(right));
+}
+
+template <typename... toArgs>
+inline constexpr auto Qabs()
+{
+    return UnaryPipe<QabsNode<toArgs...>>{};
+}
+
+template <typename... toArgs>
+inline constexpr auto Qneg()
+{
+    return UnaryPipe<QnegNode<toArgs...>>{};
 }
 
 // ------------------- Slice -------------------
@@ -3867,10 +4415,26 @@ class SliceView
 public:
     using size = typename SliceShape<source_size, selector_tuple>::type;
 
+    inline static constexpr auto ast_tree = detail::concat(
+        detail::concat(fixed_string{"Slice("},
+                       detail::expressionTree<tensor_t>()),
+        fixed_string{")"});
+
+    inline static consteval auto expression_tree()
+    {
+        return ast_tree;
+    }
+
+    inline constexpr std::string_view ast() const
+    {
+        return {ast_tree.value, ast_tree.size()};
+    }
+
 private:
 
     inline static constexpr bool storesReference =
-        std::is_lvalue_reference_v<Tensor>;
+        std::is_lvalue_reference_v<Tensor> &&
+        !isExpressionIntermediate<tensor_t>;
     using referred_t = std::remove_reference_t<Tensor>;
     using storage_t = std::conditional_t<
         storesReference, std::reference_wrapper<referred_t>, tensor_t>;
@@ -4185,10 +4749,23 @@ struct ReducerInputHelper<TypeList<Args...>> : public Reducer<Args...>
 {
 };
 
+template <typename... Args>
+struct QreducePipe
+{
+    inline constexpr auto operator()(auto &&input) const
+    {
+        return ReducerInputHelper<Args...>::reduce(
+            std::forward<decltype(input)>(input));
+    }
+};
+
 template <typename... Args, typename... Ts>
 inline auto constexpr Qreduce(const Ts... quants)
 {
-    return ReducerInputHelper<Args...>::reduce(quants...);
+    if constexpr (sizeof...(Ts) == 0)
+        return UnaryPipe<QreducePipe<Args...>>{};
+    else
+        return ReducerInputHelper<Args...>::reduce(quants...);
 }
 
 // Decimal literals are exact rationals.  Their ArbiInt width grows with the

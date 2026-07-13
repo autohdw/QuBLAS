@@ -32,10 +32,19 @@ static_assert(arbiWideSquare.data[1] ==
               std::numeric_limits<uint64_t>::max() - 1);
 static_assert(arbiWideSquare.data[2] == 0);
 
+static_assert(ArbiInt<8>::allZeros() == ArbiInt<8>(0));
+static_assert(ArbiInt<8>::allOnes() == ArbiInt<8>(-1));
+static_assert(ArbiInt<65>::allZeros() == ArbiInt<65>(0));
+static_assert(ArbiInt<65>::allOnes() == ArbiInt<65>(-1));
+
 TEST(ArbiIntCore, LimbBoundaryMasksAreWellDefined)
 {
+    EXPECT_EQ(ArbiInt<8>::allOnes().toString(), "-1");
+    EXPECT_EQ(ArbiInt<8>::allZeros().toString(), "0");
     EXPECT_EQ(ArbiInt<64>::allOnes().toString(), "-1");
     EXPECT_EQ(ArbiInt<64>::allZeros().toString(), "0");
+    EXPECT_EQ(ArbiInt<65>::allOnes().toString(), "-1");
+    EXPECT_EQ(ArbiInt<65>::allZeros().toString(), "0");
     EXPECT_EQ(ArbiInt<128>::allOnes().toString(), "-1");
     EXPECT_EQ(ArbiInt<128>::allZeros().toString(), "0");
 }

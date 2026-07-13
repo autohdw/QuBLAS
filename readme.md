@@ -56,12 +56,23 @@ int main()
 
     // lazy evaluation
     auto lazy = Qabs((m + q{1}) * q{-2});
+    auto piped = m | Qadd(q{1}) | Qmul(q{-2}) | Qabs();
     auto lazy_column = (m + q{1})[all, 2];
     auto frozen = lazy.eval();
+
+    // the graph is a compile-time value and a runtime view of the same text
+    static_assert(decltype(piped)::expression_tree() ==
+                  fixed_string{"Qabs(Qmul(Qadd(Tensor, Scalar), Scalar))"});
+    std::cout << piped.ast() << '\n';
+
+    // terminals borrow by default; named AST/view nodes own themselves
+    auto frozen_input = own(m) + q{1}; // force a terminal snapshot
+    auto borrowed_ast = ref(lazy) + q{1}; // explicit, lifetime is now yours
 
     // tree reduction for ASICs
     using layers = TypeList<q, wide>;
     auto total = Qreduce<layers>(frozen);
+    auto piped_total = piped | Qreduce<layers>();
     auto another_total = Qreduce<wide>(bits, pi, one, q{1}, q{2});
 
     // python style einsum
@@ -110,5 +121,7 @@ int main()
 ## Guarantees
 
 The `Qu`, `Q`, `Qadd`, `Qmul`, `Qsub`, `Qdiv`, and `Qreduce` spellings are the parts that try not to move.
+
+Lazy expressions borrow named scalar/tensor terminals, but own temporary and named intermediate AST/view nodes. `own(x)` and `ref(x)` explicitly override those defaults; an expression using `ref(x)` must not outlive `x`.
 
 `ArbiInt<N>` and scalar `Qu_s::data` are public. Use them if you want. Nothing about them is stable.
