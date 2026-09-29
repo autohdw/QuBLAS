@@ -1500,6 +1500,148 @@ struct intConvert<toInt, toFrac, toIsSigned, OfMode<WRP::TCPL_SAT<N>>>
     }
 };
 
+namespace detail {
+
+// A binary64 significand has at most 53 bits. Clamping larger right shifts
+// to 54 preserves every rounding mode, including floor for negative values.
+template <typename Mode>
+constexpr int64_t quantizeSignificand(int64_t value, int64_t discarded)
+{
+    const unsigned shift = static_cast<unsigned>(std::min(discarded, int64_t{54}));
+    const int64_t half = int64_t{1} << (shift - 1);
+    int64_t bias = 0;
+    if constexpr (std::same_as<Mode, RND::POS_INF>)
+        bias = half;
+    else if constexpr (std::same_as<Mode, RND::NEG_INF>)
+        bias = half - 1;
+    else if constexpr (std::same_as<Mode, RND::ZERO>)
+        bias = half - (value >= 0);
+    else if constexpr (std::same_as<Mode, RND::INF>)
+        bias = half - (value < 0);
+    else if constexpr (std::same_as<Mode, RND::CONV>)
+        bias = half - 1 + ((value >> shift) & 1);
+    else if constexpr (std::same_as<Mode, TRN::SMGN>)
+        bias = value < 0 ? 2 * half - 1 : 0;
+    else
+        static_assert(std::same_as<Mode, TRN::TCPL>);
+    // All additions fit in int64_t; signed right shift is floor in C++20.
+    return (value + bias) >> shift;
+}
+
+template <typename Mode, size_t Width>
+inline constexpr size_t wrapSaturationBits = 0;
+
+template <auto Count, size_t Width>
+inline constexpr size_t wrapSaturationBits<WRP::TCPL_SAT<Count>, Width> =
+    normalizedWrapSaturationBits<Count>(Width);
+
+template <int IntegerBits, int FractionBits, bool Signed, typename Quantization, typename Overflow>
+constexpr auto doubleToFixed(double value)
+{
+    static_assert(sizeof(double) == sizeof(uint64_t) &&
+                  std::numeric_limits<double>::is_iec559 &&
+                  std::numeric_limits<double>::digits == 53 &&
+                  std::numeric_limits<double>::max_exponent == 1024,
+                  "QuBLAS requires IEEE-754 binary64 double.");
+    constexpr size_t width = 1 + IntegerBits + FractionBits;
+    constexpr size_t kept_bits = Signed ? width : width - 1;
+    constexpr bool wraps = Overflow::value >= WRP::TCPL::value;
+    constexpr size_t saturation_bits = wrapSaturationBits<Overflow, kept_bits>;
+    using Result = ArbiInt<width>;
+
+    const uint64_t bits = std::bit_cast<uint64_t>(value);
+    const unsigned exponent = static_cast<unsigned>((bits >> 52) & 0x7ff);
+    if (exponent == 0x7ff)
+        return Result{}; // Preserve the existing NaN / infinity -> zero policy.
+    int64_t significand = static_cast<int64_t>(bits & 0x000fffffffffffffull);
+    if (exponent != 0)
+        significand |= int64_t{1} << 52;
+    if ((bits >> 63) != 0)
+        significand = -significand;
+    int64_t shift = static_cast<int64_t>(FractionBits) +
+                    (exponent == 0 ? -1074 : static_cast<int64_t>(exponent) - 1075);
+    if (shift < 0)
+    {
+        significand = quantizeSignificand<Quantization>(significand, -shift);
+        shift = 0;
+    }
+    if (significand == 0)
+        return Result{};
+
+    const bool negative = significand < 0;
+    bool overflow = false;
+    if constexpr (!wraps || saturation_bits != 0)
+    {
+        const uint64_t magnitude = static_cast<uint64_t>(negative ? -significand : significand);
+        const int64_t used_bits = std::bit_width(magnitude) + shift;
+        if (negative)
+        {
+            if constexpr (!Signed)
+                overflow = true;
+            else if constexpr (std::same_as<Overflow, SAT::SMGN>)
+                overflow = used_bits >= static_cast<int64_t>(width);
+            else
+                overflow = used_bits > static_cast<int64_t>(width) ||
+                           (used_bits == static_cast<int64_t>(width) && !std::has_single_bit(magnitude));
+        }
+        else
+            overflow = used_bits >= static_cast<int64_t>(width);
+
+        if constexpr (!wraps)
+        {
+            if (overflow)
+            {
+                if constexpr (std::same_as<Overflow, SAT::ZERO>)
+                    return Result{};
+                if (!negative)
+                    return Result::maximum();
+                if constexpr (!Signed)
+                    return Result{};
+                else if constexpr (std::same_as<Overflow, SAT::SMGN>)
+                    return Result(Result::minimum() + ArbiInt<1>(1));
+                else
+                    return Result::minimum();
+            }
+        }
+    }
+
+    // Materialize significand * 2^shift directly into the destination. Only
+    // two limbs contain significand bits; the rest are zero / sign extension.
+    Result result;
+    const size_t word = static_cast<size_t>(shift / 64);
+    const unsigned offset = static_cast<unsigned>(shift % 64);
+    if (word < Result::num_words)
+    {
+        if (negative)
+            std::fill(result.data.begin() + word + 1, result.data.end(), ~uint64_t{0});
+        result.data[word] = static_cast<uint64_t>(significand) << offset;
+        if (offset != 0 && word + 1 < Result::num_words)
+            result.data[word + 1] = static_cast<uint64_t>(significand >> (64 - offset));
+    }
+    if constexpr (saturation_bits != 0)
+    {
+        if (overflow)
+        {
+            constexpr size_t first_bit = kept_bits - saturation_bits;
+            const auto limit = Signed && negative ? Result::minimum() : Result::maximum();
+            for (size_t i = first_bit / 64; i < Result::num_words; ++i)
+            {
+                const uint64_t mask = i == first_bit / 64
+                                          ? ~uint64_t{0} << (first_bit % 64)
+                                          : ~uint64_t{0};
+                result.data[i] = (result.data[i] & ~mask) | (limit.data[i] & mask);
+            }
+        }
+    }
+    if constexpr (Signed)
+        result.signExtendLogicalTop();
+    else
+        result.data.back() &= Result::maximum().data.back();
+    return result;
+}
+
+} // namespace detail
+
 template <int Value>
 struct intBits;
 
@@ -1544,16 +1686,7 @@ public:
     ArbiInt<1 + intB + fracB> data;
 
     inline constexpr Qu_s(double val)
-    {
-        // Every finite IEEE-754 binary64 value is an integer multiple of
-        // 2^-1074.  This fixed exact representation covers subnormals and the
-        // full normal exponent range; fracConvert then performs the selected
-        // quantization before intConvert applies overflow handling.
-        ArbiInt<2099> buffer;
-        buffer.template loadFromDouble<1074>(val);
-
-        data = intConvert<intB, fracB, isS, OfMode<OfM_t>>::convert(fracConvert<1074, fracB, QuMode<QuM_t>>::convert(buffer));
-    }
+        : data(detail::doubleToFixed<intB, fracB, isS, QuM_t, OfM_t>(val)) {}
 
     template <typename T>
         requires std::is_integral_v<std::remove_cv_t<T>>
